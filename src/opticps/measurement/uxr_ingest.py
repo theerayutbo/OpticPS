@@ -34,6 +34,7 @@ from opticps.measurement.uxr_import import ScopeWaveform, read_scope_file
 from opticps.optimization.adaptive import DataLeakageError
 from opticps.receiver.capture_dsp import ScopeAnalysis, analyze_scope_capture
 from opticps.statistics.intervals import clopper_pearson
+from opticps.transmitter.frame import Frame
 
 RATE_TOLERANCE = 0.01
 DEFAULT_REGISTRY = Path("data/private/uxr_registry.json")
@@ -55,6 +56,11 @@ MISMATCH_CONFIDENCE = 0.99
 MISMATCH_EXCESS = 0.10
 MISMATCH_TRAINING_FRACTION = 0.8
 PROBABILITY_COLUMNS = ("minus3", "minus1", "plus1", "plus3")
+# Saved received excerpt: symbols 480 to 543 of the first complete frame, which straddle the end
+# of the preamble and the start of the common training block. Both are known to the receiver and
+# carry no payload, so the excerpt is the same kind of data for training and test captures.
+EXCERPT_FIRST_SYMBOL = 480
+EXCERPT_SYMBOLS = 64
 
 
 def _resolve_split(metadata: dict[str, Any], split: str | None) -> dict[str, Any]:
@@ -227,11 +233,61 @@ def _summary(analysis: ScopeAnalysis, priors: np.ndarray) -> dict[str, Any]:
     out.update(_reference_check(analysis))
     if out["reference_mismatch_suspected"]:
         out["warnings"].append(
-            f"reference_mismatch_suspected: {out['reference_check_reason']}. The capture stays in "
-            "the analysis and is counted as flagged; check that it belongs to the stated "
-            "transmit experiment"
+            f"reference_mismatch_suspected: {out['reference_check_reason']}. The capture stays "
+            "counted and listed, and the verdict of any pair that uses it is withheld; check "
+            "that it belongs to the stated transmit experiment"
         )
     return out
+
+
+def _level_statistics(analysis: ScopeAnalysis, frame: Frame) -> dict[str, Any]:
+    """Mean and spread of the equalised payload samples per transmitted level, pooled over frames.
+
+    Values are in calibrated level units (nominal -3, -1, +1, +3); std_v converts the spread to
+    volts with the fitted gain. The spread includes noise and residual intersymbol interference.
+    """
+    sent = frame.indices[frame.payload_start :]
+    pooled = np.concatenate([f.symbols[frame.payload_start :] for f in analysis.frames])
+    truth = np.tile(sent, len(analysis.frames))
+    rows = []
+    for index, level in enumerate((-3, -1, 1, 3)):
+        values = pooled[truth == index]
+        std = float(np.std(values)) if values.size else None
+        rows.append(
+            {
+                "level": level,
+                "symbols": int(values.size),
+                "mean": float(np.mean(values)) if values.size else None,
+                "std": std,
+                "std_v": None if std is None else std * abs(analysis.gain_v_per_level),
+            }
+        )
+    return {"unit": "calibrated level units", "levels": rows}
+
+
+def _save_excerpt(stem: Path, waveform: ScopeWaveform, analysis: ScopeAnalysis) -> None:
+    """Save the received samples of symbols EXCERPT_FIRST_SYMBOL.. of the first complete frame.
+
+    time_symbols counts symbol periods from the start of that frame, so it lines up with the
+    symbol index of the transmitted waveform file. Voltages are as captured (not inverted).
+    """
+    start = analysis.frames[0].start_time_s
+    period = 1.0 / analysis.estimated_symbol_rate
+    rate = analysis.measured_sample_rate
+    low = int(np.ceil((start + EXCERPT_FIRST_SYMBOL * period - waveform.x_origin_s) * rate))
+    high = int(
+        np.floor(
+            (start + (EXCERPT_FIRST_SYMBOL + EXCERPT_SYMBOLS) * period - waveform.x_origin_s) * rate
+        )
+    )
+    index = np.arange(max(low, 0), min(high, waveform.samples_v.size - 1) + 1)
+    time_symbols = (waveform.x_origin_s + index / rate - start) / period
+    np.savez(
+        f"{stem}_excerpt.npz",
+        time_symbols=time_symbols,
+        volts=waveform.samples_v[index],
+        first_symbol=EXCERPT_FIRST_SYMBOL,
+    )
 
 
 def _reference_check(analysis: ScopeAnalysis) -> dict[str, Any]:
@@ -344,9 +400,12 @@ def ingest_uxr(
         "sidecar": metadata,
         **_summary(analysis, priors),
     }
+    if scored:
+        summary["level_statistics"] = _level_statistics(analysis, frame)
     summary["warnings"] = [*imported, *summary["warnings"]]
     results_dir.mkdir(parents=True, exist_ok=True)
     stem = results_dir / metadata["capture_id"]
+    _save_excerpt(stem, waveform, analysis)
     Path(f"{stem}_analysis.json").write_text(json.dumps(summary, indent=2, default=str) + "\n")
     if scored:
         with Path(f"{stem}_frames.csv").open("w", newline="") as handle:

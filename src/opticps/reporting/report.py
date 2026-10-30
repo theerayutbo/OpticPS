@@ -414,7 +414,8 @@ def render_pdf(
 ) -> None:
     """Render the supported Markdown subset to PDF.
 
-    A figure caption ending in " [analytical]" is labelled analytical; others, simulated.
+    A figure caption ending in a bracketed label, such as " [analytical]", carries that label;
+    others are labelled simulated.
     """
     _fonts()
     body = ParagraphStyle("body", fontName="DejaVu", fontSize=9.5, leading=13.5, spaceAfter=6)
@@ -449,8 +450,9 @@ def render_pdf(
             shown = min(width, 13 * cm)
             label = match.group(1)
             kind = " (simulated)"
-            if label.endswith(" [analytical]"):
-                label, kind = label.removesuffix(" [analytical]"), " (analytical)"
+            tagged = re.search(r" \[([^\]]+)\]$", label)
+            if tagged:
+                label, kind = label[: tagged.start()], f" ({tagged.group(1)})"
             story.append(
                 KeepTogether(
                     [

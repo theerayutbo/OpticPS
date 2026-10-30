@@ -19,7 +19,11 @@ dist/
 *.pdf
 !reports/OpticPS_Research_Report.pdf
 !reports/Fiber_Model_Validation_Report.pdf
+!reports/UXR_Receiver_Analysis_Example.pdf
 !slides/OpticPS_Research_Presentation.pdf
+
+# Saved eye data of the committed example (about 1 MB each); scripts/make_uxr_example.py recreates it
+results/uxr_example/*_eye.npz
 
 # Private laboratory data must never be committed
 data/private/*

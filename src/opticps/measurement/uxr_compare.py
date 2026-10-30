@@ -131,6 +131,21 @@ def _condition_name(condition: tuple[str, float, float]) -> str:
     return f"{profile}, attenuation {attenuation:g} dB, fiber {length:g} km"
 
 
+def _excluded_flag_note(
+    condition: tuple[str, float, float],
+    waveforms: list[str],
+    flagged_excluded: dict[tuple[tuple[str, float, float], str], list[str]],
+) -> str:
+    """Name captures dropped as unreliable that also carry the reference flag, if any."""
+    names = sorted(i for w in waveforms for i in flagged_excluded.get((condition, w), []))
+    if not names:
+        return ""
+    return (
+        f"; {len(names)} capture(s) excluded as unreliable carry reference_mismatch_suspected "
+        f"({', '.join(names)}), so a wrong reference may be the cause"
+    )
+
+
 def compare_uxr(
     results_dir: Path, out_dir: Path | None = None, power_tolerance_db: float = POWER_TOLERANCE_DB
 ) -> dict[str, Any]:
@@ -184,12 +199,16 @@ def compare_uxr(
     comparisons: list[dict[str, Any]] = []
     rng = np.random.default_rng(0)
     present: dict[tuple[str, float, float], set[str]] = defaultdict(set)
+    flagged_excluded: dict[tuple[tuple[str, float, float], str], list[str]] = defaultdict(list)
     for row in rows:
         present[_condition(row)].add(row["waveform"])
+        if row["reference_mismatch_suspected"] and not row["rate_estimate_reliable"]:
+            flagged_excluded[(_condition(row), row["waveform"])].append(row["capture_id"])
     for condition in sorted(present):
         if len(groups.get(condition, {})) < 2:
             only = ", ".join(sorted(present[condition]))
             alone = len(present[condition]) == 1
+            note = _excluded_flag_note(condition, sorted(present[condition]), flagged_excluded)
             comparisons.append(
                 {
                     "profile": condition[0],
@@ -200,7 +219,8 @@ def compare_uxr(
                         if alone
                         else f"no comparison, fewer than 2 waveforms ({only}) have a usable rate "
                         "estimate in this condition"
-                    ),
+                    )
+                    + note,
                     "runs": 0,
                     "caveats": [],
                     "warnings": [],
@@ -218,6 +238,7 @@ def compare_uxr(
                     by_id,
                     rng,
                     power_tolerance_db,
+                    flagged_excluded,
                 )
     flagged = [r["capture_id"] for r in rows if r["reference_mismatch_suspected"]]
     if flagged:
@@ -267,6 +288,7 @@ def _compare_pair(
     by_id: dict[str, dict[str, Any]],
     rng: np.random.Generator,
     power_tolerance_db: float,
+    flagged_excluded: dict[tuple[tuple[str, float, float], str], list[str]],
 ) -> None:
     """Append the paired result for two waveforms in one condition, or the reason for none."""
     first, second = pair
@@ -281,7 +303,8 @@ def _compare_pair(
         comparisons.append(
             {
                 **base,
-                "result": f"insufficient paired runs (need {MIN_PAIRED_RUNS})",
+                "result": f"insufficient paired runs (need {MIN_PAIRED_RUNS})"
+                + _excluded_flag_note(condition, [first, second], flagged_excluded),
                 "runs": len(common),
             }
         )

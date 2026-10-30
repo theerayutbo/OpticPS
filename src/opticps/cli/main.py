@@ -15,7 +15,7 @@ DEFAULT_ROOT = Path("output/keysight_m8199b")
 DEFAULT_CONFIG = Path("configs/m8199b_profiles.yaml")
 DEFAULT_DEMO = Path("configs/demo.yaml")
 DEFAULT_RESULTS = Path("results/synthetic")
-CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "analyze")
+CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "uxr-report", "analyze")
 CLEAN_ERRORS = (ValueError, FileNotFoundError, KeyError, json.JSONDecodeError, OSError)
 DEFAULT_FIBER_CONFIG = Path("configs/fiber_validation.yaml")
 DEFAULT_FIBER_RESULTS = Path("results/fiber_validation")
@@ -156,6 +156,13 @@ def cmd_compare_uxr(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_uxr_report(args: argparse.Namespace) -> int:
+    from opticps.reporting.uxr_report import build_uxr_report
+
+    print(build_uxr_report(args.results, args.output_dir, args.simulation, args.output))
+    return 0
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     from opticps.measurement.compare import analyze_directory
 
@@ -272,6 +279,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=0.5,
         help="largest received-power spread (dB) within a condition before the verdict is withheld",
     )
+
+    command = add("uxr-report", cmd_uxr_report, "receiver-analysis report from ingest-uxr results")
+    command.add_argument("--results", type=Path, required=True)
+    command.add_argument("--output-dir", type=Path, default=Path("reports"))
+    command.add_argument("--simulation", type=Path, default=DEFAULT_RESULTS / "demo_results.json")
 
     command = add("analyze", cmd_analyze, "analyze captures against exported references")
     command.add_argument("--input", type=Path, required=True)

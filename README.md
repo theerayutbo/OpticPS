@@ -74,7 +74,10 @@ A scope record is not one exact period, so measured captures never go through `o
 ```bash
 uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar data/private/southampton/run1.json --profile A_initial_8GBd --results results/uxr
 uv run opticps compare-uxr --results results/uxr
+uv run opticps uxr-report --results results/uxr
 ```
+
+`uxr-report` builds the receiver-analysis PDF and Markdown (`reports/UXR_Receiver_Analysis.*`) from those outputs. Its header states the data source, and any simulated capture prints `MOCK/SIMULATED CAPTURES: NOT LABORATORY MEASUREMENTS`. `reports/UXR_Receiver_Analysis_Example.*` is a labelled example built from mock-receiver captures.
 
 `compare-uxr` groups captures by condition (profile, attenuation setting, fiber length) and gives one verdict per waveform pair and condition. Set-points must match for a verdict; launch power, OMA and extinction ratio are reported, not gated; received power gates only beyond `--power-tolerance-db` (default 0.5).
 
@@ -110,7 +113,7 @@ MIT, copyright Theerayut Boonkird. Algorithms were written independently from pu
 
 - Simulation with generic parameters, not the Southampton link
 - No FEC; no measured data
-- M8199B 512-sample and memory rules not in the Programming Guide; playback unverified; UXR model suffix unconfirmed and no real export seen
+- M8199B 512-sample and memory rules not in the Programming Guide; playback unverified; UXR model suffix unconfirmed; no real UXR export has been imported
 - Driver compression, AC coupling and baseline wander are not modelled
 - Fiber: single polarization, no PMD, no Kerr effect; G.652.D values are standard limits or representative models, not measurements
 - Conclusions from one channel do not generalize

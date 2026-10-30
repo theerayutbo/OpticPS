@@ -359,6 +359,12 @@ def read_hdf5(
                 "instrument model unknown: /Frame/TheFrame is absent or not laid out as the "
                 "guide describes (a group holding the TheFrame dataset)"
             )
+        elif not hasattr(frame, "dtype"):
+            raise UxrImportError(
+                "/Frame/TheFrame holds a variable-length string, not the record of Model, "
+                "Serial and Date fields that the guide describes; the instrument cannot be "
+                "identified from it"
+            )
         else:
             names = frame.dtype.names or ()
             model = _text(frame["Model"]) if "Model" in names else None

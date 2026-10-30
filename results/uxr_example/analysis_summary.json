@@ -1,0 +1,146 @@
+{
+  "data_sources": [
+    "simulated"
+  ],
+  "test_captures": 4,
+  "training_captures": 0,
+  "excluded_unreliable_rate_estimate": [],
+  "flagged_reference_mismatch": [],
+  "skipped_without_sidecar": [],
+  "power_tolerance_dB": 0.5,
+  "condition_resolution": {
+    "attenuation_dB": 0.1,
+    "fiber_length_km": 0.001
+  },
+  "warnings": [],
+  "comparisons": [
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Adaptive",
+        "PAM4_Fixed_PS70"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    },
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Adaptive",
+        "PAM4_Fixed_PS80"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    },
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Adaptive",
+        "PAM4_Uniform"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    },
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Fixed_PS70",
+        "PAM4_Fixed_PS80"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    },
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Fixed_PS70",
+        "PAM4_Uniform"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    },
+    {
+      "profile": "A_initial_8GBd",
+      "condition": "A_initial_8GBd, attenuation 18.4 dB, fiber 0 km",
+      "pair": [
+        "PAM4_Fixed_PS80",
+        "PAM4_Uniform"
+      ],
+      "result": "insufficient paired runs (need 5)",
+      "runs": 1
+    }
+  ],
+  "fairness_audit": [
+    {
+      "variable": "Symbol rate",
+      "status": "controlled",
+      "range": "8e+09 to 8e+09",
+      "role": "set-point"
+    },
+    {
+      "variable": "Capture sample rate",
+      "status": "controlled",
+      "range": "8e+10 to 8e+10",
+      "role": "set-point"
+    },
+    {
+      "variable": "AWG sample rate",
+      "status": "controlled",
+      "range": "2.24e+11 to 2.24e+11",
+      "role": "set-point"
+    },
+    {
+      "variable": "Electrical amplitude",
+      "status": "controlled",
+      "range": "2 to 2",
+      "role": "set-point"
+    },
+    {
+      "variable": "Optical launch power",
+      "status": "reported",
+      "range": "2.98939 to 2.98978",
+      "role": "measured"
+    },
+    {
+      "variable": "Optical received power",
+      "status": "controlled",
+      "range": "-15.4106 to -15.4102",
+      "role": "measured"
+    },
+    {
+      "variable": "Optical modulation amplitude",
+      "status": "reported",
+      "range": "4.72564 to 4.72696",
+      "role": "measured"
+    },
+    {
+      "variable": "Extinction ratio",
+      "status": "reported",
+      "range": "8.37097 to 8.37209",
+      "role": "measured"
+    },
+    {
+      "variable": "Fiber length",
+      "status": "controlled",
+      "range": "0 to 0",
+      "role": "set-point"
+    },
+    {
+      "variable": "Attenuation",
+      "status": "controlled",
+      "range": "18.4 to 18.4",
+      "role": "set-point"
+    },
+    {
+      "variable": "Receiver bandwidth",
+      "status": "controlled",
+      "range": "8e+09 to 8e+09",
+      "role": "set-point"
+    }
+  ]
+}

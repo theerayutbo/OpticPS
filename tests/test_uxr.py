@@ -5,6 +5,7 @@ All fixtures are SYNTHETIC: files and waveforms written by this module, not inst
 
 import hashlib
 import json
+import re
 import struct
 from pathlib import Path
 
@@ -2149,3 +2150,257 @@ def test_compare_cli_prints_withheld_results_as_readable_lines(seed_result, tmp_
     out = capsys.readouterr().out
     assert "PAM4_A vs PAM4_B: verdict withheld, 1 of 12 captures flagged" in out
     assert "'pair'" not in out and "{'" not in out
+
+
+# ----------------------------------------------------------------------------- uxr-report
+def patch_results(folder, pattern, **changes):
+    """Set top-level fields in saved analysis files (test fixture)."""
+    for path in folder.glob(pattern):
+        item = json.loads(path.read_text())
+        item.update(changes)
+        path.write_text(json.dumps(item))
+
+
+def report_set(seed_result, folder, spec):
+    """Clone the seed result as waveform -> (runs, offset, sidecar changes); copy its npz data."""
+    import shutil
+
+    for waveform, (runs, offset, changes) in spec.items():
+        clone_results(seed_result, folder, waveform, runs, offset, sidecar_changes=changes)
+        for run in range(1, runs + 1):
+            for kind in ("eye", "excerpt"):
+                source = seed_result.parent / f"seed3_{kind}.npz"
+                shutil.copy(source, folder / f"{waveform}-r{run}_{kind}.npz")
+    return folder
+
+
+SIMULATION = {
+    "data_source": "simulated",
+    "profile_A": {
+        "back_to_back": {
+            "Uniform": [
+                {
+                    "received_dbm": -11.0,
+                    "symbol_errors": 0,
+                    "symbols": 1000,
+                    "ser": 0.0,
+                    "link": {"extra_attenuation_db": 10},
+                },
+                {
+                    "received_dbm": -25.0,
+                    "symbol_errors": 40,
+                    "symbols": 1000,
+                    "ser": 0.04,
+                    "link": {"extra_attenuation_db": 24},
+                },
+            ]
+        },
+        "fiber": {},
+    },
+}
+
+
+def build(folder, tmp_path, name="rep", simulation=SIMULATION):
+    from opticps.measurement.uxr_compare import compare_uxr
+    from opticps.reporting.uxr_report import build_uxr_report
+
+    compare_uxr(folder)
+    sim = tmp_path / f"{name}_sim.json"
+    sim.write_text(json.dumps(simulation))
+    out = tmp_path / name
+    pdf = build_uxr_report(folder, out, sim, ROOT)
+    return pdf, (out / "UXR_Receiver_Analysis.md").read_text()
+
+
+@pytest.fixture(scope="module")
+def mock_report(seed_result, tmp_path_factory):
+    tmp_path = tmp_path_factory.mktemp("uxr-report")
+    folder = report_set(
+        seed_result,
+        tmp_path / "res",
+        {
+            "PAM4_Uniform": (5, 0.0, {}),
+            "PAM4_Fixed_PS70": (5, 0.2, {}),
+            "PAM4_Fixed_PS80": (5, 0.1, {}),
+            "PAM4_Adaptive": (1, 0.3, {}),
+        },
+    )
+    patch_results(folder, "PAM4_Fixed_PS80-r*_analysis.json", reference_mismatch_suspected=True)
+    pdf, text = build(folder, tmp_path)
+    return folder, pdf, text
+
+
+def test_report_from_mock_captures_has_banner_sections_figures_and_labels(mock_report):
+    folder, pdf, text = mock_report
+    assert pdf.read_bytes().startswith(b"%PDF")
+    assert text.splitlines()[2] == "**MOCK/SIMULATED CAPTURES: NOT LABORATORY MEASUREMENTS**"
+    assert "Data source of the captures: simulated." in text
+    for waveform in ("Uniform", "Fixed PS70", "Fixed PS80", "Adaptive"):
+        assert f"## {waveform} (" in text
+    assert "Outer70" not in text  # absent from the captures, so no section
+    for heading in (
+        "### Error rates",
+        "### Signal quality",
+        "### Receiver acquisition configuration",
+        "### Simulation versus capture",
+        "### Uncertainty",
+        "## Comparison verdicts",
+        "## Set-point audit",
+        "## Flagged and excluded captures",
+    ):
+        assert heading in text
+    for field in ("rate_estimate_reliable", "Estimated symbol rate", "Clock offset", "Frames lost"):
+        assert field in text
+    assert "R_SMD" in text and "R_BMD" in text and "Mean (level units)" in text
+    figures = re.findall(r"!\[(.*)\]\((.*)\)", text)
+    assert len(figures) == 12
+    for caption, link in figures:
+        assert caption.endswith("[data source: simulated]")
+        assert (folder / "figures" / Path(link).name).stat().st_size > 1000
+    assert "measured" not in text.lower().replace("not laboratory measurements", "")
+
+
+def test_report_zero_error_wording_and_both_kinds_of_uncertainty_kept_apart(mock_report):
+    _, _, text = mock_report
+    assert "0 errors in" in text and "95% upper bound" in text
+    assert "rate 0" not in text and "BER 0" not in text
+    assert "Statistical: SER 95% interval" in text
+    assert "Physical uncertainty, from the sidecar" in text and "not recorded" in text
+
+
+def test_report_lists_verdicts_withheld_reasons_and_flagged_captures(mock_report):
+    _, _, text = mock_report
+    verdicts = text.split("## Comparison verdicts")[1].split("## Withheld")[0]
+    assert "PAM4_Fixed_PS70 vs PAM4_Uniform: higher by" in verdicts
+    withheld = text.split("## Withheld or absent verdicts, and reasons")[1].split("## Flagged")[0]
+    assert "PAM4_Fixed_PS70 vs PAM4_Fixed_PS80: verdict withheld" in withheld
+    assert "flagged reference_mismatch_suspected" in withheld
+    assert "insufficient paired runs" in withheld  # the single Adaptive run
+    flagged = text.split("## Flagged and excluded captures")[1].split("## Set-point audit")[0]
+    assert "PAM4_Fixed_PS80-r1 is flagged reference_mismatch_suspected" in flagged
+    assert "Symbol rate" in text and "set-point" in text
+
+
+def test_report_states_the_power_difference_or_no_comparable_simulated_point(mock_report):
+    _, _, text = mock_report
+    uniform = text.split("## Uniform (")[1].split("## Fixed PS70")[0]
+    assert "-11.00" in uniform and "+1.00 dB (capture minus simulation)" in uniform
+    ps70 = text.split("## Fixed PS70 (")[1].split("## Fixed PS80")[0]
+    assert "no comparable simulated point (the simulation has no 0 km points" in ps70
+
+
+def test_report_figures_and_notes_follow_the_saved_data(seed_result, tmp_path):
+    folder = report_set(seed_result, tmp_path / "res", {"PAM4_Uniform": (1, 0.0, {})})
+    (folder / "PAM4_Uniform-r1_excerpt.npz").unlink()
+    (folder / "PAM4_Uniform-r1_eye.npz").unlink()
+    _, text = build(folder, tmp_path)
+    assert "no saved received excerpt" in text and "no saved eye data" in text
+    assert len(re.findall(r"!\[", text)) == 1  # only the distribution remains
+
+
+def test_measured_labelled_set_has_no_mock_banner_and_a_mixed_set_has(seed_result, tmp_path):
+    measured = report_set(
+        seed_result,
+        tmp_path / "m",
+        {
+            "PAM4_Uniform": (1, 0.0, {"data_source": "measured"}),
+            "PAM4_Fixed_PS70": (1, 0.2, {"data_source": "measured"}),
+        },
+    )
+    _, text = build(measured, tmp_path, "measured")
+    assert "MOCK" not in text and "SIMULATED" not in text
+    assert "Data source of the captures: measured." in text
+    assert "[data source: measured]" in text and "[data source: simulated]" not in text
+    mixed = report_set(
+        seed_result,
+        tmp_path / "x",
+        {
+            "PAM4_Uniform": (1, 0.0, {"data_source": "measured"}),
+            "PAM4_Fixed_PS70": (1, 0.2, {}),
+        },
+    )
+    _, text = build(mixed, tmp_path, "mixed")
+    assert "**MOCK/SIMULATED CAPTURES: NOT LABORATORY MEASUREMENTS**" in text
+    assert "measured, simulated (mixed)" in text
+    assert "[data source: measured]" in text and "[data source: simulated]" in text
+
+
+def test_report_physical_uncertainty_comes_only_from_the_sidecar(seed_result, tmp_path):
+    folder = report_set(
+        seed_result,
+        tmp_path / "res",
+        {"PAM4_Uniform": (1, 0.0, {"calibration": {"power_meter_uncertainty_dB": 0.2}})},
+    )
+    _, text = build(folder, tmp_path)
+    assert '{"power_meter_uncertainty_dB": 0.2}' in text
+
+
+def test_uxr_report_cli_needs_compare_uxr_and_fresh_results(seed_result, tmp_path, capsys):
+    folder = report_set(seed_result, tmp_path / "res", {"PAM4_Uniform": (1, 0.0, {})})
+    args = ["uxr-report", "--results", str(folder), "--output-dir", str(tmp_path / "out")]
+    assert main(args) == 1
+    assert "Run opticps compare-uxr first" in capsys.readouterr().err
+    assert main(["compare-uxr", "--results", str(folder)]) == 0
+    assert main([*args, "--simulation", str(tmp_path / "none.json"), "--output", str(ROOT)]) == 0
+    assert "UXR_Receiver_Analysis.pdf" in capsys.readouterr().out
+    text = (tmp_path / "out" / "UXR_Receiver_Analysis.md").read_text()
+    assert "No simulation file was found" in text and "no comparable simulated point" in text
+    report_set(seed_result, folder, {"PAM4_Fixed_PS70": (1, 0.2, {})})
+    assert main(args) == 1
+    assert "re-run opticps compare-uxr" in capsys.readouterr().err
+
+
+def test_ingest_saves_the_received_excerpt_and_level_statistics(seed_result):
+    folder = seed_result.parent
+    with np.load(folder / "seed3_excerpt.npz") as data:
+        time, volts = data["time_symbols"], data["volts"]
+        assert int(data["first_symbol"]) == 480
+    assert time.size == volts.size >= 64 * 8 - 2  # 8 samples per symbol in the fixture
+    assert 479.9 < time[0] < 480.2 and 543.8 < time[-1] <= 544.0
+    stats = json.loads(seed_result.read_text())["level_statistics"]
+    assert [r["level"] for r in stats["levels"]] == [-3, -1, 1, 3]
+    means = [r["mean"] for r in stats["levels"]]
+    assert means == sorted(means) and means[0] < -2 and means[-1] > 2
+    assert all(r["std"] > 0 and r["std_v"] > 0 for r in stats["levels"])
+
+
+def test_unreliable_flagged_captures_name_the_reference_flag_in_the_pair_reason(
+    seed_result, tmp_path
+):
+    from opticps.measurement.compare import MIN_PAIRED_RUNS
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "res"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, folder, "PAM4_B", 6, 0.2, unreliable=(1, 2))
+    patch_results(folder, "PAM4_B-r[12]_analysis.json", reference_mismatch_suspected=True)
+    (pair,) = compare_uxr(folder)["comparisons"]
+    assert pair["result"].startswith(f"insufficient paired runs (need {MIN_PAIRED_RUNS})")
+    assert (
+        "PAM4_B-r1, PAM4_B-r2" in pair["result"]
+        and "reference_mismatch_suspected" in pair["result"]
+    )
+    alone = tmp_path / "alone"
+    clone_results(seed_result, alone, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, alone, "PAM4_B", 6, 0.2, unreliable=range(1, 7))
+    patch_results(alone, "PAM4_B-r*_analysis.json", reference_mismatch_suspected=True)
+    (pair,) = compare_uxr(alone)["comparisons"]
+    assert (
+        "fewer than 2 waveforms" in pair["result"]
+        and "reference_mismatch_suspected" in pair["result"]
+    )
+
+
+def test_hdf5_frame_holding_a_variable_length_string_is_a_clean_import_error(tmp_path):
+    for value in ("UXR-X", np.array(["UXR-X"], dtype=object)):
+        path = tmp_path / "s.h5"
+        write_h5(path, np.arange(64))
+
+        def string_frame(f, value=value):
+            f.create_group("Frame").create_dataset(
+                "TheFrame", data=value, dtype=h5py.string_dtype()
+            )
+
+        make_frame_group(path, string_frame)
+        with pytest.raises(UxrImportError, match="variable-length string"):
+            read_hdf5(path)
