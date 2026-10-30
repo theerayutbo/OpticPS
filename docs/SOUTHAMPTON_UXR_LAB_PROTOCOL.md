@@ -12,26 +12,26 @@ Status: the importers and the capture analysis were tested only on **synthetic**
 
 The AWG loops one frame, so a capture is several repeats of the same frame, usually starting and ending part-way through one. The analysis finds each full frame by its preamble, estimates the real symbol rate from the spacing of the preambles, follows the sampling instant across each frame with its own symbol decisions, and fits gain, offset and equalizer on the preamble and training symbols only.
 
-- Capture at least **2 full frames**, so the clock can be estimated from frame spacing. With one full frame the clock rests on one preamble and is then refined by decision-directed tracking over the frame (medium confidence at best, with a stated standard error). That works only as well as the signal allows: the result carries a warning, and the reliable flag is cleared if tracking does not hold.
-- One frame lasts 4.096 us (Profile A, 8 GBaud, 32,768 symbols) or 1.170 us (Profile B, 56 GBaud, 65,536 symbols). Choose the record length to cover more than 2 frames plus a margin; read the limits from the instrument.
+- Capture at least **3 full frames**. The clock is fitted to the spacing of the preambles, and a line through only 2 points has no residual, so samples dropped or inserted between 2 preambles shift the clock by tens of ppm without any sign in the fit (2 symbols in a 32,768-symbol frame is 61 ppm). With 3 or more the residual exposes that. With 2 frames the tool also compares the fit with its own timing tracking inside the frame, and when they disagree by more than 10 ppm it clears the reliable flag, marks the clock low confidence and warns. With one full frame the clock rests on one preamble and is then refined by decision-directed tracking over the frame (medium confidence at best, with a stated standard error). That works only as well as the signal allows: the result carries a warning, and the reliable flag is cleared if tracking does not hold.
+- One frame lasts 4.096 us (Profile A, 8 GBaud, 32,768 symbols) or 1.170 us (Profile B, 56 GBaud, 65,536 symbols). Choose the record length to cover more than 3 frames plus a margin; read the limits from the instrument.
 - At 256 GSa/s Profile A gives 32 samples per symbol and **Profile B gives 4.57**. The analysis needs at least 2 samples per symbol; more is better. Do not expect 8 samples per symbol at 56 GBaud.
 - The capture sample rate need not be a multiple of the baud rate, and the scope and AWG clocks need not agree. This was tested on synthetic captures with a non-integer samples-per-symbol ratio and clock offsets up to a few hundred ppm; nothing is claimed beyond that.
 
 ## 1. Capture
 
 1. Load one waveform on the M8199B and loop it (the OpticPS lab guide, `output/README_SOUTHAMPTON.md`, covers the transmitter side).
-2. Set the scope, trigger and acquire a single record that spans more than 2 frames.
+2. Set the scope, trigger and acquire a single record that spans more than 3 frames.
 3. Keep every setting below identical across waveforms that you intend to compare.
-4. Take several records per waveform (different runs; at least 5 per waveform for a paired comparison). Do not average away the noise unless you record that you did.
+4. Take several records per waveform (different runs, each a new acquisition: the same file or samples under two run ids are refused; at least 5 per waveform for a paired comparison). Do not average away the noise unless you record that you did.
 
 ## 2. Export
 
 - **Preferred: HDF5 (.h5).** The save command has two HDF5 formats (p598): `H5` saves **floats**, which are actual vertical values; `H5INt` saves **integers**, which need `value * Y increment + Y origin`. The importer follows exactly this and records the rule it used in `scaling_rule`. Record which one you chose.
 - For a segmented acquisition choose what is saved with `:DISK:SEGMented` (p600) and, if the file is segmented, pass `--segment N` (0-based). A file reporting `NumSegments` 0 is read as one non-segmented capture (the guide's own HDF5 example, p2090, shows 0).
-- A waveform type other than NORMAL or AVERAGE is refused unless you pass `--allow-waveform-type TYPE`. A `SavedInterpFactor` other than 0 or 1 raises a warning, because the meaning of the time increment under interpolation is unverified.
-- CSV: the guide lists the header fields (Revision, Type, Start, Points, Count or Segments, XDispRange, XDispOrg, XInc, XOrg, XUnits, YDispRange, YDispOrg, YInc, YOrg, YUnits, Frame, Date, Time, Max bandwidth, Min bandwidth, Time Tags, Data) with the data after `Data` (pp2091-2092). The importer reads that header when present, and also accepts a time column plus a voltage column, or a single voltage column with `XInc` in the header (or `--x-increment-s`). Units in column titles such as `(mV)` or `(ns)` are scaled; an unknown unit is refused. Files with more than two data columns (multi-source) are refused. Do not export transmitter-style `DataOut` files; they are rejected.
-- BIN: read strictly against the documented layout (pp2093-2098): cookie `AG`, version `10`, signed 4-byte integers, 4-byte floats, 8-byte doubles, header sizes 12, 140 and 12 bytes, Volt and Second units, waveform type Normal or Average, float buffers. Any deviation is refused. No real BIN file has been tested.
-- HDF5 files are treated as untrusted input: soft and external links, external storage and virtual datasets are refused, and the dataset shape is checked against `NumPoints x NumSegments` and a maximum before any data is read.
+- The waveform type is read from `WaveformType` (help page) or `Waveform Type` (the guide's example, p2090), as a name or as the guide's integer code (1 Normal, 3 Average; the BIN table, p2094). A type other than NORMAL or AVERAGE is refused unless you pass `--allow-waveform-type TYPE`. `--max-samples N` raises or lowers the HDF5 limit on values read (default 500,000,000), and `NumPoints` must be a whole number. A `SavedInterpFactor` other than 0 or 1 raises a warning, because the meaning of the time increment under interpolation is unverified.
+- CSV: a header `Type` of normal, raw or average is accepted; interpolate and versus (an XY plot) are refused unless allowed with `--allow-waveform-type`. A header `Segments` above 1 is always refused (save one segment, or use HDF5 with `--segment`), and a header `Points` that differs from the number of data rows is an error. The guide lists the header fields (Revision, Type, Start, Points, Count or Segments, XDispRange, XDispOrg, XInc, XOrg, XUnits, YDispRange, YDispOrg, YInc, YOrg, YUnits, Frame, Date, Time, Max bandwidth, Min bandwidth, Time Tags, Data) with the data after `Data` (pp2091-2092). The importer reads that header when present, and also accepts a time column plus a voltage column, or a single voltage column with `XInc` in the header (or `--x-increment-s`). Units in column titles such as `(mV)` or `(ns)` are scaled; an unknown unit is refused. Files with more than two data columns (multi-source) are refused. Do not export transmitter-style `DataOut` files; they are rejected.
+- BIN: the channel comes from the waveform label (`Channel N`). A file with several waveforms needs exactly one labelled with the requested `--channel`, and repeated labels (segments) are refused; a single waveform whose label names another channel is refused instead of being relabelled, and an unlabelled one is read as the requested channel with a note. Negative point or buffer sizes are refused. Read strictly against the documented layout (pp2093-2098): cookie `AG`, version `10`, signed 4-byte integers, 4-byte floats, 8-byte doubles, header sizes 12, 140 and 12 bytes, Volt and Second units, waveform type Normal or Average, float buffers. Any deviation is refused. No real BIN file has been tested.
+- HDF5 files are treated as untrusted input. For every dataset that is read (the waveform, `Frame/TheFrame` and `FileType`), soft and external links, external storage, virtual datasets and a null dataspace are refused, and metadata datasets are limited to 1,024 values. The waveform shape is checked against `NumPoints x NumSegments` and a maximum before any data is read.
 - Only the Volt and Second units are accepted.
 
 ## 3. Acquisition settings to record
@@ -64,6 +64,8 @@ opticps ingest-uxr --input data/private/southampton/run1.h5 --channel 1 \
   --results results/uxr --registry data/private/uxr_registry.json
 ```
 
+The `capture_id` becomes part of the output file names, so it must be 1 to 128 letters, digits, dots, underscores or hyphens, starting with a letter or digit; anything else is refused before anything is written.
+
 Add `--x-increment-s VALUE` for a one-column CSV, `--segment N` for a segmented HDF5 file, and `--allow-waveform-type TYPE` for another waveform type. If the sidecar has no `split`, pass `--split`. The reference frames are read from `output/keysight_m8199b` (override with `--output`). Errors print as `error: ...` with exit code 1.
 
 **Never run scope captures through `opticps analyze`.** That path assumes one exact period, and it refuses measured captures. Use `ingest-uxr` for each capture and `compare-uxr` for the result.
@@ -72,9 +74,9 @@ The command prints the clock offset in ppm and its confidence, the frames analys
 
 ### What the leakage guard does and does not do
 
-Training and test must be different acquisitions. The tool keeps a registry (default `data/private/uxr_registry.json`, set with `--registry`) of the SHA-256 of every ingested file and of its decoded samples, with its split, and refuses a capture whose id or content is already registered under the other split. Entries are written only after an ingest has succeeded.
+Training and test must be different acquisitions. The tool keeps a registry of the SHA-256 of every ingested file and of its decoded samples, with its split and run id. The default is `data/private/uxr_registry.json` under the repository root (found by walking up from the current directory to `pyproject.toml`), so it does not depend on where you run the command; `--registry` overrides it, and the path used is printed and recorded in `<capture_id>_analysis.json`. It refuses a capture whose id or content is already registered under the other split, and also the same content under a second capture id, because that would count one acquisition as several runs. A registry that is not valid, or has the wrong shape, stops the ingest with an error. Entries are written only after an ingest has succeeded.
 
-It guarantees only this: the same bytes, the same decoded samples, or the same capture id are never used as both training and test **in runs that share the same registry file**. It cannot see runs that use a different registry, the same acquisition exported again in another format or at another precision, or a re-acquisition of the same waveform. Use one registry for the whole campaign, keep it with the data, and treat the guard as a safety net for mistakes, not a proof of independence.
+It guarantees only this: the same bytes, the same decoded samples, or the same capture id are never used as both training and test, and one acquisition is never counted as two captures, **in runs that share the same registry file**. It cannot see runs that use a different registry, the same acquisition exported again in another format or at another precision, or a re-acquisition of the same waveform. Use one registry for the whole campaign, keep it with the data, and treat the guard as a safety net for mistakes, not a proof of independence.
 
 ## 6. Reading the result
 
@@ -83,7 +85,8 @@ It guarantees only this: the same bytes, the same decoded samples, or the same c
 - A frame whose preamble cannot be found is **lost, not dropped**. The output gives `frames_expected`, `frames_analyzed` and `frames_lost`, a warning, and an error range that states the exclusion with a worst case counting every lost symbol as an error. The reliable flag is false when frames are lost.
 - Irregular frame spacing (a gap or dropped samples) is reported. The spacing fit is then not used, the clock comes from the strongest frame (low confidence), lost frames cannot be counted, and the reliable flag is false.
 - MI and GMI estimates are flagged unreliable when any level has fewer than 100 distinct test symbols, when frames are lost, or when timing tracking does not hold.
-- A symbol error rate near the random-guess rate at low SNR gives a `reference_mismatch_suspected` warning and clears the reliable flag: check that the capture belongs to the stated transmit experiment.
+- Two disagreeing clock estimates (frame spacing against timing tracking inside the frame, more than 10 ppm apart) clear the reliable flag, mark the clock low confidence and name both values in the warning.
+- A low SNR (under 6 dB) with a symbol error rate of at least 40% of the random-guess rate gives a `reference_mismatch_suspected` warning and clears the reliable flag: check that the capture belongs to the stated transmit experiment.
 - Training captures are fitted but never scored: no value derived from the payload (error rates, SNR, rates, histogram, eye) is reported for them.
 
 ## 7. Comparison and report
@@ -94,7 +97,7 @@ After ingesting all test captures into one results folder:
 opticps compare-uxr --results results/uxr
 ```
 
-This reads the capture-level results, runs the fairness audit, and compares waveforms in pairs on R_BMD with a bootstrap interval, using the same minimum number of paired runs (5) and the same verdict wording as the simulated comparison. Captures whose rate estimate is unreliable are excluded and listed. It writes `capture_metrics.csv`, `analysis_summary.json` and `uxr_report.md` into the results folder, and `opticps compare --results results/uxr` prints the same audit and comparisons.
+This reads the capture-level results, runs the fairness audit, and compares waveforms in pairs on R_BMD with a bootstrap interval, using the same minimum number of paired runs (5) and the same verdict wording as the simulated comparison. Waveforms are grouped per profile, so the same waveform name in two profiles is never mixed. Captures whose rate estimate is unreliable are excluded and listed. It refuses results where one file hash or decoded-sample hash appears under two captures (one acquisition counted as several runs) or in both training and test; as with the registry, a re-export with different bytes cannot be detected. A pair's verdict is withheld, with the reason in the report, when its captures mix data sources (measured and simulated) or when a controlled field (symbol rate and the other fairness-audit variables) differs or is only partly recorded. It writes `capture_metrics.csv`, `analysis_summary.json` and `uxr_report.md` into the results folder, and `opticps compare --results results/uxr` prints the same audit and comparisons.
 
 ## 8. Manual SCPI reference (no code; OpticPS sends nothing)
 

@@ -77,34 +77,29 @@ Nothing below can be assumed from this repository. Write the answers in the expe
 
 **8. Fiber.** Repeat at each fiber length. Keep launch power fixed. Record the fiber type, length and loss. At 56 GBaud, simulated chromatic dispersion degrades performance noticeably within a few kilometres; see the report.
 
-**9. Capture.** Capture at least 2 frames, at no less than twice the baud rate, ideally more. Take at least 5 repeated captures per condition (paired comparisons below 5 runs are refused), in interleaved order (U, PS70, PS80, A, O, U, ...) so drift does not bias one waveform. Capture a **separate** set for training, and mark it. Save raw data:
-
-```
-received_time_s,received_voltage_v
-```
-
-or `sample_index,received_voltage_v`, plus a JSON sidecar of the same name. Copy `data/templates/capture_template.json`. Fields that must be filled in (the file is rejected otherwise) are the receiver model, capture sample rate, symbol rate, receiver bandwidth, fiber length, attenuation, timestamp, and `related_transmit_experiment_id` from the manifest. The key `optical_received_power_dBm` must be present, but `null` means not measured. Use `"split": "training"` or `"test"`, and `"data_source": "measured"`. Leave an optional value null if you did not measure it. Do not estimate it. A scope capture goes through `opticps ingest-uxr`, not `opticps analyze`. Store data under `data/private/southampton/`, which git ignores.
+**9. Capture.** Capture at least 3 full frames, at no less than twice the baud rate, ideally more. Take at least 5 repeated captures per condition, each a new acquisition (paired comparisons below 5 runs are refused, and one acquisition ingested twice is refused), in interleaved order (U, PS70, PS80, A, O, U, ...) so drift does not bias one waveform. Capture a **separate** set for training, and mark it. Save the scope's own export (HDF5 preferred; CSV and BIN also work; see `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`), plus a JSON sidecar. Copy `data/templates/capture_template.json`. Fields that must be filled in (the file is rejected otherwise) are the receiver model, capture sample rate, symbol rate, receiver bandwidth, fiber length, attenuation, timestamp, and `related_transmit_experiment_id` from the manifest. The key `optical_received_power_dBm` must be present, but `null` means not measured. Use `"split": "training"` or `"test"`, and `"data_source": "measured"`. Leave an optional value null if you did not measure it. Do not estimate it. Scope captures go through `opticps ingest-uxr` and `opticps compare-uxr`; `opticps analyze` refuses measured captures. Store data under `data/private/southampton/`, which git ignores.
 
 **10. Synchronization.** Automatic: the software finds the preamble, polarity and sampling phase using the reference files.
 
 **11. Analysis.**
 
+Run `ingest-uxr` once per capture (training and test), with one shared registry, then compare:
+
 ```bash
-uv run opticps ingest  --input data/private/southampton/
-uv run opticps analyze --input data/private/southampton/ --profile A_initial_8GBd
-uv run opticps compare
+uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar data/private/southampton/run1.json --profile A_initial_8GBd --results results/uxr
+uv run opticps compare-uxr --results results/uxr
 ```
 
-This yields SER, Gray label BER, estimated R_SMD and R_BMD, and SNR per capture, in `results/analysis/`. Post-matcher BER is diagnostic only: one symbol error ruins a 1024-symbol block, and there is no FEC.
+Capture at least 3 full frames: a clock fitted through only 2 preambles cannot show that samples were dropped between them, and the result is then marked unreliable. This yields SER, Gray label BER, estimated R_SMD and R_BMD, and SNR per capture, in `results/uxr/` (`capture_metrics.csv`, `analysis_summary.json`, `uxr_report.md`). Post-matcher BER is diagnostic only: one symbol error ruins a 1024-symbol block, and there is no FEC.
 
 **12. Comparison and report.** Two modes:
 
 - Equal baud: the same symbol rate for all. Shaped waveforms carry fewer bits, so report that plainly.
 - Equal net rate: compare Outer70 with PS70 directly (same rate by construction). To match Uniform, lower its baud: `match_uniform_rate` in `src/opticps/measurement/compare.py` gives the sample rate.
 
-Fairness is printed by `opticps compare`. Anything shown as uncontrolled or not recorded must be fixed or stated in the paper. Do not claim a throughput gain from lower BER or lower symbol energy.
+Fairness is printed by `opticps compare-uxr` and written to `uxr_report.md`. A verdict for a pair is withheld when data sources mix or a controlled field (symbol rate, fiber length, received power and the rest) differs between its captures. Anything shown as uncontrolled or not recorded must be fixed or stated in the paper. Do not claim a throughput gain from lower BER or lower symbol energy.
 
-Automatic reports currently draw on simulated results. Send `results/analysis/` to the project owner to extend them to measured data, and keep raw captures private until the owners approve release.
+Automatic reports currently draw on simulated results. Send `results/uxr/` to the project owner to extend them to measured data, and keep raw captures private until the owners approve release.
 
 ## Regenerate everything
 

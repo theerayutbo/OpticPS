@@ -4,11 +4,13 @@ The sidecar is the capture metadata schema of capture.py. The sample rate analys
 always the one measured from the file; the declared one is only cross-checked (1%).
 Training captures are never scored as test.
 
-Leakage guard: a registry file (default under data/private/) records the SHA-256 of every
-ingested file and of its decoded samples, with its split. A capture that matches an earlier
-entry under the other split is refused. The guard only sees registries it is given: runs that
-use different registry files, a different export of the same acquisition, or a re-acquisition
-are not detected. Entries are written only after an ingest succeeds.
+Leakage guard: a registry file (default data/private/uxr_registry.json under the repository
+root, whose resolved path is always reported) records the SHA-256 of every ingested file and of
+its decoded samples, with its split. A capture that matches an earlier entry under the other
+split is refused, and so is one acquisition ingested under a second capture id, because that
+would count it as several runs. The guard only sees registries it is given: runs that use
+different registry files, a different export of the same acquisition (different bytes), or a
+re-acquisition are not detected. Entries are written only after an ingest succeeds.
 """
 
 # SPDX-License-Identifier: MIT
@@ -18,6 +20,7 @@ import csv
 import hashlib
 import json
 import os
+import re
 from collections.abc import Iterable
 from dataclasses import asdict
 from datetime import UTC, datetime
@@ -33,10 +36,12 @@ from opticps.receiver.capture_dsp import ScopeAnalysis, analyze_scope_capture
 
 RATE_TOLERANCE = 0.01
 DEFAULT_REGISTRY = Path("data/private/uxr_registry.json")
+ROOT_MARKER = "pyproject.toml"
+CAPTURE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PROBABILITY_TOLERANCE = 1e-5
 SYMBOL_RATE_TOLERANCE = 1e-6
-MISMATCH_SNR_DB = 3.0
-MISMATCH_SER_FRACTION = 0.8
+MISMATCH_SNR_DB = 6.0
+MISMATCH_SER_FRACTION = 0.4
 PROBABILITY_COLUMNS = ("minus3", "minus1", "plus1", "plus3")
 
 
@@ -51,17 +56,62 @@ def _resolve_split(metadata: dict[str, Any], split: str | None) -> dict[str, Any
     return {**metadata, "split": chosen}
 
 
+def default_registry(start: Path | None = None) -> Path:
+    """The default registry path under the repository root found above start (default cwd).
+
+    Without a repository root (no pyproject.toml above), the path falls under start itself.
+    The result is absolute so that it can be stated in the output.
+    """
+    here = (Path.cwd() if start is None else start).resolve()
+    root = next((p for p in (here, *here.parents) if (p / ROOT_MARKER).is_file()), here)
+    return root / DEFAULT_REGISTRY
+
+
+def _check_capture_id(capture_id: str) -> None:
+    """The capture id names output files, so it must be a plain file name."""
+    if not CAPTURE_ID_PATTERN.fullmatch(capture_id):
+        raise CaptureValidationError(
+            f"capture_id {capture_id!r} is not usable as a file name: use 1 to 128 letters, "
+            "digits, dots, underscores or hyphens, starting with a letter or digit"
+        )
+
+
 def _load_registry(path: Path) -> dict[str, dict[str, str]]:
+    """Read and validate a registry; any other shape is a clean error, never a crash."""
+    if path.is_dir():
+        raise CaptureValidationError(f"Registry {path} is a directory, not a file")
     if not path.exists():
         return {}
-    data = json.loads(path.read_text())
-    return dict(data["entries"])
+    try:
+        data = json.loads(path.read_text())
+    except ValueError as error:
+        raise CaptureValidationError(f"Registry {path} is not valid JSON: {error}") from error
+    entries = data.get("entries") if isinstance(data, dict) else None
+    if not isinstance(entries, dict):
+        raise CaptureValidationError(
+            f"Registry {path} must be a JSON object with an 'entries' object"
+        )
+    for name, entry in entries.items():
+        if (
+            not isinstance(entry, dict)
+            or entry.get("split") not in ("training", "test")
+            or not all(isinstance(v, str) for v in entry.values())
+        ):
+            raise CaptureValidationError(
+                f"Registry {path} entry {name!r} is malformed: each entry must be an object of "
+                "strings with a split of training or test"
+            )
+    return dict(entries)
 
 
 def _check_registry(
     registry: dict[str, dict[str, str]], capture_id: str, split: str, digests: dict[str, str]
 ) -> None:
-    """Refuse the same id, file or decoded samples under the other split, or an id reused."""
+    """Refuse the same id, file or decoded samples under the other split, or an id reused.
+
+    The same content under another capture id is one acquisition counted twice: refused.
+    A re-export with different bytes cannot be recognised and is not caught.
+    """
     for name, entry in registry.items():
         same_content = any(entry.get(key) == value for key, value in digests.items())
         if name == capture_id and entry["split"] != split:
@@ -72,6 +122,13 @@ def _check_registry(
             raise DataLeakageError(
                 f"This capture's content is already registered as {entry['split']} "
                 f"(capture {name!r}); it cannot be used as {split}"
+            )
+        if same_content and name != capture_id:
+            raise CaptureValidationError(
+                f"This capture's content is already registered as capture {name!r}: one "
+                "acquisition cannot be ingested as several captures or runs. A re-export of the "
+                "same acquisition with different bytes cannot be detected, so do not rely on "
+                "this check alone"
             )
         if name == capture_id and not same_content:
             raise CaptureValidationError(
@@ -185,17 +242,20 @@ def ingest_uxr(
     registry: Path | None = None,
     segment: int | None = None,
     allow_waveform_types: Iterable[str] | None = None,
+    max_samples: int | None = None,
 ) -> dict[str, Any]:
     """Import, validate, analyze and write the results of one scope capture."""
-    registry_path = DEFAULT_REGISTRY if registry is None else registry
+    registry_path = (default_registry() if registry is None else registry).resolve()
     metadata = _resolve_split(json.loads(sidecar_path.read_text()), split)
     validate_metadata(metadata)
+    _check_capture_id(metadata["capture_id"])
     waveform = read_scope_file(
         input_path,
         channel,
         x_increment_s=x_increment_s,
         segment=segment,
         allow_waveform_types=allow_waveform_types,
+        max_samples=max_samples,
     )
     declared = metadata["capture_sample_rate_Sa_per_s"]
     if abs(waveform.measured_sample_rate / declared - 1) > RATE_TOLERANCE:
@@ -224,6 +284,9 @@ def ingest_uxr(
         "capture_id": metadata["capture_id"],
         "split": metadata["split"],
         "waveform": name,
+        "profile": profile,
+        "registry": str(registry_path),
+        "registry_source": "given" if registry is not None else "default under repository root",
         "source_file": input_path.name,
         "source_sha256": digests["sha256"],
         "samples_sha256": digests["samples_sha256"],
@@ -260,6 +323,7 @@ def ingest_uxr(
         np.savez(f"{stem}_eye.npz", eye=analysis.eye, time_ui=analysis.eye_time_ui)
     entry = {
         "split": metadata["split"],
+        "run_id": str(metadata["run_id"]),
         "source_file": input_path.name,
         "recorded_utc": datetime.now(UTC).isoformat(timespec="seconds"),
         **digests,

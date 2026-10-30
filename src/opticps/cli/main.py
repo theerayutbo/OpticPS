@@ -92,6 +92,7 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
         registry=args.registry,
         segment=args.segment,
         allow_waveform_types=args.allow_waveform_type,
+        max_samples=args.max_samples,
     )
     print(f"{summary['capture_id']} ({summary['split']}): {summary['source_format']}")
     print(
@@ -107,6 +108,7 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
     for warning in summary["warnings"]:
         print(f"warning: {warning}")
     print(f"Results in {args.results}")
+    print(f"Leakage registry ({summary['registry_source']}): {summary['registry']}")
     return 0
 
 
@@ -215,11 +217,19 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--split", choices=("training", "test"), help="if the sidecar has none")
     command.add_argument("--results", type=Path, default=Path("results/uxr"))
     command.add_argument(
-        "--registry", type=Path, help="leakage registry (default under data/private)"
+        "--registry",
+        type=Path,
+        help="leakage registry (default: data/private/uxr_registry.json under the repository "
+        "root; the path used is printed)",
     )
     command.add_argument("--segment", type=int, help="segment to read (0-based); HDF5 only")
     command.add_argument(
-        "--allow-waveform-type", action="append", help="accept this HDF5 WaveformType (repeatable)"
+        "--allow-waveform-type",
+        action="append",
+        help="accept this HDF5 or CSV waveform type (repeatable)",
+    )
+    command.add_argument(
+        "--max-samples", type=int, help="most values to read from an HDF5 file (default 5e8)"
     )
 
     command = add("compare-uxr", cmd_compare_uxr, "paired comparison and report from ingest-uxr")

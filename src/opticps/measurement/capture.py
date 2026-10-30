@@ -104,7 +104,13 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
     try:
         validate_probabilities(metadata["symbol_probabilities"], 4)
     except ValueError as error:
-        problems.append(f"invalid probabilities: {error}")
+        hint = (
+            "; renormalise the realised probabilities (divide by their sum) or use the design "
+            "probability_* values from the manifest"
+            if "sum to 1" in str(error)
+            else ""
+        )
+        problems.append(f"invalid probabilities: {error}{hint}")
     try:
         datetime.fromisoformat(metadata["capture_timestamp"])
     except ValueError:

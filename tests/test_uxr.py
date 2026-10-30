@@ -3,6 +3,7 @@
 All fixtures are SYNTHETIC: files and waveforms written by this module, not instrument data.
 """
 
+import hashlib
 import json
 import struct
 from pathlib import Path
@@ -324,7 +325,8 @@ def test_csv_documented_header_fields_are_parsed_in_both_plausible_layouts(tmp_p
     again = read_csv(tmp_path / "row.csv")
     assert again.x_increment_s == 2e-11 and again.x_origin_s == -3e-10
     (tmp_path / "pts.csv").write_text(pairs.replace("Points,64", "Points,99") + f"Data\n{column}")
-    assert "Points is 99" in read_csv(tmp_path / "pts.csv").attributes["warnings"][0]
+    with pytest.raises(UxrImportError, match="Points is 99 but the file has 64"):
+        read_csv(tmp_path / "pts.csv")
     (tmp_path / "xu.csv").write_text(pairs.replace("Second", "Hertz") + f"Data\n{column}")
     with pytest.raises(UxrImportError, match="X unit"):
         read_csv(tmp_path / "xu.csv")
@@ -893,15 +895,30 @@ def test_wrong_reference_is_flagged_as_suspected_mismatch(tmp_path):
     assert any("reference_mismatch_suspected" in w for w in summary["warnings"])
 
 
-def clone_results(source, folder, waveform, runs, offset, unreliable=()):
+def clone_results(
+    source,
+    folder,
+    waveform,
+    runs,
+    offset,
+    unreliable=(),
+    profile=None,
+    sidecar_changes=None,
+    tag="",
+):
     """Copy one real ingest-uxr result under new run ids, with a shifted R_BMD (test fixture)."""
     folder.mkdir(parents=True, exist_ok=True)
     for run in range(1, runs + 1):
         item = json.loads(source.read_text())
-        item["capture_id"] = f"{waveform}-r{run}"
+        item["capture_id"] = f"{tag}{waveform}-r{run}"
+        item["source_sha256"] = hashlib.sha256(item["capture_id"].encode()).hexdigest()
+        item["samples_sha256"] = hashlib.sha256(b"s" + item["capture_id"].encode()).hexdigest()
         item["waveform"] = waveform
+        if profile is not None:
+            item["profile"] = profile
         item["sidecar"]["capture_id"] = item["capture_id"]
         item["sidecar"]["run_id"] = f"r{run}"
+        item["sidecar"].update(sidecar_changes or {})
         item["r_bmd"] = 1.5 + offset + 0.01 * run
         item["rate_estimate_reliable"] = run not in unreliable
         (folder / f"{item['capture_id']}_analysis.json").write_text(json.dumps(item))
@@ -923,6 +940,8 @@ def test_compare_uxr_builds_paired_comparison_audit_and_report(uxr_files, tmp_pa
     clone_results(source, results, "PAM4_B", 6, 0.20)
     train = json.loads(source.read_text())
     train.update(capture_id="train", split="training", error_metrics=None)
+    train["source_sha256"] = hashlib.sha256(b"train").hexdigest()
+    train["samples_sha256"] = hashlib.sha256(b"train-samples").hexdigest()
     train["sidecar"].update(capture_id="train", split="training")
     (results / "train_analysis.json").write_text(json.dumps(train))
     summary = compare_uxr(results)
@@ -1005,3 +1024,602 @@ def test_ingest_uxr_cli_prints_clean_errors_and_accepts_segment_options(
     assert main([*base, "--input", str(peak), "--allow-waveform-type", "peak_detect"]) == 1
     assert "Capture too short" in capsys.readouterr().err
     assert not (tmp_path / "reg.json").exists()
+
+
+# ----------------------------------------------------------------------------- rework 2
+def drop_symbols(wave, frame, after_frames, count, sps):
+    """Remove `count` symbols after `after_frames` frames, as a scope that drops samples."""
+    cut = int(after_frames * frame.indices.size * sps)
+    kept = np.r_[wave.samples_v[:cut], wave.samples_v[cut + count * sps :]]
+    return ScopeWaveform(kept, wave.x_increment_s, 0.0, "V", 1, None, None, None, "synthetic", {})
+
+
+def test_dropped_symbols_between_two_preambles_clear_the_reliable_flag():
+    """A line through 2 preambles has no residual, so dropped samples shift the clock unseen."""
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sigma": 0.33, "sps": 8, "bandwidth": 0.9 * SYMBOL_RATE, "seed": 5}
+    good = scope_capture(frame, 40.0, frames=2.3, start_frac=0.1, **kw)
+    base = analyze_scope_capture(good, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    assert base.frames_found == 2 and base.rate_estimate_reliable
+    assert abs(base.clock_offset_ppm - 40) < 5
+    hurt = analyze_scope_capture(
+        drop_symbols(good, frame, 1.4, 2, 8), SYMBOL_RATE, frame, UNIFORM_PRIORS
+    )
+    assert hurt.frames_found == 2
+    assert abs(hurt.clock_offset_ppm - 40) > 30  # 2 symbols in 32768 is 61 ppm
+    assert hurt.rate_estimate_reliable is False
+    assert hurt.clock_confidence == "low" and hurt.clock_stderr_ppm is None
+    assert any("Clock estimates disagree" in w and "3 or more" in w for w in hurt.warnings)
+
+
+def test_ingest_flags_dropped_symbols_with_the_widened_mismatch_gate(tmp_path):
+    import csv
+
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    with (ROOT / PROFILE / "experiment_manifest.csv").open() as handle:
+        row = next(
+            r for r in csv.DictReader(handle) if r["waveform_filename"].endswith("Uniform.csv")
+        )
+    frame = load_reference(ROOT / PROFILE / "references" / "PAM4_Uniform", "PAM4_Uniform")
+    kw = {"link": False, "sigma": 0.33, "sps": 8, "bandwidth": 0.9 * SYMBOL_RATE, "seed": 5}
+    wave = drop_symbols(
+        scope_capture(frame, 40.0, frames=2.3, start_frac=0.1, **kw), frame, 1.4, 2, 8
+    )
+    write_h5(tmp_path / "d.h5", wave.samples_v.astype("float32"), "float32", xinc=1 / 64e9)
+    probabilities = [float(row[f"probability_{k}"]) for k in ("minus3", "minus1", "plus1", "plus3")]
+    side = write_sidecar(tmp_path, row, probabilities, "d.json", capture_id="drop")
+    summary = ingest_uxr(
+        tmp_path / "d.h5", side, ROOT, PROFILE, tmp_path / "r", registry=tmp_path / "reg.json"
+    )
+    ser = summary["map"]["symbol_errors"] / summary["map"]["symbols"]
+    assert 0.3 < ser < 0.6  # the observed 0.45 sat below the old 0.8 x random threshold
+    assert summary["reference_mismatch_suspected"] is True
+    assert summary["rate_estimate_reliable"] is False
+
+
+def test_one_acquisition_cannot_be_ingested_or_compared_as_several_runs(uxr_files, tmp_path):
+    from datetime import UTC, datetime
+
+    from opticps.measurement.uxr_compare import compare_uxr
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    reg = tmp_path / "reg.json"
+    first = write_sidecar(folder, row, probabilities, "r1.json", capture_id="run-1")
+    ingest_uxr(folder / "cap.h5", first, ROOT, PROFILE, tmp_path / "res", registry=reg)
+    data = sidecar(row, probabilities=probabilities, capture_id="run-2")
+    data["run_id"] = "r2"
+    second = folder / "r2.json"
+    second.write_text(json.dumps(data))
+    with pytest.raises(CaptureValidationError, match="several captures or runs.*different bytes"):
+        ingest_uxr(folder / "cap.h5", second, ROOT, PROFILE, tmp_path / "res", registry=reg)
+    entries = json.loads(reg.read_text())["entries"]
+    assert list(entries) == ["run-1"] and entries["run-1"]["run_id"] == "r1"
+    assert datetime.fromisoformat(entries["run-1"]["recorded_utc"]).tzinfo is not None or UTC
+    # compare-uxr refuses the same bytes or the same samples under two runs
+    source = tmp_path / "res" / "run-1_analysis.json"
+    for key in ("source_sha256", "samples_sha256"):
+        results = tmp_path / f"dup-{key}"
+        clone_results(source, results, "PAM4_A", 6, 0.0)
+        path = results / "PAM4_A-r2_analysis.json"
+        item = json.loads(path.read_text())
+        item[key] = json.loads((results / "PAM4_A-r1_analysis.json").read_text())[key]
+        path.write_text(json.dumps(item))
+        with pytest.raises(ValueError, match=f"same {key}.*cannot count as several runs"):
+            compare_uxr(results)
+        assert main(["compare-uxr", "--results", str(results)]) == 1
+
+
+def test_compare_uxr_refuses_content_shared_between_training_and_test(uxr_files, tmp_path):
+    from opticps.measurement.uxr_compare import compare_uxr
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "tt.json", capture_id="seed2")
+    ingest_uxr(
+        folder / "cap.h5", side, ROOT, PROFILE, tmp_path / "one", registry=tmp_path / "r.json"
+    )
+    source = tmp_path / "one" / "seed2_analysis.json"
+    for key in ("source_sha256", "samples_sha256"):
+        results = tmp_path / f"leak-{key}"
+        clone_results(source, results, "PAM4_A", 6, 0.0)
+        train = json.loads((results / "PAM4_A-r1_analysis.json").read_text())
+        train.update(capture_id="train", split="training", error_metrics=None)
+        train["sidecar"].update(capture_id="train", split="training")
+        train["source_sha256"] = hashlib.sha256(b"fresh-train").hexdigest()
+        train["samples_sha256"] = hashlib.sha256(b"fresh-samples").hexdigest()
+        train[key] = json.loads((results / "PAM4_A-r3_analysis.json").read_text())[key]
+        (results / "train_analysis.json").write_text(json.dumps(train))
+        with pytest.raises(DataLeakageError, match=f"same {key}"):
+            compare_uxr(results)
+    legacy = tmp_path / "legacy"
+    clone_results(source, legacy, "PAM4_A", 6, 0.0)
+    path = legacy / "PAM4_A-r1_analysis.json"
+    item = json.loads(path.read_text())
+    del item["samples_sha256"]
+    path.write_text(json.dumps(item))
+    with pytest.raises(ValueError, match="no samples_sha256"):
+        compare_uxr(legacy)
+
+
+@pytest.fixture(scope="module")
+def seed_result(uxr_files, tmp_path_factory):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    out = tmp_path_factory.mktemp("seed")
+    side = write_sidecar(folder, row, probabilities, "seed3.json", capture_id="seed3")
+    ingest_uxr(folder / "cap.h5", side, ROOT, PROFILE, out, registry=out / "reg.json")
+    return out / "seed3_analysis.json"
+
+
+def test_compare_uxr_withholds_the_verdict_for_mixed_sources_or_differing_fields(
+    seed_result, tmp_path
+):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    mixed = tmp_path / "mixed"
+    clone_results(seed_result, mixed, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, mixed, "PAM4_B", 6, 0.2, sidecar_changes={"data_source": "measured"})
+    (pair,) = compare_uxr(mixed)["comparisons"]
+    assert "verdict" not in pair and "data sources mix (measured, simulated)" in pair["result"]
+    rate = tmp_path / "rate"
+    clone_results(seed_result, rate, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, rate, "PAM4_B", 6, 0.2, sidecar_changes={"symbol_rate_Bd": 5.6e10})
+    (pair,) = compare_uxr(rate)["comparisons"]
+    assert "verdict" not in pair and "Symbol rate (uncontrolled" in pair["result"]
+    assert "verdict withheld" in (rate / "uxr_report.md").read_text()
+    other = tmp_path / "power"
+    clone_results(seed_result, other, "PAM4_A", 6, 0.0)
+    clone_results(
+        seed_result, other, "PAM4_B", 6, 0.2, sidecar_changes={"optical_received_power_dBm": -20}
+    )
+    (pair,) = compare_uxr(other)["comparisons"]
+    assert "verdict" not in pair and "Optical received power" in pair["result"]
+    same = tmp_path / "same"
+    clone_results(seed_result, same, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, same, "PAM4_B", 6, 0.2)
+    assert "verdict" in compare_uxr(same)["comparisons"][0]
+
+
+def test_compare_uxr_keeps_profiles_separate(seed_result, tmp_path):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    results = tmp_path / "profiles"
+    clone_results(seed_result, results, "PAM4_A", 6, 0.0, profile="P1")
+    clone_results(seed_result, results, "PAM4_A", 6, 0.2, profile="P2", tag="p2-")
+    clone_results(seed_result, results, "PAM4_B", 6, 0.1, profile="P2", tag="p2-")
+    comparisons = compare_uxr(results)["comparisons"]
+    assert [(c["profile"], c["pair"]) for c in comparisons] == [("P2", ["PAM4_A", "PAM4_B"])]
+    assert comparisons[0]["mean"] == pytest.approx(0.1)  # P1's PAM4_A never mixes into P2
+    assert "P2: PAM4_A vs PAM4_B" in (results / "uxr_report.md").read_text()
+    assert main(["compare", "--results", str(results)]) == 0  # the protocol says it reads this
+    stale = tmp_path / "noprofile"
+    clone_results(seed_result, stale, "PAM4_A", 6, 0.0)
+    path = stale / "PAM4_A-r1_analysis.json"
+    item = json.loads(path.read_text())
+    del item["profile"]
+    path.write_text(json.dumps(item))
+    with pytest.raises(ValueError, match="no profile"):
+        compare_uxr(stale)
+
+
+# -- HDF5 metadata datasets and the guide's example attribute names
+def make_frame_group(path, builder):
+    with h5py.File(path, "r+") as f:
+        del f["Frame"]
+        builder(f)
+
+
+def test_hdf5_metadata_datasets_get_the_same_storage_checks_as_waveform_data(tmp_path):
+    secret = tmp_path / "secret.bin"
+    secret.write_bytes(b"TOPSECRET-KEY-MATERIAL" + b"\0" * 42)
+    other = tmp_path / "o.h5"
+    with h5py.File(other, "w") as f:
+        f.create_dataset("data", data=np.arange(100, dtype="f4"))
+    frame_type = np.dtype([("Model", "S10"), ("Serial", "S6"), ("Date", "S6")])
+
+    def external_frame(f):
+        f.create_group("Frame").create_dataset(
+            "TheFrame", shape=(1,), dtype=frame_type, external=[(str(secret), 0, 22)]
+        )
+
+    def huge_frame(f):
+        f.create_group("Frame").create_dataset(
+            "TheFrame", shape=(10**9,), dtype="f4", chunks=(4096,)
+        )
+
+    def linked_frame(f):
+        f.create_group("Frame")["TheFrame"] = h5py.ExternalLink(str(other), "data")
+
+    def null_frame(f):
+        f.create_group("Frame").create_dataset("TheFrame", data=h5py.Empty("f4"))
+
+    def empty_frame(f):
+        f.create_group("Frame").create_dataset("TheFrame", shape=(0,), dtype=frame_type)
+
+    def virtual_type(f):
+        layout = h5py.VirtualLayout(shape=(100,), dtype="f4")
+        layout[:] = h5py.VirtualSource(str(other), "data", shape=(100,))
+        f["FileType"].create_virtual_dataset("Virtual", layout)
+        del f["FileType/KeysightH5FileType"]
+        f["FileType/KeysightH5FileType"] = f["FileType/Virtual"]
+
+    cases = {
+        "external storage": (external_frame, "virtual or external storage"),
+        "huge": (huge_frame, "more than the limit"),
+        "extlink": (linked_frame, "ExternalLink"),
+        "null": (null_frame, "null dataspace"),
+        "empty": (empty_frame, "is empty"),
+    }
+    for name, (builder, word) in cases.items():
+        path = tmp_path / f"{name.replace(' ', '_')}.h5"
+        write_h5(path, np.arange(64))
+        make_frame_group(path, builder)
+        with pytest.raises(UxrImportError, match=word):
+            read_hdf5(path)
+    path = tmp_path / "ft_ext.h5"
+    write_h5(path, np.arange(64))
+    with h5py.File(path, "r+") as f:
+        del f["FileType/KeysightH5FileType"]
+        f["FileType"].create_dataset(
+            "KeysightH5FileType", shape=(22,), dtype="S1", external=[(str(secret), 0, 22)]
+        )
+    with pytest.raises(UxrImportError, match="virtual or external storage"):
+        read_hdf5(path)
+    path = tmp_path / "ft_virtual.h5"
+    write_h5(path, np.arange(64))
+    with h5py.File(path, "r+") as f:
+        del f["FileType/KeysightH5FileType"]
+        layout = h5py.VirtualLayout(shape=(100,), dtype="f4")
+        layout[:] = h5py.VirtualSource(str(other), "data", shape=(100,))
+        f["FileType"].create_virtual_dataset("KeysightH5FileType", layout)
+    with pytest.raises(UxrImportError, match="virtual or external storage"):
+        read_hdf5(path)
+    path = tmp_path / "ft_group.h5"
+    write_h5(path, np.arange(64))
+    with h5py.File(path, "r+") as f:
+        del f["FileType/KeysightH5FileType"]
+        f["FileType"].create_group("KeysightH5FileType")
+    with pytest.raises(UxrImportError, match="not a dataset"):
+        read_hdf5(path)
+    path = tmp_path / "null_data.h5"
+    write_h5(path, np.arange(64))
+    with h5py.File(path, "r+") as f:
+        del f["Waveforms/Channel 1/Channel 1Data"]
+        f["Waveforms/Channel 1"].create_dataset("Channel 1Data", data=h5py.Empty("f4"))
+    with pytest.raises(UxrImportError, match="null dataspace"):
+        read_hdf5(path)
+
+
+@pytest.mark.parametrize(
+    "name,value,expected",
+    [
+        ("Waveform Type", 1, "NORMAL"),
+        ("Waveform Type", 3, "AVERAGE"),
+        ("WaveformType", 1, "NORMAL"),
+        ("Waveform Type", np.int32(1), "NORMAL"),
+        ("Waveform Type", "Normal", "NORMAL"),
+        ("WaveformType", np.bytes_("AVERAGE"), "AVERAGE"),
+    ],
+)
+def test_hdf5_accepts_the_guides_example_waveform_type_forms(tmp_path, name, value, expected):
+    drop = () if name == "WaveformType" else ("WaveformType",)
+    write_h5(tmp_path / "g.h5", np.arange(64), attrs={name: value}, drop=drop)
+    wave = read_hdf5(tmp_path / "g.h5")
+    assert wave.samples_v.size == 64 and wave.attributes["waveform_type"] == expected
+
+
+@pytest.mark.parametrize("code", [0, 2, 4, 5, 6, 7, 1.5])
+def test_hdf5_other_integer_waveform_types_stay_refused(tmp_path, code):
+    write_h5(
+        tmp_path / "t.h5", np.arange(64), attrs={"Waveform Type": code}, drop=("WaveformType",)
+    )
+    with pytest.raises(UxrImportError, match="not allowed|guide's codes"):
+        read_hdf5(tmp_path / "t.h5")
+    if code in (2, 4):  # a known type can still be allowed by name
+        names = {2: "PEAK DETECT", 4: "HORIZONTAL HISTOGRAM"}
+        assert read_hdf5(tmp_path / "t.h5", allow_waveform_types=[names[code]]).samples_v.size == 64
+
+
+def test_hdf5_conflicting_or_integer_coded_attributes(tmp_path):
+    write_h5(tmp_path / "c.h5", np.arange(64), attrs={"Waveform Type": 3})  # WaveformType is NORMAL
+    with pytest.raises(UxrImportError, match="disagree"):
+        read_hdf5(tmp_path / "c.h5")
+    write_h5(tmp_path / "u.h5", np.arange(64), attrs={"XUnits": 2, "YUnits": 1})
+    assert read_hdf5(tmp_path / "u.h5").samples_v.size == 64
+    write_h5(tmp_path / "bu.h5", np.arange(64), attrs={"YUnits": 4})
+    with pytest.raises(UxrImportError, match="Unit code"):
+        read_hdf5(tmp_path / "bu.h5")
+    write_h5(tmp_path / "no.h5", np.arange(64), drop=("WaveformType",))
+    with pytest.raises(UxrImportError, match="Waveform Type"):
+        read_hdf5(tmp_path / "no.h5")
+
+
+def test_hdf5_numpoints_must_be_whole_and_max_samples_is_configurable(tmp_path, capsys):
+    write_h5(tmp_path / "f.h5", np.arange(64), attrs={"NumPoints": 64.5})
+    with pytest.raises(UxrImportError, match="not a whole number"):
+        read_hdf5(tmp_path / "f.h5")
+    write_h5(tmp_path / "ok.h5", np.arange(64), attrs={"NumPoints": 64.0})
+    assert read_hdf5(tmp_path / "ok.h5").samples_v.size == 64
+    with pytest.raises(UxrImportError, match="exceed the limit of 10"):
+        read_scope_file(tmp_path / "ok.h5", max_samples=10)
+    assert read_scope_file(tmp_path / "ok.h5", max_samples=64).samples_v.size == 64
+    (tmp_path / "a.bin").write_bytes(make_bin(RAMP))
+    with pytest.raises(UxrImportError, match="HDF5 files only"):
+        read_scope_file(tmp_path / "a.bin", max_samples=10)
+    base = ["ingest-uxr", "--sidecar", str(tmp_path / "none.json"), "--profile", PROFILE]
+    args = [*base, "--input", str(tmp_path / "ok.h5"), "--max-samples", "10"]
+    assert main(args) == 1  # the sidecar is read first; the option itself must parse
+    assert capsys.readouterr().err.startswith("error:")
+
+
+def test_ingest_passes_max_samples_to_the_importer(uxr_files, tmp_path):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "ms.json", capture_id="ms")
+    with pytest.raises(UxrImportError, match="exceed the limit of 100"):
+        ingest_uxr(
+            folder / "cap.h5", side, ROOT, PROFILE, tmp_path, registry=tmp_path / "r.json",
+            max_samples=100,
+        )  # fmt: skip
+
+
+# -- registry shapes, default location, capture id
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[]", "null", "5", '"x"', "{}", '{"entries": []}', '{"entries": null}',
+        '{"entries": {"a": "str"}}', '{"entries": {"a": null}}', '{"entries": {"a": {}}}',
+        '{"entries": {"a": {"split": "other"}}}', '{"entries": {"a": {"split": "test", "x": 1}}}',
+        "{not json", "",
+    ],
+)  # fmt: skip
+def test_every_malformed_registry_shape_fails_cleanly(uxr_files, tmp_path, capsys, text):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "rs.json", capture_id="rs")
+    registry = tmp_path / "reg.json"
+    registry.write_text(text)
+    with pytest.raises(CaptureValidationError, match="Registry"):
+        ingest_uxr(folder / "cap.h5", side, ROOT, PROFILE, tmp_path / "o", registry=registry)
+    assert registry.read_text() == text
+    args = ["ingest-uxr", "--input", str(folder / "cap.h5"), "--sidecar", str(side)]
+    args += ["--profile", PROFILE, "--output", str(ROOT), "--results", str(tmp_path / "o")]
+    assert main([*args, "--registry", str(registry)]) == 1
+    assert capsys.readouterr().err.startswith("error: Registry")
+
+
+def test_registry_that_is_a_directory_fails_cleanly(uxr_files, tmp_path):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "rd.json", capture_id="rd")
+    with pytest.raises(CaptureValidationError, match="is a directory"):
+        ingest_uxr(folder / "cap.h5", side, ROOT, PROFILE, tmp_path / "o", registry=tmp_path)
+
+
+def test_default_registry_is_resolved_from_the_repository_root_and_stated(
+    uxr_files, tmp_path, monkeypatch, capsys
+):
+    from opticps.measurement.uxr_ingest import default_registry
+
+    root = ROOT.resolve()
+    repo = tmp_path / "repo"
+    (repo / "deep" / "er").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\n")
+    expected = (repo / "data" / "private" / "uxr_registry.json").resolve()
+    monkeypatch.chdir(repo / "deep" / "er")
+    assert default_registry() == expected
+    monkeypatch.chdir(repo)
+    assert default_registry() == expected
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "dr.json", capture_id="dr")
+    args = ["ingest-uxr", "--input", str(folder / "cap.h5"), "--sidecar", str(side)]
+    args += [
+        "--profile",
+        PROFILE,
+        "--output",
+        str(root),
+        "--results",
+        str(tmp_path / "o"),
+    ]
+    monkeypatch.chdir(repo / "deep" / "er")
+    assert main(args) == 0
+    assert expected.exists() and not (repo / "deep" / "er" / "data").exists()
+    summary = json.loads((tmp_path / "o" / "dr_analysis.json").read_text())
+    assert summary["registry"] == str(expected)
+    assert summary["registry_source"] == "default under repository root"
+    assert (
+        f"Leakage registry (default under repository root): {expected}" in capsys.readouterr().out
+    )
+    # without any repository root the default falls under the starting directory
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    assert default_registry(bare) == (bare / "data" / "private" / "uxr_registry.json").resolve()
+
+
+@pytest.mark.parametrize(
+    "bad", ["../escaped", "a/b", "a\\b", "", ".hidden", "..", "x" * 129, "name with space", "é"]
+)
+def test_capture_id_must_be_a_plain_file_name(uxr_files, tmp_path, bad):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    data = sidecar(row, probabilities=probabilities, capture_id=bad)
+    path = folder / "badid.json"
+    path.write_text(json.dumps(data))
+    results = tmp_path / "deep" / "results"
+    with pytest.raises((CaptureValidationError, ValueError)):
+        ingest_uxr(folder / "cap.h5", path, ROOT, PROFILE, results, registry=tmp_path / "r.json")
+    assert not list(tmp_path.glob("escaped*")) and not results.exists()
+    assert not (tmp_path / "r.json").exists()
+
+
+def test_realised_probability_error_names_the_remedy(uxr_files, tmp_path):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, _ = uxr_files
+    side = write_sidecar(folder, row, [0.25, 0.25, 0.25, 0.250001], "p.json", capture_id="pr")
+    with pytest.raises(CaptureValidationError, match="renormalise.*design"):
+        ingest_uxr(folder / "cap.h5", side, ROOT, PROFILE, tmp_path, registry=tmp_path / "r.json")
+
+
+# -- BIN
+def bin_waveform(samples, label=b"Channel 1", points=None, buffer_size=None, segment=0):
+    n = len(samples)
+    wave = struct.pack(
+        "<iiiiifdddii16s16s24s16sdI",
+        140, 1, 1, n if points is None else points, 1, 0.0, 0.0, 1e-11, 0.0, 2, 1,
+        b"01 JAN 2026", b"12:00:00", b"SYNTH:SN0", label, 0.0, segment,
+    )  # fmt: skip
+    size = 4 * n if buffer_size is None else buffer_size
+    return wave + struct.pack("<ihhi", 12, 1, 4, size) + np.asarray(samples, "<f4").tobytes()
+
+
+def bin_file(*parts):
+    body = b"".join(parts)
+    return struct.pack("<2s2sii", b"AG", b"10", 12 + len(body), len(parts)) + body
+
+
+def test_bin_rejects_negative_sizes_that_would_read_the_whole_file(tmp_path):
+    for name, blob in {
+        "points": bin_file(bin_waveform(RAMP, points=-1, buffer_size=-4)),
+        "buffer": bin_file(bin_waveform(RAMP, buffer_size=-4)),
+    }.items():
+        (tmp_path / f"{name}.bin").write_bytes(blob)
+        with pytest.raises(UxrImportError, match="negative"):
+            read_bin(tmp_path / f"{name}.bin")
+
+
+def test_bin_channels_are_never_silently_relabelled(tmp_path):
+    one = tmp_path / "c3.bin"
+    one.write_bytes(bin_file(bin_waveform(RAMP, label=b"Channel 3")))
+    with pytest.raises(UxrImportError, match="holds 'Channel 3' but channel 1 was requested"):
+        read_scope_file(one)  # the dispatcher default is channel 1
+    wave = read_scope_file(one, channel=3)
+    assert wave.channel == 3 and wave.attributes["label"] == "Channel 3"
+    assert read_bin(one).channel == 3  # label names the channel when none is requested
+    plain = tmp_path / "plain.bin"
+    plain.write_bytes(bin_file(bin_waveform(RAMP, label=b"")))
+    got = read_scope_file(plain, channel=2)
+    assert got.channel == 2 and "not checked" in got.attributes["channel_unverified"]
+    both = tmp_path / "two.bin"
+    both.write_bytes(
+        bin_file(
+            bin_waveform(np.ones(8), label=b"Channel 3"),
+            bin_waveform(np.ones(8) * 2, label=b"Channel 4"),
+        )
+    )
+    with pytest.raises(UxrImportError, match="0 are labelled 'Channel 1'"):
+        read_scope_file(both, channel=1)  # nothing is labelled Channel 1: no relabelling
+
+
+def test_bin_with_several_waveforms_selects_by_label_and_refuses_segments(tmp_path):
+    both = tmp_path / "two.bin"
+    both.write_bytes(
+        bin_file(
+            bin_waveform(np.ones(8), label=b"Channel 3"),
+            bin_waveform(np.ones(8) * 2, label=b"Channel 4"),
+        )
+    )
+    with pytest.raises(UxrImportError, match="0 are labelled 'Channel 1'"):
+        read_scope_file(both)
+    chosen = read_scope_file(both, channel=4)
+    assert chosen.channel == 4 and np.allclose(chosen.samples_v, 2.0)
+    with pytest.raises(UxrImportError, match="select one with channel"):
+        read_bin(both)
+    segments = tmp_path / "seg.bin"
+    segments.write_bytes(
+        bin_file(
+            bin_waveform(np.ones(8), segment=1),
+            bin_waveform(np.ones(8) * 2, segment=2),
+        )
+    )
+    with pytest.raises(UxrImportError, match="2 are labelled 'Channel 1'.*segments"):
+        read_scope_file(segments)
+    flagged = tmp_path / "flag.bin"
+    flagged.write_bytes(bin_file(bin_waveform(np.ones(8), segment=7)))
+    assert "segment index is 7" in read_scope_file(flagged).attributes["warnings"][0]
+
+
+# -- CSV type and segments
+def test_csv_type_versus_and_segments_are_refused_by_default(tmp_path):
+    column = "".join(f"{v!r}\n" for v in RAMP.tolist())
+
+    def write(name, **fields):
+        base = {"Revision": "0", "Type": "normal", "Points": "64", "XInc": "2e-11"}
+        base.update(fields)
+        text = "".join(f"{k},{v}\n" for k, v in base.items())
+        (tmp_path / name).write_text(f"{text}XUnits,Second\nYUnits,Volt\nData\n{column}")
+        return tmp_path / name
+
+    for kind in ("normal", "raw", "NORMal", "average", "AVER"):
+        assert read_csv(write("ok.csv", Type=kind)).samples_v.size == 64
+    with pytest.raises(UxrImportError, match="Type 'versus' is not allowed.*XY plot"):
+        read_csv(write("v.csv", Type="versus"))
+    with pytest.raises(UxrImportError, match="Type 'interpolate' is not allowed"):
+        read_scope_file(write("i.csv", Type="interpolate"))
+    allowed = read_scope_file(write("va.csv", Type="versus"), allow_waveform_types=["versus"])
+    assert allowed.attributes["waveform_type"] == "VERSUS"
+    with pytest.raises(UxrImportError, match="Segments is 3"):
+        read_csv(write("s.csv", Segments="3"))
+    with pytest.raises(UxrImportError, match="Segments is 3"):
+        read_csv(write("s2.csv", Segments="3"), allow_waveform_types=["normal"])
+    assert read_csv(write("s1.csv", Segments="1")).samples_v.size == 64
+    with pytest.raises(UxrImportError, match="Segments is not a whole number"):
+        read_csv(write("sf.csv", Segments="1.5"))
+    with pytest.raises(UxrImportError, match="Points is not a whole number"):
+        read_csv(write("pf.csv", Points="63.5"))
+    with pytest.raises(UxrImportError, match="Points is 65 but the file has 64"):
+        read_csv(write("pm.csv", Points="65"))
+    (tmp_path / "a.bin").write_bytes(make_bin(RAMP))
+    with pytest.raises(UxrImportError, match="HDF5 and CSV"):
+        read_scope_file(tmp_path / "a.bin", allow_waveform_types=["normal"])
+
+
+# -- the documents: every command must parse
+def document_commands():
+    """Every `opticps ...` command in a fenced block of the three guides, backslashes joined."""
+    import shlex
+
+    commands = []
+    for name in (
+        "README.md",
+        "output/README_SOUTHAMPTON.md",
+        "docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md",
+    ):
+        text = Path(name).read_text().replace("\\\n", " ")
+        for block in text.split("```")[1::2]:
+            for line in block.splitlines():
+                words = shlex.split(line.split("#")[0])
+                if "opticps" in words:
+                    commands.append((name, words[words.index("opticps") + 1 :]))
+    return commands
+
+
+def test_every_opticps_command_in_the_guides_parses():
+    from opticps.cli.main import build_parser
+
+    commands = document_commands()
+    assert len(commands) >= 12
+    parser = build_parser()
+    for name, words in commands:
+        try:
+            parser.parse_args(words)
+        except SystemExit as error:  # argparse exits on an unknown command or option
+            raise AssertionError(f"{name}: opticps {' '.join(words)} does not parse") from error
+
+
+def test_guides_send_measured_captures_to_ingest_uxr_not_analyze():
+    for name in ("README.md", "output/README_SOUTHAMPTON.md"):
+        text = Path(name).read_text()
+        assert "opticps ingest-uxr" in text and "opticps compare-uxr" in text
+        for block in text.split("```")[1::2]:
+            assert "opticps analyze" not in block, name
+            assert "opticps compare\n" not in block and "opticps compare " not in block.replace(
+                "compare-uxr", ""
+            ), name

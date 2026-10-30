@@ -724,6 +724,7 @@ def analyze_scope_capture(
         high += 1
     phase = float(PHASES[low] + PHASES[high]) / 2  # centre of the open part of the eye
     tracks = []
+    disputed: list[tuple[float, float]] = []
     for _, start in complete:
         if not compensate_clock:
             tracks.append(_Track(start, timing.q, None, None, 0.0))
@@ -736,9 +737,11 @@ def analyze_scope_capture(
         failed = track.residual_rms is not None and track.residual_rms > TRACK_RESIDUAL_LIMIT
         if too_big or failed:
             if too_big:
-                warnings.append(
-                    f"Timing tracking proposed a {correction:.0f} ppm correction to a clock "
-                    "fitted from frame spacing; it was discarded"
+                disputed.append(
+                    (
+                        1e6 * (rate / track.q / symbol_rate_nominal - 1),
+                        1e6 * (rate / timing.q / symbol_rate_nominal - 1),
+                    )
                 )
             track = replace(track, start=start, q=timing.q, drift_samples=0.0)
         tracks.append(track)
@@ -810,6 +813,19 @@ def analyze_scope_capture(
             "Frame spacing was irregular, so lost frames cannot be counted; rate estimate "
             "marked unreliable"
         )
+    if disputed:
+        tracker_ppm, spacing_ppm = max(disputed, key=lambda pair: abs(pair[0] - pair[1]))
+        reliable = False
+        warnings.append(
+            f"Clock estimates disagree: timing tracking inside the frame gives {tracker_ppm:.1f} "
+            f"ppm, the fit to frame spacing gives {spacing_ppm:.1f} ppm "
+            f"({abs(tracker_ppm - spacing_ppm):.1f} ppm apart, "
+            f"limit {TRACK_MAX_CORRECTION_PPM:g}). "
+            "The tracked correction was discarded, but the spacing clock cannot be trusted: "
+            "dropped or inserted samples between preambles shift it, and a fit through 2 "
+            "preambles has no residual to reveal that. The clock is marked low confidence and "
+            "the rate estimate unreliable; capture 3 or more full frames"
+        )
     residuals = [t.residual_rms for t in tracks if t.residual_rms is not None]
     untracked = [t for t in tracks if t.residual_rms is None]
     if residuals and max(residuals) > TRACK_RESIDUAL_LIMIT:
@@ -840,6 +856,9 @@ def analyze_scope_capture(
         warnings.append(
             "Clock refined by decision-directed timing tracking over the frame (medium confidence)"
         )
+    if disputed:
+        confidence = "low"
+        stderr_ppm = None
     estimated_rate = rate / q_final
     expected_count = len(expected_numbers)
     lost_symbols = len(lost) * distinct

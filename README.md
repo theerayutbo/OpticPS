@@ -59,22 +59,16 @@ These are starting points, not proof the optical link supports either speed. Opt
 
 ## Southampton data import
 
-Save captures as `received_time_s,received_voltage_v` plus a JSON sidecar (`data/templates/capture_template.json`) under `data/private/southampton/`, which git ignores.
+The receiver is a Keysight Infiniium UXR Series oscilloscope at 256 GSa/s (exact model suffix unconfirmed). Save each acquisition as an HDF5, CSV or BIN export, plus a JSON sidecar (`data/templates/capture_template.json`) with `"data_source": "measured"`, under `data/private/southampton/`, which git ignores.
 
-```bash
-uv run opticps ingest  --input data/private/southampton/
-uv run opticps analyze --input data/private/southampton/ --profile A_initial_8GBd
-uv run opticps compare
-```
-
-The receiver is a Keysight Infiniium UXR Series oscilloscope at 256 GSa/s (exact model suffix unconfirmed), but the older capture format stays receiver-agnostic. Real UXR exports (HDF5, CSV, BIN) are not periodic captures, so they never go through `analyze`. Use:
+A scope record is not one exact period, so measured captures never go through `opticps analyze`; it refuses them. (`opticps ingest`, `opticps analyze` and `opticps compare` handle only the older periodic `received_time_s,received_voltage_v` captures with `data_source` simulated.) Use `ingest-uxr` for each capture and `compare-uxr` for the paired comparison and report:
 
 ```bash
 uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar data/private/southampton/run1.json --profile A_initial_8GBd --results results/uxr
 uv run opticps compare-uxr --results results/uxr
 ```
 
-See `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`. The importers are tested on synthetic files only.
+`ingest-uxr` keeps a leakage registry (default `data/private/uxr_registry.json` under the repository root; the path used is printed, and `--registry` overrides it). Use one registry for the whole campaign. It refuses a capture whose bytes or samples were already used as the other split or under another capture id; a re-export with different bytes cannot be detected. See `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`. The importers are tested on synthetic files only.
 
 ## Reports and slides
 

@@ -1,4 +1,4 @@
-# Handoff: v1.2 UXR (Dev), branch v1.2-uxr, rework 1
+# Handoff: v1.2 UXR (Dev), branch v1.2-uxr, rework 2
 
 Not accepted; awaiting independent re-review. All fixtures are synthetic; no real UXR file was seen. The official guides (read as text, not committed) replaced earlier inferences.
 
@@ -10,9 +10,12 @@ Not accepted; awaiting independent re-review. All fixtures are synthetic; no rea
 1 tracking: early-late statistic on blocks of payload decisions, slope calibrated on training, line fit, one sequential pass then 2 refits. 2 `compare-uxr` plus `analyze` refusal. 3 lost frames counted, worst case stated. 4 content-hash registry (`--registry`, written after success). 5 training reports no payload value. 6 distinct symbols. 7 irregular spacing falls back; warning is true. 8 `--segment`, `--allow-waveform-type`. 9 units parsed. 10 manifest priors and symbol-rate gate, `reference_mismatch_suspected`. 11 length guard, no 1e-30 path, clean CLI errors. 12 full pytest after merge. 13 protocol overclaims removed (Profile B is 4.57 sps). 14 zero-error capture-level stats. 15 HDF5 links, external, virtual, shape and maximum checks. 16 NumSegments 0 is real (guide p2090); SavedInterpFactor warning.
 Coordinator additions: null received power (A); UXR receiver docs and M8100 guide statuses (B); BIN strict validation replaces the unverified flag; HDF5 scaling cited to p598; CSV header fields parsed; manual SCPI table with pages.
 
+## Rework 2 findings (N1 to N13)
+N1 two-preamble fit cannot show dropped samples: when tracking disagrees with the spacing clock by more than 10 ppm, `rate_estimate_reliable` clears, the clock drops to low confidence (no stderr) and one warning names both values; the mismatch gate is now SNR under 6 dB with SER at least 0.4 of random (0.453 escaped 0.6); protocol asks for 3+ frames. N2 registry also refuses the same content under a second capture id (run id stored); `compare-uxr` refuses a repeated file or samples hash and says a re-export with different bytes is not detected. N3 hashes are compared across training and test (`DataLeakageError`); a result without hashes or profile is refused. N4 every dataset read (waveform, `Frame/TheFrame`, `FileType`) goes through one helper: links, external or virtual storage, null dataspace, non-dataset, metadata size cap. N5 `Waveform Type` and `WaveformType`, name or integer code (1 Normal, 3 Average, others refused unless allowed by name), integer unit codes 1 and 2. N6 a pair's verdict is withheld for mixed data sources or uncontrolled or partly recorded fields; groups are keyed by profile (now stored in each result). N7 both READMEs use ingest-uxr and compare-uxr; a test parses every `opticps` command in README, lab guide and protocol. N8 all registry shapes give a clean `Registry ...` error; null HDF5 dataspace too. N9 default registry is under the repository root (walk up to `pyproject.toml`), and the resolved path is printed and stored. N10 capture id must be a plain file name. N11 negative BIN sizes refused; channel comes from the waveform label, no silent relabel; repeated labels (segments) refused. N12 CSV `Type` interpolate or versus and `Segments` above 1 refused, Points mismatch is an error. N13 `NumPoints` must be whole; `--max-samples` through CLI, `ingest_uxr` and `read_scope_file`. Optional: probability error names the remedy.
+
 ## Results (this machine)
 - Single frame, Profile B, sigma 0.33, 20 seeds, clocks -150 to +200 ppm: SER mean 6.5e-4, min 4.0e-4, max 8.8e-4. Multi-frame, same setup: 6.5e-4. Clock error at most 0.07 ppm.
-- Counts and tip SHA: see the final reply.
+- Rework 2: the dropped-symbol scenario (2 symbols lost between 2 preambles, 61 ppm) now returns reliable False, low confidence. Counts and tip SHA: see the final reply.
 
 ## Limitations and open risks
 - Tracking is decision-directed and needs band-limited edges. With unfiltered rectangular pulses the statistic is noisy; the result is then discarded or flagged unreliable. The 0.5-sample residual limit and the 10 ppm cap on corrections to a spacing-fitted clock are judgement values.
@@ -20,3 +23,6 @@ Coordinator additions: null received power (A); UXR receiver docs and M8100 guid
 - The leakage registry cannot see other registries, re-exports or re-acquisitions (the protocol says so).
 - CSV separator and spelling, BIN on a real file, and HDF5 attribute names against a real file are unverified. Manifest realised probabilities can sum to 1.000001; the gate accepts 1e-5.
 - `reporting/report.py` placeholder text still says "receiver yet to be identified"; reports were not regenerated.
+- The 10 ppm tracker-versus-spacing limit, the 6 dB and 0.4 mismatch gate, and treating "partly recorded" as differing in the verdict check are judgement values. A genuinely noisy but correct capture below 6 dB SNR is also flagged; that is conservative.
+- BIN channel selection by label assumes the label reads `Channel N`; the guide only calls it a 16-character label. An unlabelled single waveform is read as the requested channel with a note.
+- Old `*_analysis.json` files without hashes or profile are refused by `compare-uxr`; re-run `ingest-uxr` (use a fresh registry or remove the old entries).
