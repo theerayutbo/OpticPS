@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.coverage
+
+# Local agent/tool state
+.omc/
+.claude/
+.DS_Store
+
+# Copyrighted papers are cited, never redistributed
+*.pdf
+!reports/OpticPS_Research_Report.pdf
+!slides/OpticPS_Research_Presentation.pdf
+
+# Private laboratory data must never be committed
+data/private/*
+!data/private/README.md
+
+# Secrets
+.env
+*.pem
+*.key
