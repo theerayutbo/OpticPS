@@ -119,3 +119,9 @@ Final simulated results, seed 42, config e39084adac9d, version 1.0.0, runtime 28
 M8100 Programming Guide (146 pages) and UXR Programmer's Guide (2156 pages) were fetched with a plain curl client, no altered User-Agent, from Keysight's public www.keysight.com/nz/ asset URLs, which served the PDFs directly. Text was extracted locally. The PDFs are not committed.
 
 Result: the exported waveform CSV format is confirmed against pp129-133: mandatory first row DataOut1, normalized floats within -1 to +1, `:TRAC:IMP` syntax, segment id 1. Not found in that guide: 512-sample granularity, 1,048,576 maximum, M8199B AC coupling. Playback remains unverified. The rows in VERIFICATION.md and HARDWARE_COMPATIBILITY.md are updated on branch v1.2-uxr.
+
+## 2026-10-30 | v1.1 G.652 gate
+
+Dev: Sonnet. Loki: Opus. First review FAIL at 8a3b425 (two provenance and override defects; physics and standard numbers passed). Second review PASS at cd443f9 with 7 low findings, recorded in CHANGELOG.
+
+Results: v1.0 fiber sweep reproduced 45 of 45 points on the default path. Before/after at Profile A, Uniform, 40 km, seed 42: v1.0 SER 0.5901, R_BMD 0.196, -27.01 dBm; G.652.D representative SER 0.6739, R_BMD 0.042, -30.01 dBm. The difference comes from attenuation, 0.275 versus 0.2 dB/km, over 40 km. The beta3 term changes at most 8 symbol errors. Waveform CSV tree identical to v1.0.0. All simulated; nothing here is experimentally validated.
