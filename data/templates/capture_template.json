@@ -26,6 +26,7 @@
   "awg_sample_rate_Sa_per_s": null,
   "electrical_amplitude_Vpp": null,
   "modulator_parameters": null,
+  "fiber": null,
   "symbol_probabilities": [
     0.25,
     0.25,

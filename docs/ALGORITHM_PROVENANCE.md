@@ -10,6 +10,9 @@
 | Gray code | Gray, US Patent 2,632,058 |
 | CD power fading | Wang, Petermann, JLT 1992, doi:10.1109/50.108743 |
 | MZM transfer | Wooten et al., IEEE JSTQE 2000, doi:10.1109/2944.826874 |
+| Fiber attenuation and dispersion limits, G.652.D tables, Table I.1 representative values | Rec. ITU-T G.652 (08/2024), edition 10.0, Tables 2 and I.1, Eq. (6-1) to (6-3); Eq. (6-2) signs reconstructed and confirmed by continuity with Eq. (6-3) at 1460 nm |
+| Three-term Sellmeier dispersion and its derivative | Rec. ITU-T G.652 (08/2024), Eq. (6-1) and Appendix I; the representative-curve fit through D1550 and S1550 is an OpticPS model choice |
+| Dispersion phase beta2, beta3 and sign convention | Standard fiber optics (Agrawal, Nonlinear Fiber Optics); beta3 = (lambda^4 S + 2 lambda^3 D) / (4 pi^2 c^2) derived from beta2 = -D lambda^2 / (2 pi c); sign verified against numpy's FFT by a group delay test |
 | Bootstrap | Efron 1979, doi:10.1214/aos/1176344552; Kuensch 1989, doi:10.1214/aos/1176347265 |
 | Binomial interval | Clopper, Pearson 1934, doi:10.1093/biomet/26.4.404 |
 

@@ -17,6 +17,8 @@ DEFAULT_DEMO = Path("configs/demo.yaml")
 DEFAULT_RESULTS = Path("results/synthetic")
 CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "analyze")
 CLEAN_ERRORS = (ValueError, FileNotFoundError, KeyError, json.JSONDecodeError, OSError)
+DEFAULT_FIBER_CONFIG = Path("configs/fiber_validation.yaml")
+DEFAULT_FIBER_RESULTS = Path("results/fiber_validation")
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
@@ -60,6 +62,19 @@ def cmd_simulate(args: argparse.Namespace) -> int:
     results = run_demo(args.config, args.output / "adaptive_selection.json", args.results)
     print(BANNER)
     print(f"Finished in {results['runtime_s']:.0f} s; results in {args.results}")
+    return 0
+
+
+def cmd_fiber_validate(args: argparse.Namespace) -> int:
+    from opticps.measurement.fiber_validation import BANNER, run_fiber_validation
+    from opticps.reporting.fiber_report import build_fiber_report
+
+    results = run_fiber_validation(
+        args.config, args.output / "adaptive_selection.json", args.results
+    )
+    print(BANNER)
+    print(f"Finished in {results['runtime_s']:.0f} s; results in {args.results}")
+    print(build_fiber_report(args.results / "fiber_results.json", args.report_dir))
     return 0
 
 
@@ -204,6 +219,11 @@ def build_parser() -> argparse.ArgumentParser:
     command = add("simulate", cmd_simulate, "run the simulated comparison")
     command.add_argument("--config", type=Path, default=DEFAULT_DEMO)
     command.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
+
+    command = add("fiber-validate", cmd_fiber_validate, "validate the ITU-T G.652 fiber model")
+    command.add_argument("--config", type=Path, default=DEFAULT_FIBER_CONFIG)
+    command.add_argument("--results", type=Path, default=DEFAULT_FIBER_RESULTS)
+    command.add_argument("--report-dir", type=Path, default=Path("reports"))
 
     command = add("ingest", cmd_ingest, "check a folder of captures")
     command.add_argument("--input", type=Path, required=True)

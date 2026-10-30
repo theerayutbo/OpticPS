@@ -1,6 +1,6 @@
 # External fact verification
 
-Status values: verified = read in the primary source; summary = read through a search or fetch summary; user-supplied = stated by the user, source not read.
+Status values: verified = read in the primary source; summary = read through a search or fetch summary; user-supplied = stated by the user, source not read; reconstructed = recovered from a garbled extraction and checked by another route; unconfirmed = not yet known.
 
 | Fact | Source | How read | Status |
 |---|---|---|---|
@@ -26,6 +26,13 @@ Status values: verified = read in the primary source; summary = read through a s
 | CSV/TSV header fields Revision to Data | UXR Programmer's Guide pp2091-2092 | Text extraction | verified field list; separator and spelling in a real file unverified |
 | BIN layout: cookie AG, version 10, 4-byte signed ints, 12/140/12-byte headers, units 0 to 6 | UXR Programmer's Guide pp2093-2098 (C structs, pack(4)) | Text extraction | verified against the guide; no real file tested |
 | UXR model suffix, bandwidth, memory | None | Not available | unconfirmed; not stated anywhere |
+| G.652.D attenuation, dispersion, PMD, fibre and cable attributes (Table 2); Note 1 (not for short cables), Note 2 (1260 nm extension, +0.07 dB/km) | Rec. ITU-T G.652 (08/2024), edition 10.0 | Text extraction, read | verified |
+| Dispersion bounds Eq. (6-3), 8.625 + 0.052(lambda - 1460) to 12.472 + 0.068(lambda - 1460) | Rec. ITU-T G.652 (08/2024) | Text extraction, read | verified |
+| Dispersion bounds Eq. (6-2a,b,c), 1260 to 1460 nm | Rec. ITU-T G.652 (08/2024) | Garbled extraction; signs reconstructed, confirmed by continuity with Eq. (6-3) at 1460 nm | reconstructed |
+| Table I.1 typical link values: 0.5 dB/km (1260 to 1360 nm), 0.275 (1530 to 1565), 0.35 (1565 to 1625), D1550 17, S1550 0.056 | Rec. ITU-T G.652 (08/2024) | Text extraction, read | verified |
+| Status of Rec. ITU-T G.652 (08/2024) as in force | ITU-T recommendation page (https://www.itu.int/rec/T-REC-G.652), read 2026-10-30 | Web page, not the PDF | verified (page) |
+| Table I.1 is a link value; why 0.5 dB/km at 1310 nm exceeds the 0.40 dB/km cable limit | Rec. ITU-T G.652 (08/2024), Appendix I (link attenuation is affected by splices, passive components, installation) | The reason is an inference, not stated | inference |
+| Southampton fiber type and length | Project owner | Not stated | unconfirmed |
 
 Hardware playback: NOT verified. Requires confirmation from the Southampton operator.
 
