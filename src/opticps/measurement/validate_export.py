@@ -3,6 +3,7 @@
 Reads files back with the standard-library csv module and pure Python arithmetic,
 not the generator's numpy path. Each check yields one row of validation_results.csv.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -12,6 +13,8 @@ import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
+
+import numpy as np
 
 from opticps.distribution_matching.ccdm import ConstantCompositionMatcher
 from opticps.instruments.m8199b import GRANULARITY_SAMPLES, MAX_SAMPLES
@@ -117,7 +120,9 @@ def validate_waveform(folder: Path, row: dict[str, str], expected_header: str) -
     else:
         # Constant composition: the deviation is only integer rounding within a block.
         limit = 1.0 / metadata["frame"]["matcher_block_length"]
-    record("distribution_within_tolerance", worst <= limit, f"max dev {worst:.5f}, limit {limit:.5f}")
+    record(
+        "distribution_within_tolerance", worst <= limit, f"max dev {worst:.5f}, limit {limit:.5f}"
+    )
     record(
         "preamble_balanced",
         indices[:512].count(0) == indices[:512].count(3) == 256,
@@ -150,7 +155,14 @@ def validate_waveform(folder: Path, row: dict[str, str], expected_header: str) -
         matcher = ConstantCompositionMatcher(counts)
         record("matcher_rate", matcher.k == per_block, f"k={matcher.k}, n={matcher.n}")
         decoded = "".join(
-            "".join(map(str, matcher.decode(recovered[start + b * length : start + (b + 1) * length])))
+            "".join(
+                map(
+                    str,
+                    matcher.decode(
+                        np.array(recovered[start + b * length : start + (b + 1) * length])
+                    ),
+                )
+            )
             for b in range(blocks)
         )
         record("ccdm_inverse_recovers_bits", decoded == bits_text, f"{len(decoded)} bits")

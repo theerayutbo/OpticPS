@@ -1,4 +1,5 @@
 """PAM alphabets and binary-reflected Gray labelling."""
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

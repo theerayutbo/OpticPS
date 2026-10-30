@@ -1,4 +1,5 @@
 """Frame construction: preamble, common training and payload blocks."""
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

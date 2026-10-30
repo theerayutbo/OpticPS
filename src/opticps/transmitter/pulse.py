@@ -3,6 +3,7 @@
 The waveform is treated as one period, so there is no filter transient and no seam
 at the loop point. A linear mode with explicit filter tails is also available.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -77,3 +78,16 @@ def shape(indices_levels: FloatArray, sps: int, config: PulseConfig) -> FloatArr
     impulses[::sps] = levels * sps
     spectrum = np.fft.fft(impulses) * rrc_frequency_response(n, sps, config.roll_off)
     return np.fft.ifft(spectrum).real
+
+
+def resample_periodic(samples: FloatArray, ratio: float) -> FloatArray:
+    """Resample one period by band-limited interpolation; output length rounds ratio * n."""
+    target = int(round(samples.size * ratio))
+    if target == samples.size:
+        return samples.copy()
+    spectrum = np.fft.rfft(samples)
+    size = target // 2 + 1
+    resized = np.zeros(size, dtype=complex)
+    keep = min(size, spectrum.size)
+    resized[:keep] = spectrum[:keep]
+    return np.asarray(np.fft.irfft(resized, n=target) * (target / samples.size), float)

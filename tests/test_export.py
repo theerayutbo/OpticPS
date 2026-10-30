@@ -112,9 +112,7 @@ def test_rrc_circular_has_no_seam_and_matched_filter_is_nyquist():
     assert np.allclose(wave, twice[: wave.size], atol=1e-6)
     from opticps.transmitter.pulse import rrc_frequency_response
 
-    filtered = np.fft.ifft(
-        np.fft.fft(wave) * rrc_frequency_response(wave.size, 8, 0.35)
-    ).real[::8]
+    filtered = np.fft.ifft(np.fft.fft(wave) * rrc_frequency_response(wave.size, 8, 0.35)).real[::8]
     assert np.max(np.abs(filtered - levels)) < 1e-6
 
 

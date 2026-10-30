@@ -17,3 +17,22 @@
 ## X-004 Corruption test did not corrupt
 - Negating an already negative sample left the file unchanged, so the checksum test failed.
 - Fix: the test writes a different value at a sample the reconstruction does not read, so only the checksum can catch it.
+
+## X-005 Predistortion factor error
+- `predistort` used 2/pi instead of 1/pi when inverting sin(pi V / V_pi). Optical spacing came out wrong.
+- Caught by `test_predistortion_equalizes_optical_spacing`. Fixed.
+
+## X-006 noise_rms_a ignored the filter shape
+- It assumed a brick-wall bandwidth. A filter whose corner equals Nyquist passes the integral of 1/(1+x^8) on [0,1], about 0.925 of the noise.
+- A test with an 8% tolerance had hidden it. Fixed with `noise_power_gain`; tolerance tightened to 1%.
+- A hand estimate of 0.922 quoted during debugging was slightly wrong; the test now computes the integral.
+
+## X-007 PyYAML float notation
+- `8.0e9` is read as a string by YAML 1.1. `configs/demo.yaml` now uses `8.0e+9`. The M8199B config was unaffected because it casts with `float()`.
+
+## X-008 Demo crashed at the end and lost all results
+- `adaptive_section` looked up "PS70" but the label is "PS70 (inner)". About 7 minutes of simulation were lost because nothing was saved midway.
+- Fixed the key, added checkpoints after each section, and added a reduced-config smoke test of the whole pipeline before full runs.
+
+## X-009 Rounding in a test
+- `//` was used where the code rounds a resampled length. Test bug, fixed.

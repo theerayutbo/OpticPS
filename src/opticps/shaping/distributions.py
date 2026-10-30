@@ -2,6 +2,7 @@
 
 The electrical and information quantities here say nothing about optical power.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

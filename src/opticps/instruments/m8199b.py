@@ -4,6 +4,7 @@ Limits come from the M8100 Series Programming Guide as supplied by the project o
 See docs/HARDWARE_COMPATIBILITY.md for which of them have been verified. This module
 never talks to an instrument: there is no real driver and no output-enable path.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

@@ -1,0 +1,122 @@
+# OpticPS laboratory guide for Southampton
+
+Status: every file here is synthetic. Playback on an M8199B has **not** been verified. Nothing here is a measurement. Please tell the project owner once a real instrument test succeeds, so this line can change.
+
+## Read this first
+
+Under a fixed peak-to-peak drive, which is how these files are scaled, simulations and Wiegart et al. (arXiv:2005.12428) both predict that PS70 and PS80 will perform **worse** than Uniform. They put more symbols on the inner levels. The optimum under this constraint puts more on the outer levels. `PAM4_Adaptive` and `waveforms/benchmark/PAM4_Fixed_Outer70.csv` do that. Please measure the benchmark too: without it the comparison cannot separate "shaping does not help" from "this distribution was the wrong one".
+
+## What is in the package
+
+```
+output/keysight_m8199b/
+  adaptive_selection.json          how the Adaptive distribution was chosen
+  A_initial_8GBd/  B_highspeed_56GBd/
+    waveforms/PAM4_Uniform.csv     PAM4_Fixed_PS70.csv
+    waveforms/PAM4_Fixed_PS80.csv  PAM4_Adaptive.csv
+    waveforms/benchmark/PAM4_Fixed_Outer70.csv
+    references/<waveform>/         symbols, information bits, metadata
+    experiment_manifest.csv        one row per waveform
+    validation_results.csv         checks run on these files
+    checksums.sha256
+```
+
+| Profile | AWG rate | Baud | Samples/symbol | Symbols | Samples | Loop duration | Loop rate |
+|---|---|---|---|---|---|---|---|
+| A_initial_8GBd | 224 GSa/s | 8 GBaud | 28 | 32,768 | 917,504 | 4.096 µs | 244.14 kHz |
+| B_highspeed_56GBd | 224 GSa/s | 56 GBaud | 4 | 65,536 | 262,144 | 1.170 µs | 854.49 kHz |
+
+These are starting points, not proof that the optical link supports either speed. Start with Profile A.
+
+| Waveform | P(-3) | P(-1) | P(+1) | P(+3) | Bits/symbol carried |
+|---|---|---|---|---|---|
+| Uniform | 0.25 | 0.25 | 0.25 | 0.25 | 2.000 |
+| Fixed PS70 | 0.15 | 0.35 | 0.35 | 0.15 | 1.867 |
+| Fixed PS80 | 0.10 | 0.40 | 0.40 | 0.10 | 1.706 |
+| Adaptive | 0.375 | 0.125 | 0.125 | 0.375 | 1.797 |
+| Outer70 (benchmark) | 0.35 | 0.15 | 0.15 | 0.35 | 1.867 |
+
+The Adaptive distribution is **simulation-optimized**: chosen on simulated AWGN training data at the point where Uniform reaches 1.0 bit/symbol. It has not been adapted to your link.
+
+Frame layout, the same for all waveforms: symbols 0 to 511 preamble (m-sequence at the outer levels, DC balanced), 512 to 1023 common training, then payload in 1024-symbol blocks. Shaped payloads use CCDM with a composition rounded to integers; the realised probabilities are in the manifest. **No FEC is implemented**, and this is not PAS.
+
+## Before you start: confirm these
+
+Nothing below can be assumed from this repository. Write the answers in the experiment log.
+
+- M8199B options, module identifier and channel count.
+- Whether the output really is AC-coupled and 50 Ω, and the maximum output voltage. The project owner's notes say AC-coupled, nominally 50 Ω; this has not been checked against the data sheet.
+- Modulator V_pi, maximum RF input, bandwidth, connector, and bias method.
+- Whether the amplifier, if any, can damage the modulator at any AWG setting.
+- CSV format, against the M8100 Series Programming Guide (M8100-91B50, March 2026). The project could not read the guide directly. The header, range, 512-sample rule and import command below came from the project owner's notes.
+- Receiver model, bandwidth, sample rate and export format.
+
+## Protocol
+
+**1. Module and clock.** Use M8070B (version 9.5 or later per the Getting Started Guide) with the M8199B driver package and the M8008A clock module. Wear a grounded wrist strap: Keysight warns that ESD on the module or chassis can disturb channel timing alignment, which toggling the sample rate can clear.
+
+**2. File selection and import.** Copy the CSV onto the Keysight host, then in M8070B or by SCPI:
+
+```
+:TRAC:IMP 'M2.DataOut1', 1, "C:\OpticPS\PAM4_Uniform.csv", CSV
+```
+
+`M2` is only an example: use your module identifier. The path must exist on the Keysight host. Set the sample rate and segment size first, and check them afterwards. Files start with the header `DataOut1`; to use the second output, regenerate with `data_out: DataOut2`. Verify `sha256` of the file on the host against `checksums.sha256`.
+
+**3. Sample rate.** Read back 224 GSa/s. The waveform cannot tell you if this is wrong: a wrong rate simply gives a wrong baud.
+
+**4. Electrical connection and termination.** Output off. Data outputs are 1.0 mm connectors: use matching, undamaged connectors and a torque wrench as Keysight specifies. Disable an unused output in M8070B or terminate it with 50 Ω. The output is differential: decide explicitly whether you use one side or both, and record it.
+
+**5. Electrical check.** Connect to a suitable scope or attenuator, **not** the modulator. Start at a low amplitude. CSV values are normalized: ±1 maps to whatever amplitude the instrument is set to, and this does not imply any voltage. Confirm four levels, the preamble pattern, and the loop rate from the table. Check that the waveform seam shows no glitch. Record Vpp and RMS.
+
+**6. Modulator, bias, power.** Never assume the modulator accepts the AWG maximum output. Check limits, then connect with output off, raise amplitude gradually. Bias through a separate DC port or bias tee: AC coupling blocks the mean, so nothing in the CSV sets the bias. Find quadrature and record the bias voltage. Keep the **same AWG amplitude for all waveforms**: this is the condition being compared. Measure launch power, OMA and extinction ratio for each waveform. Do not rescale waveforms to equalize electrical RMS: they differ by design (Uniform 0.750, PS70 0.620, PS80 0.544, Adaptive 0.882, Outer70 0.856 in normalized units).
+
+**AC coupling and low-frequency content.** CCDM waveforms have zero mean over the frame; Uniform has a mean of 2.8e-4 in normalized units. The loop rate (244 kHz or 854 kHz) falls within the band of many coupling networks, so watch for baseline wander, and note any bias tee or amplifier corner frequency.
+
+**7. Back-to-back.** Sweep a VOA, about 8 points around where Uniform is near 1 bit/symbol. At each point, measure received optical power, and capture all waveforms.
+
+**8. Fiber.** Repeat at each fiber length. Keep launch power fixed. Record the fiber type, length and loss. At 56 GBaud, chromatic dispersion limits simulated reach to a few kilometres.
+
+**9. Capture.** Capture at least 2 frames, at no less than twice the baud rate, ideally more. Take at least 5 repeated captures per condition, in interleaved order (U, PS70, PS80, A, O, U, ...) so drift does not bias one waveform. Capture a **separate** set for training, and mark it. Save raw data:
+
+```
+received_time_s,received_voltage_v
+```
+
+or `sample_index,received_voltage_v`, plus a JSON sidecar of the same name. Copy `data/templates/capture_template.json`. Required fields include the receiver model, capture sample rate, bandwidth, received power, fiber length, attenuation, timestamp, and `related_transmit_experiment_id` from the manifest. Use `"split": "training"` or `"test"`, and `"data_source": "measured"`. Leave a value null if you did not measure it. Do not estimate it. Store data under `data/private/southampton/`, which git ignores.
+
+**10. Synchronization.** Automatic: the software finds the preamble, polarity and sampling phase using the reference files.
+
+**11. Analysis.**
+
+```bash
+uv run opticps ingest  --input data/private/southampton/
+uv run opticps analyze --input data/private/southampton/ --profile A_initial_8GBd
+uv run opticps compare
+```
+
+This yields SER, Gray label BER, estimated R_SMD and R_BMD, and SNR per capture, in `results/analysis/`. Post-matcher BER is diagnostic only: one symbol error ruins a 1024-symbol block, and there is no FEC.
+
+**12. Comparison and report.** Two modes:
+
+- Equal baud: the same symbol rate for all. Shaped waveforms carry fewer bits, so report that plainly.
+- Equal net rate: compare Outer70 with PS70 directly (same rate by construction). To match Uniform, lower its baud: `match_uniform_rate` in `src/opticps/measurement/compare.py` gives the sample rate.
+
+Fairness is printed by `opticps compare`. Anything shown as uncontrolled or not recorded must be fixed or stated in the paper. Do not claim a throughput gain from lower BER or lower symbol energy.
+
+Automatic reports currently draw on simulated results. Send `results/analysis/` to the project owner to extend them to measured data, and keep raw captures private until the owners approve release.
+
+## Regenerate everything
+
+```bash
+git clone https://github.com/theerayutbo/OpticPS.git && cd OpticPS
+uv sync
+uv run opticps generate     # waveforms and validation
+uv run opticps validate
+```
+
+Edit `configs/m8199b_profiles.yaml` to change sample rate, baud, symbols, pulse (NRZ or RRC), or output. The generator refuses rates outside 200 to 256 GSa/s, sample counts that are not a multiple of 512, and more than 1,048,576 samples. Hashes reproduce for the same config and seed on the same software versions.
+
+## Experiment log
+
+Copy `data/templates/experiment_log_template.md` for each session.

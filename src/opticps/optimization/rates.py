@@ -4,6 +4,7 @@ R_SMD = I(X;Y) and R_BMD = [H(X) - sum_k H(B_k|Y)]^+ follow Boecherer et al. (20
 and Wiegart et al. (2020). PSNR is defined on the unipolar alphabet {0, 1, 2, 3} as
 3^2 / sigma^2, which keeps the numbers comparable with Wiegart et al.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

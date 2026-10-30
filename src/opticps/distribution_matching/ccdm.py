@@ -6,6 +6,7 @@ length-n sequences that have one fixed symbol composition (Schulte and Boecherer
 rank of a multiset permutation, an enumerative code in the sense of Cover (1973),
 computed with exact integers. It uses k = floor(log2(multinomial)).
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

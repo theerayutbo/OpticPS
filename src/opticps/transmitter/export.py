@@ -1,4 +1,5 @@
 """Generate M8199B waveform CSVs, reference data, manifests and checksums."""
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -74,7 +75,9 @@ def load_config(path: Path) -> tuple[Settings, list[Profile], str]:
         adaptive=common["adaptive"],
     )
     profiles = [
-        Profile(name, float(p["sample_rate_Sa_per_s"]), float(p["symbol_rate_Bd"]), int(p["symbols"]))
+        Profile(
+            name, float(p["sample_rate_Sa_per_s"]), float(p["symbol_rate_Bd"]), int(p["symbols"])
+        )
         for name, p in config["profiles"].items()
     ]
     return settings, profiles, hashlib.sha256(raw).hexdigest()
@@ -133,7 +136,9 @@ def _write_references(
     levels = pam_levels(4)[frame.indices].astype(int)
     rows = "\n".join(
         f"{i},{index},{level:+d}"
-        for i, (index, level) in enumerate(zip(frame.indices.tolist(), levels.tolist()))
+        for i, (index, level) in enumerate(
+            zip(frame.indices.tolist(), levels.tolist(), strict=False)
+        )
     )
     symbols_path.write_text(f"position,symbol_index,level\n{rows}\n", newline="\n")
     bits_path = folder / f"{name}_info_bits.txt"
@@ -185,7 +190,9 @@ def generate_profile(
         )
         samples = synthesize(frame, sps, settings.pulse, settings.decimals)
         role = "required" if name in REQUIRED_WAVEFORMS else "benchmark"
-        relative = f"waveforms/{name}.csv" if role == "required" else f"waveforms/benchmark/{name}.csv"
+        relative = (
+            f"waveforms/{name}.csv" if role == "required" else f"waveforms/benchmark/{name}.csv"
+        )
         wave_path = folder / relative
         write_waveform_csv(wave_path, samples, settings.data_out, settings.decimals)
         waveform_hash = sha256_file(wave_path)
@@ -263,8 +270,8 @@ def generate_profile(
                 "modulation": "PAM4",
                 "shaping_mode": spec["mode"],
                 "lambda": f"{lam:.6f}",
-                **dict(zip(MANIFEST_COLUMNS[7:11], (f"{x:.6f}" for x in target))),
-                **dict(zip(MANIFEST_COLUMNS[11:15], (f"{x:.6f}" for x in realised))),
+                **dict(zip(MANIFEST_COLUMNS[7:11], (f"{x:.6f}" for x in target), strict=False)),
+                **dict(zip(MANIFEST_COLUMNS[11:15], (f"{x:.6f}" for x in realised), strict=False)),
                 "symbol_rate_Bd": f"{profile.symbol_rate:.0f}",
                 "sample_rate_Sa_per_s": f"{profile.sample_rate:.0f}",
                 "samples_per_symbol": sps,

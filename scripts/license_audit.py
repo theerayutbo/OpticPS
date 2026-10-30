@@ -1,4 +1,5 @@
 """Audit licences of every installed distribution and fail on copyleft runtime dependencies."""
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 

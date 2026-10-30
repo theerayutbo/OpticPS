@@ -4,6 +4,7 @@ The same code path serves simulated training captures now and Southampton traini
 captures later. Every candidate is logged. Test captures can never enter: selection
 refuses overlapping capture identifiers.
 """
+
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
@@ -39,7 +40,9 @@ class ChannelEstimate:
     samples: int
 
 
-def estimate_channel(indices: NDArray[np.integer], received: NDArray[np.floating]) -> ChannelEstimate:
+def estimate_channel(
+    indices: NDArray[np.integer], received: NDArray[np.floating]
+) -> ChannelEstimate:
     """Fit a mean and standard deviation for each of the four levels."""
     indices = np.asarray(indices)
     received = np.asarray(received, dtype=float)
