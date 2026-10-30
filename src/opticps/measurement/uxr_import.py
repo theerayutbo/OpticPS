@@ -28,6 +28,9 @@ TIME_SCALES = {
 }  # fmt: skip
 UNIT_WORDS = {"volt": "V", "volts": "V", "second": "s", "seconds": "s"}
 DEFAULT_MAX_SAMPLES = 500_000_000
+METADATA_MAX_BYTES = 4096  # per identification dataset (Frame, FileType)
+METADATA_MAX_TEXT = 256  # characters kept from any metadata string
+METADATA_MAX_ELEMENTS = 64  # elements kept from any array attribute
 DEFAULT_WAVEFORM_TYPES = ("NORMAL", "AVERAGE")
 CSV_DEFAULT_TYPES = ("NORMAL", "RAW", "AVERAGE")
 CSV_TYPE_NAMES = ("NORMAL", "RAW", "INTERPOLATE", "AVERAGE", "VERSUS")
@@ -78,8 +81,10 @@ class ScopeWaveform:
 def _text(value: Any) -> str:
     """Return a stripped string from bytes, str or a numpy string scalar."""
     if isinstance(value, bytes | np.bytes_):
-        return bytes(value).decode("utf-8", errors="replace").strip("\x00 \t\r\n")
-    return str(value).strip("\x00 \t\r\n")
+        text = bytes(value[: 4 * METADATA_MAX_TEXT]).decode("utf-8", errors="replace")
+    else:
+        text = str(value)
+    return text.strip("\x00 \t\r\n")[:METADATA_MAX_TEXT]
 
 
 def _scalar(value: Any, name: str) -> Any:
@@ -98,6 +103,8 @@ def _plain(value: Any) -> Any:
     array = np.asarray(value)
     if array.size == 1:
         return _scalar(value, "attribute")
+    if array.size > METADATA_MAX_ELEMENTS:
+        return f"<{array.size} values, not kept>"
     return [_text(v) if isinstance(v, bytes | np.bytes_) else v for v in array.reshape(-1).tolist()]
 
 
@@ -203,7 +210,7 @@ def _unit_text(value: Any) -> str:
         number = float(text)
     except ValueError:
         return text
-    if number != int(number) or int(number) not in UNIT_CODES:
+    if not np.isfinite(number) or number != int(number) or int(number) not in UNIT_CODES:
         raise UxrImportError(f"Unit code {value!r} is not 1 (Volt) or 2 (Second)")
     return UNIT_CODES[int(number)]
 
@@ -330,7 +337,12 @@ def read_hdf5(
         samples = _finite_samples(samples)
         model = serial = date = None
         frame = _first_value(handle, "Frame", "TheFrame")
-        if frame is not None:
+        if frame is None:
+            notes_warn.append(
+                "instrument model unknown: /Frame/TheFrame is absent or not laid out as the "
+                "guide describes (a group holding the TheFrame dataset)"
+            )
+        else:
             names = frame.dtype.names or ()
             model = _text(frame["Model"]) if "Model" in names else None
             serial = _text(frame["Serial"]) if "Serial" in names else None
@@ -361,12 +373,24 @@ def read_hdf5(
 
 def _first_value(handle: Any, group: str, name: str) -> Any:
     """First element of handle[group][name] if present, else None; links and storage checked."""
+    import h5py
+
     if group not in handle.keys():  # noqa: SIM118
         return None
+    if isinstance(handle.get(group, getlink=True), h5py.HardLink) and isinstance(
+        handle[group], h5py.Dataset
+    ):
+        return None  # laid out as a dataset instead of a group: identification unknown
     folder = _member(handle, group, f"/{group}", "group")
     if name not in folder.keys():  # noqa: SIM118
         return None
-    values = np.asarray(_member(folder, name, f"/{group}/{name}", "dataset")[()]).reshape(-1)
+    dataset = _member(folder, name, f"/{group}/{name}", "dataset")
+    if dataset.size * dataset.dtype.itemsize > METADATA_MAX_BYTES:
+        raise UxrImportError(
+            f"/{group}/{name} holds {dataset.size * dataset.dtype.itemsize} bytes, more than "
+            f"the metadata limit {METADATA_MAX_BYTES}"
+        )
+    values = np.asarray(dataset[()]).reshape(-1)
     if values.size == 0:
         raise UxrImportError(f"/{group}/{name} is empty")
     return values[0]

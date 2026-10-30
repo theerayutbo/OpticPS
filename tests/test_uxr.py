@@ -891,7 +891,6 @@ def test_wrong_reference_is_flagged_as_suspected_mismatch(tmp_path):
         tmp_path / "w.h5", side, ROOT, PROFILE, tmp_path / "res", registry=tmp_path / "r.json"
     )
     assert summary["reference_mismatch_suspected"] is True
-    assert summary["rate_estimate_reliable"] is False
     assert any("reference_mismatch_suspected" in w for w in summary["warnings"])
 
 
@@ -1075,7 +1074,6 @@ def test_ingest_flags_dropped_symbols_with_the_widened_mismatch_gate(tmp_path):
     ser = summary["map"]["symbol_errors"] / summary["map"]["symbols"]
     assert 0.3 < ser < 0.6  # the observed 0.45 sat below the old 0.8 x random threshold
     assert summary["reference_mismatch_suspected"] is True
-    assert summary["rate_estimate_reliable"] is False
 
 
 def test_one_acquisition_cannot_be_ingested_or_compared_as_several_runs(uxr_files, tmp_path):
@@ -1193,7 +1191,10 @@ def test_compare_uxr_keeps_profiles_separate(seed_result, tmp_path):
     comparisons = compare_uxr(results)["comparisons"]
     assert [(c["profile"], c["pair"]) for c in comparisons] == [("P2", ["PAM4_A", "PAM4_B"])]
     assert comparisons[0]["mean"] == pytest.approx(0.1)  # P1's PAM4_A never mixes into P2
-    assert "P2: PAM4_A vs PAM4_B" in (results / "uxr_report.md").read_text()
+    assert (
+        "P2, attenuation 0 dB, fiber 0 km: PAM4_A vs PAM4_B"
+        in (results / "uxr_report.md").read_text()
+    )
     assert main(["compare", "--results", str(results)]) == 0  # the protocol says it reads this
     stale = tmp_path / "noprofile"
     clone_results(seed_result, stale, "PAM4_A", 6, 0.0)
@@ -1623,3 +1624,365 @@ def test_guides_send_measured_captures_to_ingest_uxr_not_analyze():
             assert "opticps compare\n" not in block and "opticps compare " not in block.replace(
                 "compare-uxr", ""
             ), name
+
+
+# ------------------------------------------------------------------ rework 3: guards and sweeps
+SET_POINTS = {"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": 0.5}
+
+
+def test_measured_outcomes_never_gate_but_received_power_gates_beyond_the_tolerance(
+    seed_result, tmp_path
+):
+    """Step 6 sidecars: launch power, OMA and ER differ by design at a fixed drive."""
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "step6"
+    clone_results(
+        seed_result,
+        folder,
+        "PAM4_A",
+        6,
+        0.0,
+        sidecar_changes={
+            **SET_POINTS,
+            "optical_launch_power_dBm": 2.0,
+            "oma_dBm": -1.0,
+            "extinction_ratio_dB": 6.0,
+            "optical_received_power_dBm": -8.0,
+        },
+    )
+    clone_results(
+        seed_result,
+        folder,
+        "PAM4_B",
+        6,
+        0.2,
+        sidecar_changes={
+            **SET_POINTS,
+            "optical_launch_power_dBm": 1.1,
+            "oma_dBm": -2.4,
+            "extinction_ratio_dB": 5.1,
+            "optical_received_power_dBm": -8.3,
+        },
+    )
+    summary = compare_uxr(folder)
+    (pair,) = summary["comparisons"]
+    assert "verdict" in pair and pair["caveats"] == []
+    assert pair["reported"]["Optical launch power"] == "1.1 to 2"
+    assert not summary["warnings"]
+    audit = {r["variable"]: r for r in summary["fairness_audit"]}
+    assert audit["Optical launch power"]["status"] == "reported"
+    assert audit["Optical launch power"]["role"] == "measured"
+    assert "Measured outcomes, reported and not gating" in (folder / "uxr_report.md").read_text()
+    wide = tmp_path / "wide"
+    clone_results(seed_result, wide, "PAM4_A", 6, 0.0, sidecar_changes=SET_POINTS)
+    clone_results(
+        seed_result,
+        wide,
+        "PAM4_B",
+        6,
+        0.2,
+        sidecar_changes={**SET_POINTS, "optical_received_power_dBm": -11},
+    )
+    summary = compare_uxr(wide)
+    (pair,) = summary["comparisons"]
+    assert "verdict" not in pair and "exceeds the 0.5 dB tolerance" in pair["result"]
+    assert any("Optical received power spread" in w for w in summary["warnings"])
+    assert "verdict" in compare_uxr(wide, tmp_path / "o", power_tolerance_db=5.0)["comparisons"][0]
+    assert main(["compare-uxr", "--results", str(wide), "--power-tolerance-db", "5"]) == 0
+
+
+def test_a_missing_set_point_gives_a_verdict_with_the_same_caveat_whether_all_or_some(
+    seed_result, tmp_path
+):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    none = tmp_path / "none"
+    for name, offset in (("PAM4_A", 0.0), ("PAM4_B", 0.2)):
+        clone_results(
+            seed_result,
+            none,
+            name,
+            6,
+            offset,
+            sidecar_changes={"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": None},
+        )
+    (pair,) = compare_uxr(none)["comparisons"]
+    assert "verdict" in pair and pair["caveats"] == ["not recorded: Electrical amplitude"]
+    some = tmp_path / "some"
+    clone_results(
+        seed_result,
+        some,
+        "PAM4_A",
+        6,
+        0.0,
+        sidecar_changes={"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": 1.0},
+    )
+    clone_results(
+        seed_result,
+        some,
+        "PAM4_B",
+        6,
+        0.2,
+        sidecar_changes={"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": None},
+    )
+    (pair,) = compare_uxr(some)["comparisons"]
+    assert "verdict" in pair
+    assert [c.split(" (")[0] for c in pair["caveats"]] == ["not recorded: Electrical amplitude"]
+    assert "Caveat, not recorded: Electrical amplitude" in (some / "uxr_report.md").read_text()
+    differ = tmp_path / "differ"
+    clone_results(
+        seed_result,
+        differ,
+        "PAM4_A",
+        6,
+        0.0,
+        sidecar_changes={"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": 1.0},
+    )
+    clone_results(
+        seed_result,
+        differ,
+        "PAM4_B",
+        6,
+        0.2,
+        sidecar_changes={"awg_sample_rate_Sa_per_s": 224e9, "electrical_amplitude_Vpp": 1.5},
+    )
+    (pair,) = compare_uxr(differ)["comparisons"]
+    assert "verdict" not in pair and "set-points differ: Electrical amplitude" in pair["result"]
+
+
+def test_a_sweep_gives_one_verdict_per_condition_and_run_ids_repeat_across_points(
+    seed_result, tmp_path
+):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "sweep"
+    for attenuation, tag in ((10, "a10-"), (14, "a14-")):
+        change = {"attenuation_dB": attenuation}
+        clone_results(seed_result, folder, "PAM4_A", 6, 0.0, sidecar_changes=change, tag=tag)
+        clone_results(seed_result, folder, "PAM4_B", 6, 0.1, sidecar_changes=change, tag=tag)
+    summary = compare_uxr(folder)
+    assert [c["condition"] for c in summary["comparisons"]] == [
+        "A_initial_8GBd, attenuation 10 dB, fiber 0 km",
+        "A_initial_8GBd, attenuation 14 dB, fiber 0 km",
+    ]
+    assert all("verdict" in c and c["runs"] == 6 for c in summary["comparisons"])
+    # the same waveform and run id twice inside one condition is still refused
+    clone_results(
+        seed_result, folder, "PAM4_A", 1, 0.0, sidecar_changes={"attenuation_dB": 10}, tag="dup-"
+    )
+    with pytest.raises(ValueError, match="Two test captures"):
+        compare_uxr(folder)
+
+
+def test_results_without_a_sidecar_are_counted_in_a_warning_not_dropped_silently(
+    seed_result, tmp_path
+):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "legacy"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, folder, "PAM4_B", 6, 0.2)
+    (folder / "old_analysis.json").write_text(json.dumps({"capture_id": "old"}))
+    (folder / "list_analysis.json").write_text("[1]")
+    summary = compare_uxr(folder)
+    assert summary["skipped_without_sidecar"] == ["?", "old"]
+    assert any("2 result file(s) without a sidecar" in w for w in summary["warnings"])
+    assert "without a sidecar" in (folder / "uxr_report.md").read_text()
+
+
+def test_flagged_reference_mismatch_stays_in_the_comparison_and_is_counted(seed_result, tmp_path):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "flagged"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, folder, "PAM4_B", 6, 0.2)
+    path = folder / "PAM4_B-r3_analysis.json"
+    item = json.loads(path.read_text())
+    item["reference_mismatch_suspected"] = True
+    path.write_text(json.dumps(item))
+    summary = compare_uxr(folder)
+    (pair,) = summary["comparisons"]
+    assert "verdict" in pair and pair["runs"] == 6
+    assert summary["flagged_reference_mismatch"] == ["PAM4_B-r3"]
+    assert any(
+        "1 of 12 captures flagged reference_mismatch_suspected" in c for c in pair["caveats"]
+    )
+    assert "reference_mismatch_suspected, kept in" in (folder / "uxr_report.md").read_text()
+
+
+@pytest.mark.parametrize("sigma", [1.3, 1.5])
+def test_training_block_predicts_payload_error_so_high_noise_is_not_flagged(tmp_path, sigma):
+    from opticps.measurement.uxr_ingest import _reference_check
+
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sps": 8, "bandwidth": 30e9, "seed": 7, "sigma": sigma}
+    wave = scope_capture(frame, 40.0, frames=3.4, start_frac=0.3, **kw)
+    analysis = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    check = _reference_check(analysis)
+    assert 0.25 < check["reference_check"]["payload_ser_minimum_distance"] < 0.5
+    assert check["reference_mismatch_suspected"] is False
+
+
+def test_symbols_dropped_after_the_head_are_flagged_from_the_training_block_not_from_snr():
+    from opticps.measurement.uxr_ingest import _reference_check
+
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sigma": 0.33, "sps": 8, "bandwidth": 30e9, "seed": 5}
+    wave = drop_symbols(
+        scope_capture(frame, 40.0, frames=2.3, start_frac=0.1, **kw), frame, 1.4, 2, 8
+    )
+    check = _reference_check(analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS))
+    assert check["reference_mismatch_suspected"] is True
+    assert check["reference_check"]["training_ser"] < 0.05
+    assert "far exceeds" in check["reference_check_reason"]
+
+
+@pytest.mark.parametrize("sigma,seed", [(0.33, 1), (0.6, 2), (0.9, 3), (1.2, 4)])
+def test_a_large_tracker_residual_does_not_overturn_a_regular_three_frame_clock(sigma, seed):
+    """30 GHz receiver, 4.4 frames: four regular preambles fix the clock, SER stays correct."""
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sps": 8, "bandwidth": 30e9, "sigma": sigma, "seed": seed}
+    wave = scope_capture(frame, 150.0, frames=4.4, start_frac=0.37, **kw)
+    analysis = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    assert analysis.clock_confidence == "high" and analysis.frames_found >= 3
+    assert analysis.rate_estimate_reliable is True
+    assert abs(analysis.clock_offset_ppm - 150) < 5
+    ser = analysis.map.symbol_errors / analysis.map.symbols
+    training = analysis.training_symbol_errors / analysis.training_symbols
+    assert abs(ser - training) < 0.1  # the SER is the channel's, not a timing loss
+
+
+def test_import_and_sidecar_edge_cases_fail_cleanly(uxr_files, tmp_path, capsys):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    for bad in ("inf", "nan"):
+        path = tmp_path / f"{bad}.h5"
+        write_h5(path, np.arange(64), attrs={"YUnits": float(bad)})
+        with pytest.raises(UxrImportError, match="Unit code"):
+            read_hdf5(path)
+    folder, row, probabilities = uxr_files
+    for text in ("[1, 2]", '"x"', "null", "3"):
+        side = tmp_path / "side.json"
+        side.write_text(text)
+        with pytest.raises(CaptureValidationError, match="must be a JSON object"):
+            ingest_uxr(folder / "cap.h5", side, ROOT, PROFILE, tmp_path / "res")
+    assert (
+        main(
+            [
+                "ingest-uxr",
+                "--input",
+                str(folder / "cap.h5"),
+                "--sidecar",
+                str(side),
+                "--profile",
+                PROFILE,
+                "--results",
+                str(tmp_path / "res"),
+            ]
+        )
+        == 1
+    )
+    assert "must be a JSON object" in capsys.readouterr().err
+
+
+def test_hdf5_metadata_is_bounded_and_a_frame_dataset_gives_an_unknown_model(tmp_path):
+    big = tmp_path / "big.h5"
+    write_h5(big, np.arange(64))
+    with h5py.File(big, "r+") as f:
+        del f["Frame"]
+        f.create_group("Frame").create_dataset(
+            "TheFrame", data=np.array([b"x" * 100_000], dtype="S100000")
+        )
+    with pytest.raises(UxrImportError, match="metadata limit"):
+        read_hdf5(big)
+    longtext = tmp_path / "long.h5"
+    write_h5(longtext, np.arange(64), attrs={"Note": "y" * 1_000_000, "Many": np.arange(1000)})
+    wave = read_hdf5(longtext)
+    assert len(wave.attributes["Note"]) <= 256
+    assert "1000 values" in wave.attributes["Many"]
+    dataset = tmp_path / "ds.h5"
+    write_h5(dataset, np.arange(64))
+    make_frame_group(dataset, lambda f: f.create_dataset("Frame", data=np.arange(3)))
+    wave = read_hdf5(dataset)
+    assert wave.model is None
+    assert any("instrument model unknown" in w for w in wave.attributes["warnings"])
+
+
+def test_two_point_sweep_following_the_southampton_guide_gives_two_verdicts(tmp_path, capsys):
+    """Guide steps 6 to 11: a VOA sweep, 5 paired runs, Uniform and PS70, 30 GHz scope."""
+    import csv
+
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    with (ROOT / PROFILE / "experiment_manifest.csv").open() as handle:
+        manifest = {Path(r["waveform_filename"]).stem: r for r in csv.DictReader(handle)}
+    # per-waveform readings at a fixed AWG amplitude: launch power, OMA and ER differ by design
+    readings = {
+        "PAM4_Uniform": {
+            "optical_launch_power_dBm": 3.1,
+            "oma_dBm": 0.2,
+            "extinction_ratio_dB": 6.4,
+        },
+        "PAM4_Fixed_PS70": {
+            "optical_launch_power_dBm": 2.2,
+            "oma_dBm": -0.9,
+            "extinction_ratio_dB": 5.6,
+        },
+    }
+    received = {"PAM4_Uniform": -8.0, "PAM4_Fixed_PS70": -8.3}
+    sweep = {10: (0.5, 0.0), 14: (0.9, -4.0)}  # attenuation setting: (noise sigma, power drop)
+    results = tmp_path / "results"
+    registry = tmp_path / "registry.json"
+    for attenuation, (sigma, drop) in sweep.items():
+        for name, row in manifest.items():
+            if name not in readings:
+                continue
+            frame = load_reference(ROOT / PROFILE / "references" / name, name)
+            probabilities = [
+                float(row[f"probability_{k}"]) for k in ("minus3", "minus1", "plus1", "plus3")
+            ]
+            for run in range(1, 6):
+                tag = f"a{attenuation}-{name[5:]}-r{run}"
+                wave = scope_capture(
+                    frame,
+                    20.0 + 3 * run,
+                    frames=3.4,
+                    start_frac=0.1 * run,
+                    sps=8,
+                    link=False,
+                    sigma=sigma,
+                    bandwidth=30e9,
+                    seed=attenuation * 10 + run,
+                )
+                path = tmp_path / f"{tag}.h5"
+                write_h5(path, wave.samples_v.astype("float32"), "float32", xinc=1 / 64e9)
+                meta = sidecar(row, capture_id=tag, probabilities=probabilities)
+                meta.update(
+                    run_id=f"r{run}",
+                    data_source="measured",
+                    attenuation_dB=attenuation,
+                    awg_sample_rate_Sa_per_s=224e9,
+                    electrical_amplitude_Vpp=0.5,
+                    optical_received_power_dBm=round(received[name] + drop + 0.02 * (run - 3), 2),
+                    **readings[name],
+                )
+                side = tmp_path / f"{tag}.json"
+                side.write_text(json.dumps(meta))
+                summary = ingest_uxr(path, side, ROOT, PROFILE, results, registry=registry)
+                assert summary["rate_estimate_reliable"], tag
+                assert summary["reference_mismatch_suspected"] is False, tag
+    assert main(["compare-uxr", "--results", str(results)]) == 0
+    out = capsys.readouterr().out
+    summary = json.loads((results / "analysis_summary.json").read_text())
+    assert [c["condition"] for c in summary["comparisons"]] == [
+        "A_initial_8GBd, attenuation 10 dB, fiber 0 km",
+        "A_initial_8GBd, attenuation 14 dB, fiber 0 km",
+    ]
+    for item in summary["comparisons"]:
+        assert "verdict" in item and item["runs"] == 5 and item["caveats"] == []
+        assert item["reported"]["Optical launch power"] == "2.2 to 3.1"
+    assert out.count("attenuation 10 dB") >= 1 and out.count("attenuation 14 dB") >= 1
+    assert not summary["warnings"] and not summary["excluded_unreliable_rate_estimate"]
+    report = (results / "uxr_report.md").read_text()
+    assert report.count("A_initial_8GBd, attenuation") >= 2

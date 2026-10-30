@@ -132,6 +132,8 @@ class ScopeAnalysis:
     rate_estimate_reliable: bool
     level_test_symbols: list[int]
     distinct_payload_symbols: int
+    training_symbols: int
+    training_symbol_errors: int
     timing_residual_rms_samples: float | None
     gain_v_per_level: float
     offset_v: float
@@ -683,6 +685,7 @@ def analyze_scope_capture(
             rate = rate / timing.q
     sign, guard = timing.sign, taps // 2
     results: list[FrameAnalysis] = []
+    training_symbols = training_errors = 0
     eye_rows: list[FloatArray] = []
     histogram = np.zeros(4, dtype=np.int64)
     warnings = list(timing.warnings)
@@ -725,6 +728,9 @@ def analyze_scope_capture(
     phase = float(PHASES[low] + PHASES[high]) / 2  # centre of the open part of the eye
     tracks = []
     disputed: list[tuple[float, float]] = []
+    # Three or more regularly spaced preambles fit a line with a residual to check, so the
+    # spacing clock stands against the in-frame tracker, which is the weaker estimate.
+    firm_clock = compensate_clock and timing.confidence == "high"
     for _, start in complete:
         if not compensate_clock:
             tracks.append(_Track(start, timing.q, None, None, 0.0))
@@ -736,7 +742,7 @@ def analyze_scope_capture(
         too_big = timing.confidence in ("high", "medium") and correction > TRACK_MAX_CORRECTION_PPM
         failed = track.residual_rms is not None and track.residual_rms > TRACK_RESIDUAL_LIMIT
         if too_big or failed:
-            if too_big:
+            if too_big and not firm_clock:
                 disputed.append(
                     (
                         1e6 * (rate / track.q / symbol_rate_nominal - 1),
@@ -759,6 +765,11 @@ def analyze_scope_capture(
             weights = lms_ffe(normalized, frame.indices, taps)
         equalized = apply_ffe(padded, weights)[guard : guard + n_symbols]
         law = estimate_likelihood(equalized, frame.indices)
+        known = frame.indices[PREAMBLE_LENGTH:HEAD]
+        training_symbols += known.size
+        training_errors += int(
+            (detect_minimum_distance(equalized[PREAMBLE_LENGTH:HEAD]) != known).sum()
+        )
         scored = None
         if score_payload:
             decided = detect_map(equalized, law, priors)
@@ -829,12 +840,20 @@ def analyze_scope_capture(
     residuals = [t.residual_rms for t in tracks if t.residual_rms is not None]
     untracked = [t for t in tracks if t.residual_rms is None]
     if residuals and max(residuals) > TRACK_RESIDUAL_LIMIT:
-        reliable = False
-        warnings.append(
-            f"Timing tracking residual {max(residuals):.2f} samples exceeds "
-            f"{TRACK_RESIDUAL_LIMIT} across a frame; the sampling instant may drift in part of "
-            "the frame, so the rate estimate is marked unreliable"
-        )
+        if firm_clock:
+            warnings.append(
+                f"Note: timing tracking residual {max(residuals):.2f} samples exceeds "
+                f"{TRACK_RESIDUAL_LIMIT} inside a frame (noise or a slow bandwidth-limited eye); "
+                f"the clock from {timing.frame_numbers.size} regularly spaced preambles stands "
+                "and the rate estimate stays reliable"
+            )
+        else:
+            reliable = False
+            warnings.append(
+                f"Timing tracking residual {max(residuals):.2f} samples exceeds "
+                f"{TRACK_RESIDUAL_LIMIT} across a frame; the sampling instant may drift in part "
+                "of the frame, so the rate estimate is marked unreliable"
+            )
     if untracked and timing.confidence in ("low", "none"):
         reliable = False
         warnings.append(
@@ -891,6 +910,8 @@ def analyze_scope_capture(
         rate_estimate_reliable=reliable,
         level_test_symbols=level_counts,
         distinct_payload_symbols=distinct,
+        training_symbols=training_symbols,
+        training_symbol_errors=training_errors,
         timing_residual_rms_samples=max(residuals) if residuals else None,
         gain_v_per_level=float(np.mean([f.gain_v_per_level for f in results])),
         offset_v=float(np.mean([f.offset_v for f in results])),

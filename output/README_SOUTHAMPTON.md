@@ -73,7 +73,7 @@ Nothing below can be assumed from this repository. Write the answers in the expe
 
 **AC coupling and low-frequency content.** CCDM waveforms have zero mean over the frame; Uniform has a small nonzero mean, listed in the `waveform_mean` column. The loop rate (244 kHz or 854 kHz) falls within the band of many coupling networks, so watch for baseline wander, and note any bias tee or amplifier corner frequency.
 
-**7. Back-to-back.** Sweep a VOA, about 8 points around where Uniform is near 1 bit/symbol. At each point, measure received optical power, and capture all waveforms.
+**7. Back-to-back.** Sweep a VOA, about 8 points around where Uniform is near 1 bit/symbol. Each point is a condition (profile, attenuation setting, fiber length) with its own sidecar `attenuation_dB`, and `compare-uxr` gives one verdict per condition: run ids need only be unique within a condition, so the same `r1` to `r5` can be used at every point. At each point, capture all waveforms, at least 5 paired runs each, and measure received optical power for every capture (it is reported with its spread; see step 12).
 
 **8. Fiber.** Repeat at each fiber length. Keep launch power fixed. Record the fiber type, length and loss. At 56 GBaud, simulated chromatic dispersion degrades performance noticeably within a few kilometres; see the report.
 
@@ -90,6 +90,8 @@ uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar dat
 uv run opticps compare-uxr --results results/uxr
 ```
 
+The comparison groups captures by condition (profile, `attenuation_dB`, `fiber_length_km`), pairs waveforms by run id inside a condition, and prints one verdict per pair and condition.
+
 Capture at least 3 full frames: a clock fitted through only 2 preambles cannot show that samples were dropped between them, and the result is then marked unreliable. This yields SER, Gray label BER, estimated R_SMD and R_BMD, and SNR per capture, in `results/uxr/` (`capture_metrics.csv`, `analysis_summary.json`, `uxr_report.md`). Post-matcher BER is diagnostic only: one symbol error ruins a 1024-symbol block, and there is no FEC.
 
 **12. Comparison and report.** Two modes:
@@ -97,7 +99,7 @@ Capture at least 3 full frames: a clock fitted through only 2 preambles cannot s
 - Equal baud: the same symbol rate for all. Shaped waveforms carry fewer bits, so report that plainly.
 - Equal net rate: compare Outer70 with PS70 directly (same rate by construction). To match Uniform, lower its baud: `match_uniform_rate` in `src/opticps/measurement/compare.py` gives the sample rate.
 
-Fairness is printed by `opticps compare-uxr` and written to `uxr_report.md`. A verdict for a pair is withheld when data sources mix or a controlled field (symbol rate, fiber length, received power and the rest) differs between its captures. Anything shown as uncontrolled or not recorded must be fixed or stated in the paper. Do not claim a throughput gain from lower BER or lower symbol energy.
+Fairness is printed by `opticps compare-uxr` and written to `uxr_report.md`. Set-points are what you dial in and must match between the captures of a pair for a verdict: symbol rate, AWG sample rate, electrical amplitude, fiber length, attenuation setting, receiver bandwidth and capture sample rate. Launch power, OMA and extinction ratio are measured outcomes that differ between waveforms at a fixed drive by design: they are reported and never block a verdict. Received power is reported with its spread and blocks a verdict, with a warning, only when the spread within a condition exceeds a tolerance (0.5 dB; change it with `--power-tolerance-db`). A set-point that is not recorded in some or all captures gives a verdict with an explicit "not recorded: X" caveat, so fill it in or state it in the paper. A verdict is also withheld when data sources mix. Captures flagged `reference_mismatch_suspected` stay in and are counted and named in the report. Do not claim a throughput gain from lower BER or lower symbol energy.
 
 Automatic reports currently draw on simulated results. Send `results/uxr/` to the project owner to extend them to measured data, and keep raw captures private until the owners approve release.
 

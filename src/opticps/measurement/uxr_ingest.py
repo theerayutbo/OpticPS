@@ -33,6 +33,7 @@ from opticps.measurement.capture import CaptureValidationError, load_reference, 
 from opticps.measurement.uxr_import import ScopeWaveform, read_scope_file
 from opticps.optimization.adaptive import DataLeakageError
 from opticps.receiver.capture_dsp import ScopeAnalysis, analyze_scope_capture
+from opticps.statistics.intervals import clopper_pearson
 
 RATE_TOLERANCE = 0.01
 DEFAULT_REGISTRY = Path("data/private/uxr_registry.json")
@@ -40,8 +41,13 @@ ROOT_MARKER = "pyproject.toml"
 CAPTURE_ID_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 PROBABILITY_TOLERANCE = 1e-5
 SYMBOL_RATE_TOLERANCE = 1e-6
-MISMATCH_SNR_DB = 6.0
-MISMATCH_SER_FRACTION = 0.4
+# Reference check from the known training block. The block is equalised with the same filter as
+# the payload and decided by minimum distance, so it predicts the payload error rate of a
+# correct reference at any noise level. A wrong reference, or symbols dropped after the head,
+# leave the training block good and the payload at chance. The check never looks at SNR.
+MISMATCH_CONFIDENCE = 0.99
+MISMATCH_EXCESS = 0.10
+MISMATCH_TRAINING_FRACTION = 0.8
 PROBABILITY_COLUMNS = ("minus3", "minus1", "plus1", "plus3")
 
 
@@ -212,22 +218,48 @@ def _summary(analysis: ScopeAnalysis, priors: np.ndarray) -> dict[str, Any]:
         if analysis.symbol_histogram is None
         else analysis.symbol_histogram.tolist(),
     )
-    random_ser = 1.0 - float(np.sum(priors**2))
-    ser = analysis.map.symbol_errors / analysis.map.symbols
-    suspect = (
-        analysis.snr_db is not None
-        and analysis.snr_db < MISMATCH_SNR_DB
-        and ser >= MISMATCH_SER_FRACTION * random_ser
-    )
-    out["reference_mismatch_suspected"] = suspect
-    if suspect:
-        out["rate_estimate_reliable"] = False
+    out.update(_reference_check(analysis))
+    if out["reference_mismatch_suspected"]:
         out["warnings"].append(
-            f"reference_mismatch_suspected: symbol error rate {ser:.3g} is close to the random "
-            f"guess rate {random_ser:.3g} at SNR {analysis.snr_db:.1f} dB. Check that the "
-            "capture belongs to the stated transmit experiment"
+            f"reference_mismatch_suspected: {out['reference_check_reason']}. The capture stays in "
+            "the analysis and is counted as flagged; check that it belongs to the stated "
+            "transmit experiment"
         )
     return out
+
+
+def _reference_check(analysis: ScopeAnalysis) -> dict[str, Any]:
+    """Compare the minimum-distance payload error rate with what the training block predicts."""
+    assert analysis.minimum_distance is not None
+    per_frame = analysis.training_symbols // max(analysis.frames_analyzed, 1)
+    train_ser = analysis.training_symbol_errors / analysis.training_symbols
+    upper = clopper_pearson(
+        min(per_frame, round(train_ser * per_frame)), per_frame, MISMATCH_CONFIDENCE
+    )[1]
+    payload_ser = analysis.minimum_distance.symbol_errors / analysis.minimum_distance.symbols
+    chance = 1.0 - 1.0 / 4
+    reason = ""
+    if payload_ser > upper + MISMATCH_EXCESS:
+        reason = (
+            f"payload symbol error rate {payload_ser:.3g} far exceeds the {upper:.3g} "
+            f"(upper {MISMATCH_CONFIDENCE:.0%} bound) that the known training block predicts "
+            f"({train_ser:.3g})"
+        )
+    elif train_ser >= MISMATCH_TRAINING_FRACTION * chance:
+        reason = (
+            f"the known training block itself is decided at {train_ser:.3g} errors, close to "
+            f"the random-guess rate {chance:.3g}"
+        )
+    return {
+        "reference_mismatch_suspected": bool(reason),
+        "reference_check_reason": reason,
+        "reference_check": {
+            "training_ser": train_ser,
+            "training_ser_upper": upper,
+            "payload_ser_minimum_distance": payload_ser,
+            "excess_margin": MISMATCH_EXCESS,
+        },
+    }
 
 
 def ingest_uxr(
@@ -246,7 +278,12 @@ def ingest_uxr(
 ) -> dict[str, Any]:
     """Import, validate, analyze and write the results of one scope capture."""
     registry_path = (default_registry() if registry is None else registry).resolve()
-    metadata = _resolve_split(json.loads(sidecar_path.read_text()), split)
+    sidecar = json.loads(sidecar_path.read_text())
+    if not isinstance(sidecar, dict):
+        raise CaptureValidationError(
+            f"Sidecar {sidecar_path.name} must be a JSON object, not {type(sidecar).__name__}"
+        )
+    metadata = _resolve_split(sidecar, split)
     validate_metadata(metadata)
     _check_capture_id(metadata["capture_id"])
     waveform = read_scope_file(

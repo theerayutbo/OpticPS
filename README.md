@@ -76,6 +76,8 @@ uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar dat
 uv run opticps compare-uxr --results results/uxr
 ```
 
+`compare-uxr` groups captures by condition (profile, attenuation setting, fiber length) and gives one verdict per waveform pair and condition. Set-points must match for a verdict; launch power, OMA and extinction ratio are reported, not gated; received power gates only beyond `--power-tolerance-db` (default 0.5).
+
 `ingest-uxr` keeps a leakage registry (default `data/private/uxr_registry.json` under the repository root; the path used is printed, and `--registry` overrides it). Use one registry for the whole campaign. It refuses a capture whose bytes or samples were already used as the other split or under another capture id; a re-export with different bytes cannot be detected. See `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`. The importers are tested on synthetic files only.
 
 ## Reports and slides

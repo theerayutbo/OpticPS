@@ -130,14 +130,18 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
 def cmd_compare_uxr(args: argparse.Namespace) -> int:
     from opticps.measurement.uxr_compare import compare_uxr
 
-    summary = compare_uxr(args.results)
+    summary = compare_uxr(args.results, power_tolerance_db=args.power_tolerance_db)
     for row in summary["fairness_audit"]:
         print(f"{row['variable']:<32}{row['status']:<18}{row['range']}")
     for item in summary["comparisons"]:
         if "verdict" in item:
-            print(f"{' vs '.join(item['pair'])}: {item['verdict']}")
+            print(f"{item['condition']}: {' vs '.join(item['pair'])}: {item['verdict']}")
+            for caveat in item["caveats"]:
+                print(f"  caveat, {caveat}")
         else:
             print(item)
+    for warning in summary["warnings"]:
+        print(f"warning: {warning}")
     for name in summary["excluded_unreliable_rate_estimate"]:
         print(f"excluded from the rate comparison (unreliable estimate): {name}")
     print(f"Report in {args.results / 'uxr_report.md'}")
@@ -254,6 +258,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = add("compare-uxr", cmd_compare_uxr, "paired comparison and report from ingest-uxr")
     command.add_argument("--results", type=Path, default=Path("results/uxr"))
+    command.add_argument(
+        "--power-tolerance-db",
+        type=float,
+        default=0.5,
+        help="largest received-power spread (dB) within a condition before the verdict is withheld",
+    )
 
     command = add("analyze", cmd_analyze, "analyze captures against exported references")
     command.add_argument("--input", type=Path, required=True)

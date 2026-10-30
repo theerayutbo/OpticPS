@@ -27,41 +27,70 @@ from opticps.optimization.adaptive import assert_disjoint, select_distribution
 from opticps.receiver.dsp import process_capture
 from opticps.statistics.intervals import paired_difference_interval
 
-CONTROLLED_FIELDS = (
+# Set-points are what the operator dials in. They must match for a verdict. Measured outcomes
+# differ between waveforms at a fixed drive, so they are reported and never gate, except
+# received power, which gates only beyond POWER_TOLERANCE_DB.
+SET_POINT_FIELDS = (
     ("symbol_rate_Bd", "Symbol rate"),
     ("capture_sample_rate_Sa_per_s", "Capture sample rate"),
     ("awg_sample_rate_Sa_per_s", "AWG sample rate"),
     ("electrical_amplitude_Vpp", "Electrical amplitude"),
-    ("optical_launch_power_dBm", "Optical launch power"),
-    ("optical_received_power_dBm", "Optical received power"),
-    ("oma_dBm", "Optical modulation amplitude"),
-    ("extinction_ratio_dB", "Extinction ratio"),
     ("fiber_length_km", "Fiber length"),
     ("attenuation_dB", "Attenuation"),
     ("receiver_bandwidth_Hz", "Receiver bandwidth"),
 )
+MEASURED_FIELDS = (
+    ("optical_launch_power_dBm", "Optical launch power"),
+    ("optical_received_power_dBm", "Optical received power"),
+    ("oma_dBm", "Optical modulation amplitude"),
+    ("extinction_ratio_dB", "Extinction ratio"),
+)
+RECEIVED_POWER_FIELD = "optical_received_power_dBm"
+CONTROLLED_FIELDS = (*SET_POINT_FIELDS[:4], *MEASURED_FIELDS, *SET_POINT_FIELDS[4:])
 TOLERANCE = 0.05
+POWER_TOLERANCE_DB = 0.5
 MIN_PAIRED_RUNS = 5
 MIN_PREAMBLE_CORRELATION = 0.3
 
 
-def fairness_audit(captures: list[Capture]) -> list[dict[str, str]]:
-    """Report each variable as controlled, uncontrolled or not recorded, never assumed."""
+def fairness_audit(
+    captures: list[Capture], power_tolerance_db: float = POWER_TOLERANCE_DB
+) -> list[dict[str, str]]:
+    """Report each variable as controlled, uncontrolled or not recorded, never assumed.
+
+    Set-points are controlled when they match. Measured quantities have role "measured": they
+    are shown with their spread and status "reported", except received power, which is
+    controlled within `power_tolerance_db` and uncontrolled beyond. A variable recorded in only
+    some captures is "partly recorded" unless the recorded values already differ.
+    """
+    set_points = {f for f, _ in SET_POINT_FIELDS}
     rows = []
     for field, label in CONTROLLED_FIELDS:
         values = [c.metadata.get(field) for c in captures]
         known = [v for v in values if v is not None]
+        role = "set-point" if field in set_points else "measured"
         if not known:
             status, spread = "not recorded", "n/a"
-        elif len(known) < len(values):
-            status, spread = "partly recorded", f"{len(known)}/{len(values)} captures"
         else:
             span = max(known) - min(known)
             reference = max(abs(max(known)), 1e-30)
-            matched = span <= TOLERANCE if "dB" in field else span <= 1e-6 * reference
-            status = "controlled" if matched else "uncontrolled"
+            if field == RECEIVED_POWER_FIELD:
+                matched = span <= power_tolerance_db
+            elif role == "measured":
+                matched = True
+            else:
+                matched = span <= TOLERANCE if "dB" in field else span <= 1e-6 * reference
             spread = f"{min(known):.6g} to {max(known):.6g}"
-        rows.append({"variable": label, "status": status, "range": spread})
+            if not matched:
+                status = "uncontrolled"
+            elif len(known) < len(values):
+                status = "partly recorded"
+                spread += f"; {len(known)}/{len(values)} captures"
+            elif role == "set-point" or field == RECEIVED_POWER_FIELD:
+                status = "controlled"
+            else:
+                status = "reported"
+        rows.append({"variable": label, "status": status, "range": spread, "role": role})
     return rows
 
 
