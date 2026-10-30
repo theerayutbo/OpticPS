@@ -1,0 +1,81 @@
+{
+  "config_sha256": "840fdfb5bbdf1cb6e65e188d59b43ff72731dbbc0bfb309ff272ccdf0ad49424",
+  "dac_normalization": {
+    "convention": "sample = level / full_scale; level in {-3,-1,+1,+3}",
+    "csv_decimals": 9,
+    "full_scale_levels": 3.0,
+    "physical_voltage": "configured on the instrument, not encoded in this file"
+  },
+  "experiment_id": "OPS-A_initial_8GBd-PAM4_Fixed_PS80-840fdfb5",
+  "frame": {
+    "bits_per_block": 1747,
+    "matcher_block_length": 1024,
+    "matcher_blocks": 31,
+    "matcher_composition": [
+      102,
+      410,
+      410,
+      102
+    ],
+    "payload": [
+      1024,
+      32768
+    ],
+    "preamble": [
+      0,
+      512
+    ],
+    "preamble_definition": "511-chip m-sequence x^9+x^5+1 at +/-3, plus 1 balance symbol",
+    "training": [
+      512,
+      1024
+    ]
+  },
+  "generator": {
+    "package": "opticps",
+    "version": "0.1.0"
+  },
+  "instrument": "Keysight M8199B (hardware playback not verified)",
+  "number_of_samples": 917504,
+  "profile": {
+    "name": "A_initial_8GBd",
+    "sample_rate": 224000000000.0,
+    "symbol_rate": 8000000000.0,
+    "symbols": 32768
+  },
+  "pulse": {
+    "boundary": "circular",
+    "roll_off": 0.35,
+    "shape": "nrz"
+  },
+  "random_seed": 42,
+  "reference_checksums": {
+    "PAM4_Fixed_PS80_info_bits.txt": "d7c13eb362e9be1d4dee0d867d544c1389faf9a7477f41c6e9cbb468bc624224",
+    "PAM4_Fixed_PS80_symbols.csv": "8a58da36a9fe3b2df7809a48fbcd7b3ea2535d570171c517ea79c2968b57d6e4"
+  },
+  "samples_per_symbol": 28,
+  "shaping": {
+    "fec": "none implemented",
+    "lambda": 0.17328679513998632,
+    "mode": "fixed-inner-heavy",
+    "pas": false,
+    "payload_entropy_bits": 1.7203628404720206,
+    "realised_payload_probabilities": [
+      0.099609375,
+      0.400390625,
+      0.400390625,
+      0.099609375
+    ],
+    "shaping_strength_inner_mass": 0.8,
+    "target_probabilities": [
+      0.1,
+      0.4,
+      0.4,
+      0.1
+    ]
+  },
+  "source": "simulated/synthetic waveform; no measurement",
+  "symbol_centre_offset_samples": 13.5,
+  "waveform_duration_s": 4.096e-06,
+  "waveform_sha256": "b8d14eea28389a119c6499970a53e2756e1ca04881e3fcb558a070a54f7b5844"
+}

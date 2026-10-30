@@ -1,0 +1,22 @@
+# Example starting points, not proof that the optical link supports these speeds.
+# M8199B sample rate range and CSV rules: see docs/HARDWARE_COMPATIBILITY.md.
+common:
+  seed: 42
+  block_length: 1024
+  pulse: {shape: nrz, roll_off: 0.35, boundary: circular}
+  data_out: DataOut1
+  decimals: 9
+  adaptive:
+    design_rate_bpcu: 1.0
+    metric: bmd
+    training_samples: 400000
+    grid_step: 0.005
+profiles:
+  A_initial_8GBd:
+    sample_rate_Sa_per_s: 224.0e9
+    symbol_rate_Bd: 8.0e9
+    symbols: 32768
+  B_highspeed_56GBd:
+    sample_rate_Sa_per_s: 224.0e9
+    symbol_rate_Bd: 56.0e9
+    symbols: 65536

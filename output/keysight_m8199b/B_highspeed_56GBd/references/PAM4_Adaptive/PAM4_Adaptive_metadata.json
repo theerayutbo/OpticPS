@@ -1,0 +1,86 @@
+{
+  "adaptive_selection": {
+    "label": "simulation-optimized; not adapted to any measurement",
+    "objective": 1.0541211963125914,
+    "source": "simulated AWGN training, peak-limited, PSNR 13.854 dB; not measured"
+  },
+  "config_sha256": "840fdfb5bbdf1cb6e65e188d59b43ff72731dbbc0bfb309ff272ccdf0ad49424",
+  "dac_normalization": {
+    "convention": "sample = level / full_scale; level in {-3,-1,+1,+3}",
+    "csv_decimals": 9,
+    "full_scale_levels": 3.0,
+    "physical_voltage": "configured on the instrument, not encoded in this file"
+  },
+  "experiment_id": "OPS-B_highspeed_56GBd-PAM4_Adaptive-840fdfb5",
+  "frame": {
+    "bits_per_block": 1840,
+    "matcher_block_length": 1024,
+    "matcher_blocks": 63,
+    "matcher_composition": [
+      384,
+      128,
+      128,
+      384
+    ],
+    "payload": [
+      1024,
+      65536
+    ],
+    "preamble": [
+      0,
+      512
+    ],
+    "preamble_definition": "511-chip m-sequence x^9+x^5+1 at +/-3, plus 1 balance symbol",
+    "training": [
+      512,
+      1024
+    ]
+  },
+  "generator": {
+    "package": "opticps",
+    "version": "0.1.0"
+  },
+  "instrument": "Keysight M8199B (hardware playback not verified)",
+  "number_of_samples": 262144,
+  "profile": {
+    "name": "B_highspeed_56GBd",
+    "sample_rate": 224000000000.0,
+    "symbol_rate": 56000000000.0,
+    "symbols": 65536
+  },
+  "pulse": {
+    "boundary": "circular",
+    "roll_off": 0.35,
+    "shape": "nrz"
+  },
+  "random_seed": 42,
+  "reference_checksums": {
+    "PAM4_Adaptive_info_bits.txt": "9e4c315fbd1a21d1d8ffb95e64c193a9346b1350178729ad8a043978b1ea90cf",
+    "PAM4_Adaptive_symbols.csv": "55e3f61312a0bd15ad2a82e36a17591ab16de486abc41965944ac685ff8cc0b7"
+  },
+  "samples_per_symbol": 4,
+  "shaping": {
+    "fec": "none implemented",
+    "lambda": -0.13732653608351372,
+    "mode": "adaptive-simulation-optimized",
+    "pas": false,
+    "payload_entropy_bits": 1.811278124459133,
+    "realised_payload_probabilities": [
+      0.375,
+      0.125,
+      0.125,
+      0.375
+    ],
+    "shaping_strength_inner_mass": 0.25,
+    "target_probabilities": [
+      0.375,
+      0.125,
+      0.125,
+      0.375
+    ]
+  },
+  "source": "simulated/synthetic waveform; no measurement",
+  "symbol_centre_offset_samples": 1.5,
+  "waveform_duration_s": 1.1702857142857143e-06,
+  "waveform_sha256": "15d505e58c08ff7af8e251005df04c4309f0b8a9e65a4f3f314d4e099ac83a37"
+}

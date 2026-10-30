@@ -14,7 +14,7 @@ from numpy.typing import NDArray
 from scipy.optimize import brentq
 
 from opticps.modulation.pam import label_bits
-from opticps.shaping.distributions import entropy_bits, validate_probabilities, symmetric_pam4
+from opticps.shaping.distributions import entropy_bits, symmetric_pam4, validate_probabilities
 
 _NODES, _WEIGHTS = np.polynomial.hermite.hermgauss(120)
 _WEIGHTS = _WEIGHTS / np.sqrt(np.pi)
@@ -35,17 +35,19 @@ class Rates:
     bmd: float
 
 
-def achievable_rates(probabilities: object, psnr_db: float) -> Rates:
-    """Compute SMD and BMD rates by Gauss-Hermite integration."""
+def gaussian_rates(probabilities: object, means: object, sigmas: object) -> Rates:
+    """Compute SMD and BMD rates for per-symbol Gaussian likelihoods."""
     p = validate_probabilities(probabilities, 4)
-    sigma = noise_sigma_from_psnr_db(psnr_db)
+    mu = np.asarray(means, dtype=float)
+    sd = np.asarray(sigmas, dtype=float)
+    if np.any(sd <= 0):
+        raise ValueError("Noise standard deviations must be positive")
     labels = label_bits(4)
-    support = np.flatnonzero(p > 0)
     conditional_x = 0.0
     conditional_bits = 0.0
-    for i in support:
-        y = _UNIPOLAR[i] + np.sqrt(2.0) * sigma * _NODES
-        likelihood = np.exp(-((y[:, None] - _UNIPOLAR) ** 2) / (2 * sigma**2)) * p
+    for i in np.flatnonzero(p > 0):
+        y = mu[i] + np.sqrt(2.0) * sd[i] * _NODES
+        likelihood = np.exp(-((y[:, None] - mu) ** 2) / (2 * sd**2)) / sd * p
         posterior = likelihood / likelihood.sum(axis=1, keepdims=True)
         conditional_x += p[i] * float(_WEIGHTS @ -np.log2(posterior[:, i]))
         for k in range(2):
@@ -53,6 +55,11 @@ def achievable_rates(probabilities: object, psnr_db: float) -> Rates:
             conditional_bits += p[i] * float(_WEIGHTS @ -np.log2(posterior[:, same].sum(axis=1)))
     h = entropy_bits(p)
     return Rates(entropy=h, smd=h - conditional_x, bmd=max(0.0, h - conditional_bits))
+
+
+def achievable_rates(probabilities: object, psnr_db: float) -> Rates:
+    """Compute SMD and BMD rates on the peak-limited AWGN channel."""
+    return gaussian_rates(probabilities, _UNIPOLAR, np.full(4, noise_sigma_from_psnr_db(psnr_db)))
 
 
 def psnr_for_rate(probabilities: object, target: float, metric: str = "smd") -> float:

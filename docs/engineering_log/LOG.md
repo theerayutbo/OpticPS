@@ -56,3 +56,27 @@ P0*(bmd@design) (0.36999999999999983, 1.0681240902412985)
 Surprises: none; gains matched the paper within test tolerance on the first run.
 
 Next: Phase 4, M8199B export and validator.
+
+## 2026-10-30 | Correction to the Phases 1-3 entry
+
+"Surprises: none" was wrong. Two planning figures were corrected by the computed results:
+- At the declared design point (13.854 dB, uniform R_BMD = 1.0), P0* for BMD is about 0.37, not 0.40. The value 0.40 belongs to the lower PSNR at which the optimized distribution itself reaches 1.0 bpcu.
+- PS70 rate loss at n=1024 is 0.015 b/sym, not 0.014.
+
+## 2026-10-30 | Phase 4 M8199B export | commit: this commit
+
+Goal: real waveform files, references, manifest, independent validator.
+
+Commands: `uv run pytest tests/test_export.py`; generation through `generate_all(configs/m8199b_profiles.yaml, output/keysight_m8199b)`; `validate_profile` per profile.
+
+Results (seed 42):
+- Tests: 23 passed. Generation 11.5 s. Validation: 115 of 115 checks passed for each profile.
+- Adaptive selection: P0=0.375, lambda=-0.13733, objective 1.0541 bit/use, on simulated AWGN training at PSNR 13.854 dB. Outer-heavy, as theory predicts. Label: simulation-optimized.
+- Profile A net payload rates: Uniform 15.50, PS70 14.47, PS80 13.22, Adaptive 13.93, Outer70 14.47 Gbit/s. Shaping lowers net rate at equal baud.
+- Common scale 0.333333333; all peaks 1.0. RMS: Uniform 0.7499, PS70 0.6203, PS80 0.5439, Adaptive 0.8819, Outer70 0.8564.
+- Uniform mean 2.8e-4; CCDM waveforms mean below 1e-18.
+- Sizes: Profile A CSV about 11.5 MB each; output/ total 76 MB; no file over GitHub's 100 MB limit.
+
+Failures: FAILURES X-003, X-004.
+
+Next: Phases 5-8, receiver, channel, statistics, ingest.

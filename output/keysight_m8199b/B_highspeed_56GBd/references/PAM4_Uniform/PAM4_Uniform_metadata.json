@@ -1,0 +1,76 @@
+{
+  "config_sha256": "840fdfb5bbdf1cb6e65e188d59b43ff72731dbbc0bfb309ff272ccdf0ad49424",
+  "dac_normalization": {
+    "convention": "sample = level / full_scale; level in {-3,-1,+1,+3}",
+    "csv_decimals": 9,
+    "full_scale_levels": 3.0,
+    "physical_voltage": "configured on the instrument, not encoded in this file"
+  },
+  "experiment_id": "OPS-B_highspeed_56GBd-PAM4_Uniform-840fdfb5",
+  "frame": {
+    "bits_per_block": 2048,
+    "matcher_block_length": 1024,
+    "matcher_blocks": 63,
+    "matcher_composition": null,
+    "payload": [
+      1024,
+      65536
+    ],
+    "preamble": [
+      0,
+      512
+    ],
+    "preamble_definition": "511-chip m-sequence x^9+x^5+1 at +/-3, plus 1 balance symbol",
+    "training": [
+      512,
+      1024
+    ]
+  },
+  "generator": {
+    "package": "opticps",
+    "version": "0.1.0"
+  },
+  "instrument": "Keysight M8199B (hardware playback not verified)",
+  "number_of_samples": 262144,
+  "profile": {
+    "name": "B_highspeed_56GBd",
+    "sample_rate": 224000000000.0,
+    "symbol_rate": 56000000000.0,
+    "symbols": 65536
+  },
+  "pulse": {
+    "boundary": "circular",
+    "roll_off": 0.35,
+    "shape": "nrz"
+  },
+  "random_seed": 42,
+  "reference_checksums": {
+    "PAM4_Uniform_info_bits.txt": "d90786d7618d2feedaa32686c5ee22ccf7b1216c02e030037de583f749bf19fe",
+    "PAM4_Uniform_symbols.csv": "a65b0a8de6a41856860350776d41f2799f8671de3b97d69b9f52798b4824fdf1"
+  },
+  "samples_per_symbol": 4,
+  "shaping": {
+    "fec": "none implemented",
+    "lambda": 0.0,
+    "mode": "uniform",
+    "pas": false,
+    "payload_entropy_bits": 1.9999263559778107,
+    "realised_payload_probabilities": [
+      0.2509920634920635,
+      0.2503410218253968,
+      0.24590773809523808,
+      0.25275917658730157
+    ],
+    "shaping_strength_inner_mass": 0.5,
+    "target_probabilities": [
+      0.25,
+      0.25,
+      0.25,
+      0.25
+    ]
+  },
+  "source": "simulated/synthetic waveform; no measurement",
+  "symbol_centre_offset_samples": 1.5,
+  "waveform_duration_s": 1.1702857142857143e-06,
+  "waveform_sha256": "17390048729e1feee2426def926e1461350f357d1ffe6bff2cadb02c48a4e4a0"
+}

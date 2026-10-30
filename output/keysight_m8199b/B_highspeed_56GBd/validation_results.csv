@@ -1,0 +1,116 @@
+waveform,check,result,detail
+PAM4_Uniform,csv_parse,PASS,262144 rows
+PAM4_Uniform,header_exact,PASS,DataOut1
+PAM4_Uniform,all_finite,PASS,262144 samples
+PAM4_Uniform,range_within_unit,PASS,min -1.0 max 1.0
+PAM4_Uniform,sample_count,PASS,262144 vs 262144
+PAM4_Uniform,granularity_512,PASS,262144
+PAM4_Uniform,max_length,PASS,262144
+PAM4_Uniform,rate_consistency,PASS,4
+PAM4_Uniform,duration,PASS,1.1702857142857143e-06
+PAM4_Uniform,reference_length,PASS,65536
+PAM4_Uniform,reference_levels,PASS,index-level map
+PAM4_Uniform,waveform_sha256,PASS,17390048729e1feee2426def926e1461350f357d1ffe6bff2cadb02c48a4e4a0
+PAM4_Uniform,reference_sha256,PASS,symbols file
+PAM4_Uniform,distribution_within_tolerance,PASS,"max dev 0.00409, limit 0.00852"
+PAM4_Uniform,preamble_balanced,PASS,256 of each outer level
+PAM4_Uniform,noise_free_reconstruction,PASS,0 symbol errors
+PAM4_Uniform,info_bit_count,PASS,129024
+PAM4_Uniform,matcher_rate,PASS,"direct Gray mapping, 2 bits per symbol"
+PAM4_Fixed_PS70,csv_parse,PASS,262144 rows
+PAM4_Fixed_PS70,header_exact,PASS,DataOut1
+PAM4_Fixed_PS70,all_finite,PASS,262144 samples
+PAM4_Fixed_PS70,range_within_unit,PASS,min -1.0 max 1.0
+PAM4_Fixed_PS70,sample_count,PASS,262144 vs 262144
+PAM4_Fixed_PS70,granularity_512,PASS,262144
+PAM4_Fixed_PS70,max_length,PASS,262144
+PAM4_Fixed_PS70,rate_consistency,PASS,4
+PAM4_Fixed_PS70,duration,PASS,1.1702857142857143e-06
+PAM4_Fixed_PS70,reference_length,PASS,65536
+PAM4_Fixed_PS70,reference_levels,PASS,index-level map
+PAM4_Fixed_PS70,waveform_sha256,PASS,b2cbe1cb32c74b40f41a40ee3a4b92bb08ee4c3658f0223488e62037b50c26de
+PAM4_Fixed_PS70,reference_sha256,PASS,symbols file
+PAM4_Fixed_PS70,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
+PAM4_Fixed_PS70,preamble_balanced,PASS,256 of each outer level
+PAM4_Fixed_PS70,noise_free_reconstruction,PASS,0 symbol errors
+PAM4_Fixed_PS70,info_bit_count,PASS,120456
+PAM4_Fixed_PS70,matcher_rate,PASS,"k=1912, n=1024"
+PAM4_Fixed_PS70,ccdm_inverse_recovers_bits,PASS,120456 bits
+PAM4_Fixed_PS80,csv_parse,PASS,262144 rows
+PAM4_Fixed_PS80,header_exact,PASS,DataOut1
+PAM4_Fixed_PS80,all_finite,PASS,262144 samples
+PAM4_Fixed_PS80,range_within_unit,PASS,min -1.0 max 1.0
+PAM4_Fixed_PS80,sample_count,PASS,262144 vs 262144
+PAM4_Fixed_PS80,granularity_512,PASS,262144
+PAM4_Fixed_PS80,max_length,PASS,262144
+PAM4_Fixed_PS80,rate_consistency,PASS,4
+PAM4_Fixed_PS80,duration,PASS,1.1702857142857143e-06
+PAM4_Fixed_PS80,reference_length,PASS,65536
+PAM4_Fixed_PS80,reference_levels,PASS,index-level map
+PAM4_Fixed_PS80,waveform_sha256,PASS,76236b3c31b7b7b875c00f62c698de6788826cc687ca8f354bb518f06c4b408c
+PAM4_Fixed_PS80,reference_sha256,PASS,symbols file
+PAM4_Fixed_PS80,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
+PAM4_Fixed_PS80,preamble_balanced,PASS,256 of each outer level
+PAM4_Fixed_PS80,noise_free_reconstruction,PASS,0 symbol errors
+PAM4_Fixed_PS80,info_bit_count,PASS,110061
+PAM4_Fixed_PS80,matcher_rate,PASS,"k=1747, n=1024"
+PAM4_Fixed_PS80,ccdm_inverse_recovers_bits,PASS,110061 bits
+PAM4_Adaptive,csv_parse,PASS,262144 rows
+PAM4_Adaptive,header_exact,PASS,DataOut1
+PAM4_Adaptive,all_finite,PASS,262144 samples
+PAM4_Adaptive,range_within_unit,PASS,min -1.0 max 1.0
+PAM4_Adaptive,sample_count,PASS,262144 vs 262144
+PAM4_Adaptive,granularity_512,PASS,262144
+PAM4_Adaptive,max_length,PASS,262144
+PAM4_Adaptive,rate_consistency,PASS,4
+PAM4_Adaptive,duration,PASS,1.1702857142857143e-06
+PAM4_Adaptive,reference_length,PASS,65536
+PAM4_Adaptive,reference_levels,PASS,index-level map
+PAM4_Adaptive,waveform_sha256,PASS,15d505e58c08ff7af8e251005df04c4309f0b8a9e65a4f3f314d4e099ac83a37
+PAM4_Adaptive,reference_sha256,PASS,symbols file
+PAM4_Adaptive,distribution_within_tolerance,PASS,"max dev 0.00000, limit 0.00098"
+PAM4_Adaptive,preamble_balanced,PASS,256 of each outer level
+PAM4_Adaptive,noise_free_reconstruction,PASS,0 symbol errors
+PAM4_Adaptive,info_bit_count,PASS,115920
+PAM4_Adaptive,matcher_rate,PASS,"k=1840, n=1024"
+PAM4_Adaptive,ccdm_inverse_recovers_bits,PASS,115920 bits
+PAM4_Fixed_Outer70,csv_parse,PASS,262144 rows
+PAM4_Fixed_Outer70,header_exact,PASS,DataOut1
+PAM4_Fixed_Outer70,all_finite,PASS,262144 samples
+PAM4_Fixed_Outer70,range_within_unit,PASS,min -1.0 max 1.0
+PAM4_Fixed_Outer70,sample_count,PASS,262144 vs 262144
+PAM4_Fixed_Outer70,granularity_512,PASS,262144
+PAM4_Fixed_Outer70,max_length,PASS,262144
+PAM4_Fixed_Outer70,rate_consistency,PASS,4
+PAM4_Fixed_Outer70,duration,PASS,1.1702857142857143e-06
+PAM4_Fixed_Outer70,reference_length,PASS,65536
+PAM4_Fixed_Outer70,reference_levels,PASS,index-level map
+PAM4_Fixed_Outer70,waveform_sha256,PASS,bf8fc2ae270f54a2bc01e95bfe9ddfb62e1a59fc0b9c25c16387c7791461ed5b
+PAM4_Fixed_Outer70,reference_sha256,PASS,symbols file
+PAM4_Fixed_Outer70,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
+PAM4_Fixed_Outer70,preamble_balanced,PASS,256 of each outer level
+PAM4_Fixed_Outer70,noise_free_reconstruction,PASS,0 symbol errors
+PAM4_Fixed_Outer70,info_bit_count,PASS,120456
+PAM4_Fixed_Outer70,matcher_rate,PASS,"k=1912, n=1024"
+PAM4_Fixed_Outer70,ccdm_inverse_recovers_bits,PASS,120456 bits
+experiment_manifest.csv,checksum_file_entry,PASS,b839141979596792
+references/PAM4_Adaptive/PAM4_Adaptive_info_bits.txt,checksum_file_entry,PASS,9e4c315fbd1a21d1
+references/PAM4_Adaptive/PAM4_Adaptive_metadata.json,checksum_file_entry,PASS,3a61077ae0141521
+references/PAM4_Adaptive/PAM4_Adaptive_symbols.csv,checksum_file_entry,PASS,55e3f61312a0bd15
+references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_info_bits.txt,checksum_file_entry,PASS,a86dd9f43031a058
+references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_metadata.json,checksum_file_entry,PASS,b482d1db232ef5e1
+references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_symbols.csv,checksum_file_entry,PASS,1a1908de588a1f18
+references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_info_bits.txt,checksum_file_entry,PASS,3bd6e07359435e8e
+references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_metadata.json,checksum_file_entry,PASS,622a0665e8338822
+references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_symbols.csv,checksum_file_entry,PASS,f6759e79abddf4cf
+references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_info_bits.txt,checksum_file_entry,PASS,6fc1cfd7048f4019
+references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_metadata.json,checksum_file_entry,PASS,cdb1024a7fe415cb
+references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_symbols.csv,checksum_file_entry,PASS,b9dd79f1da106998
+references/PAM4_Uniform/PAM4_Uniform_info_bits.txt,checksum_file_entry,PASS,d90786d7618d2fee
+references/PAM4_Uniform/PAM4_Uniform_metadata.json,checksum_file_entry,PASS,6da9a78b6ffb8865
+references/PAM4_Uniform/PAM4_Uniform_symbols.csv,checksum_file_entry,PASS,a65b0a8de6a41856
+waveforms/PAM4_Adaptive.csv,checksum_file_entry,PASS,15d505e58c08ff7a
+waveforms/PAM4_Fixed_PS70.csv,checksum_file_entry,PASS,b2cbe1cb32c74b40
+waveforms/PAM4_Fixed_PS80.csv,checksum_file_entry,PASS,76236b3c31b7b7b8
+waveforms/PAM4_Uniform.csv,checksum_file_entry,PASS,17390048729e1fee
+waveforms/benchmark/PAM4_Fixed_Outer70.csv,checksum_file_entry,PASS,bf8fc2ae270f54a2
