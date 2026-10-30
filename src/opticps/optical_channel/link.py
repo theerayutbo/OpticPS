@@ -26,6 +26,10 @@ from opticps.optical_channel.fiber import FiberParameters, ValueSource
 FloatArray = NDArray[np.float64]
 ELEMENTARY_CHARGE = 1.602176634e-19
 SPEED_OF_LIGHT = 299_792_458.0
+# The v1.0 link values, used for any fiber field left unset and no fiber description.
+DEFAULT_WAVELENGTH_M = 1550e-9
+DEFAULT_ATTENUATION_DB_PER_KM = 0.2
+DEFAULT_DISPERSION_PS_PER_NM_KM = 17.0
 
 
 def dbm_to_watt(dbm: float) -> float:
@@ -42,7 +46,16 @@ def watt_to_dbm(watt: float) -> float:
 
 @dataclass(frozen=True)
 class LinkConfig:
-    """Physical link parameters."""
+    """Physical link parameters.
+
+    The four fiber fields (wavelength_m, attenuation_db_per_km, dispersion_ps_per_nm_km and
+    dispersion_slope_ps_per_nm2_km) hold what the caller gave, and None means unset. Use the
+    effective_* properties for the value in force: the fiber description when there is one,
+    else the given value, else the v1.0 default. A field that disagrees with the fiber
+    description raises, so no value is silently dropped, and dataclasses.replace is safe
+    because nothing resolved is written back into the fields. An unset slope is the v1.0
+    second-order model; 0.0 is a true zero slope, whose beta3 still comes from D.
+    """
 
     laser_power_w: float = 10e-3
     v_pi: float = 4.0
@@ -51,10 +64,10 @@ class LinkConfig:
     extinction_db: float = 30.0
     insertion_loss_db: float = 4.0
     fiber_length_km: float = 0.0
-    attenuation_db_per_km: float = 0.2
-    dispersion_ps_per_nm_km: float = 17.0
-    dispersion_slope_ps_per_nm2_km: float = 0.0
-    wavelength_m: float = 1550e-9
+    attenuation_db_per_km: float | None = None
+    dispersion_ps_per_nm_km: float | None = None
+    dispersion_slope_ps_per_nm2_km: float | None = None
+    wavelength_m: float | None = None
     fiber: FiberParameters | None = None
     extra_attenuation_db: float = 0.0
     responsivity_a_per_w: float = 0.8
@@ -68,20 +81,57 @@ class LinkConfig:
 
     def __post_init__(self) -> None:
         if self.fiber is not None:
-            # The fiber description supplies these four values and overrides the fields above.
-            fiber = self.fiber
-            object.__setattr__(self, "wavelength_m", fiber.wavelength_nm * 1e-9)
-            object.__setattr__(self, "attenuation_db_per_km", fiber.attenuation_db_per_km)
-            object.__setattr__(self, "dispersion_ps_per_nm_km", fiber.dispersion_ps_per_nm_km)
-            object.__setattr__(
-                self, "dispersion_slope_ps_per_nm2_km", fiber.dispersion_slope_ps_per_nm2_km
-            )
+            supplied = {
+                "wavelength_m": self.fiber.wavelength_nm * 1e-9,
+                "attenuation_db_per_km": self.fiber.attenuation_db_per_km,
+                "dispersion_ps_per_nm_km": self.fiber.dispersion_ps_per_nm_km,
+                "dispersion_slope_ps_per_nm2_km": self.fiber.dispersion_slope_ps_per_nm2_km,
+            }
+            for name, value in supplied.items():
+                given = getattr(self, name)
+                if given is not None and not math.isclose(given, value, rel_tol=1e-9):
+                    raise ValueError(
+                        f"{name}={given!r} conflicts with fiber {self.fiber.fiber_type!r} "
+                        f"({value!r}); leave it unset or change the fiber description"
+                    )
         if self.laser_power_w <= 0 or self.v_pi <= 0 or self.responsivity_a_per_w <= 0:
             raise ValueError("Laser power, V_pi and responsivity must be positive")
         if self.fiber_length_km < 0 or self.receiver_bandwidth_hz <= 0:
             raise ValueError("Fiber length must be non-negative and bandwidth positive")
         if self.drive_vpp > 2 * self.v_pi:
             raise ValueError("Drive exceeds the unambiguous range of the modulator")
+
+    @property
+    def effective_wavelength_m(self) -> float:
+        """Return the laser wavelength in force, in metres."""
+        if self.fiber is not None:
+            return self.fiber.wavelength_nm * 1e-9
+        return DEFAULT_WAVELENGTH_M if self.wavelength_m is None else self.wavelength_m
+
+    @property
+    def effective_attenuation_db_per_km(self) -> float:
+        """Return the fiber attenuation in force, in dB/km."""
+        if self.fiber is not None:
+            return self.fiber.attenuation_db_per_km
+        if self.attenuation_db_per_km is None:
+            return DEFAULT_ATTENUATION_DB_PER_KM
+        return self.attenuation_db_per_km
+
+    @property
+    def effective_dispersion_ps_per_nm_km(self) -> float:
+        """Return D in force, in ps/(nm km)."""
+        if self.fiber is not None:
+            return self.fiber.dispersion_ps_per_nm_km
+        if self.dispersion_ps_per_nm_km is None:
+            return DEFAULT_DISPERSION_PS_PER_NM_KM
+        return self.dispersion_ps_per_nm_km
+
+    @property
+    def effective_slope_ps_per_nm2_km(self) -> float | None:
+        """Return S in force, in ps/(nm^2 km); None selects the second-order v1.0 model."""
+        if self.fiber is not None:
+            return self.fiber.dispersion_slope_ps_per_nm2_km
+        return self.dispersion_slope_ps_per_nm2_km
 
 
 def mzm_intensity(drive_v: FloatArray, config: LinkConfig) -> FloatArray:
@@ -133,16 +183,19 @@ def dispersive_field(field: NDArray[np.complex128], sample_rate: float, config: 
     frequency offset omega acquires exp(i (beta2/2 omega^2 + beta3/6 omega^3) z). numpy's
     FFT kernel is exp(-i omega t), so numpy's frequency axis is the negative of that
     offset: the even beta2 term is unchanged and the odd beta3 term enters as
-    exp(-i beta3 L omega_np^3 / 6). A zero slope selects the v1.0 second-order model
-    exactly; a non-zero slope adds the full beta3, including its 2 lambda^3 D part.
+    exp(-i beta3 L omega_np^3 / 6). An unset slope (None) selects the v1.0 second-order model
+    exactly. Any given slope, including 0.0, adds the full beta3, including its
+    2 lambda^3 D part, so 0.0 is a true zero slope and not the v1.0 path.
     """
-    d = config.dispersion_ps_per_nm_km * 1e-6  # s/m^2
-    beta2 = -d * config.wavelength_m**2 / (2 * np.pi * SPEED_OF_LIGHT)
+    d = config.effective_dispersion_ps_per_nm_km * 1e-6  # s/m^2
+    wavelength_m = config.effective_wavelength_m
+    slope = config.effective_slope_ps_per_nm2_km
+    beta2 = -d * wavelength_m**2 / (2 * np.pi * SPEED_OF_LIGHT)
     omega = 2 * np.pi * np.fft.fftfreq(field.size, d=1 / sample_rate)
     length_m = config.fiber_length_km * 1e3
     phase = 0.5j * beta2 * length_m * omega**2
-    if config.dispersion_slope_ps_per_nm2_km != 0.0:
-        beta3 = beta3_s3_per_m(config.wavelength_m, d, config.dispersion_slope_ps_per_nm2_km * 1e3)
+    if slope is not None:
+        beta3 = beta3_s3_per_m(wavelength_m, d, slope * 1e3)
         phase = phase - 1j * beta3 * length_m * omega**3 / 6
     return np.fft.ifft(np.fft.fft(field) * np.exp(phase))
 
@@ -152,28 +205,60 @@ def cd_null_frequency_hz(config: LinkConfig) -> float:
 
     A link with no dispersion or no length has no null, so infinity is returned.
     """
-    d = config.dispersion_ps_per_nm_km * 1e-6
+    d = config.effective_dispersion_ps_per_nm_km * 1e-6
     length_m = config.fiber_length_km * 1e3
     if d == 0 or length_m == 0:
         return math.inf
-    return float(np.sqrt(SPEED_OF_LIGHT / (2 * config.wavelength_m**2 * abs(d) * length_m)))
+    return float(
+        np.sqrt(SPEED_OF_LIGHT / (2 * config.effective_wavelength_m**2 * abs(d) * length_m))
+    )
 
 
 def fiber_metadata(config: LinkConfig) -> dict[str, Any]:
-    """Return the fiber description in force, with units, provenance and assumptions."""
+    """Return the fiber description in force, with units, provenance and assumptions.
+
+    Without a fiber description each value is tagged by where it came from: the v1.0 default
+    when unset, user-specified when the caller gave it. An unset slope is recorded as None,
+    meaning the second-order model with no third-order term.
+    """
+
+    def source(given: float | None) -> ValueSource:
+        return ValueSource.DEFAULT if given is None else ValueSource.USER_SPECIFIED
+
     if config.fiber is not None:
-        return config.fiber.to_metadata()
-    return FiberParameters(
-        "none (v1.0 defaults)",
-        config.wavelength_m * 1e9,
-        config.attenuation_db_per_km,
-        config.dispersion_ps_per_nm_km,
-        config.dispersion_slope_ps_per_nm2_km,
-        ValueSource.DEFAULT,
-        ValueSource.DEFAULT,
-        "No fiber type selected. Simulation defaults, not a specific or standard fiber.",
-        "OpticPS defaults",
-    ).to_metadata()
+        record = config.fiber.to_metadata()
+    else:
+        given = (
+            config.wavelength_m,
+            config.attenuation_db_per_km,
+            config.dispersion_ps_per_nm_km,
+            config.dispersion_slope_ps_per_nm2_km,
+        )
+        all_default = all(v is None for v in given)
+        slope = config.effective_slope_ps_per_nm2_km
+        record = FiberParameters(
+            "none (v1.0 defaults)" if all_default else "none (user-specified link values)",
+            config.effective_wavelength_m * 1e9,
+            config.effective_attenuation_db_per_km,
+            config.effective_dispersion_ps_per_nm_km,
+            0.0 if slope is None else slope,
+            source(config.attenuation_db_per_km),
+            source(config.dispersion_ps_per_nm_km),
+            source(config.dispersion_slope_ps_per_nm2_km),
+            "No fiber type selected. "
+            + (
+                "Simulation defaults, not a specific or standard fiber."
+                if all_default
+                else "Values not given by the caller are simulation defaults; the rest are "
+                "user-specified. Neither is a specific or standard fiber."
+            )
+            + (" No dispersion slope: second-order dispersion only." if slope is None else ""),
+            "OpticPS defaults" if all_default else "OpticPS defaults and user-specified values",
+        ).to_metadata()
+        if slope is None:
+            record["dispersion_slope_ps_per_nm2_km"] = None
+    record["fiber_length_km"] = config.fiber_length_km
+    return record
 
 
 @dataclass(frozen=True)
@@ -209,7 +294,10 @@ def transmit(
     p_max = float(config.laser_power_w * mzm_intensity(drive[np.argmax(drive)], config))
     p_min = float(config.laser_power_w * mzm_intensity(drive[np.argmin(drive)], config))
 
-    span_db = config.fiber_length_km * config.attenuation_db_per_km + config.extra_attenuation_db
+    span_db = (
+        config.fiber_length_km * config.effective_attenuation_db_per_km
+        + config.extra_attenuation_db
+    )
     field = np.sqrt(launched * 10 ** (-span_db / 10)) + 0j
     if config.fiber_length_km > 0:
         field = dispersive_field(field, sample_rate, config)

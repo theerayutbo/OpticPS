@@ -26,7 +26,9 @@ import yaml
 from opticps import __version__
 from opticps.measurement.demo import Waveform, sweep, waveforms
 from opticps.optical_channel.fiber import (
+    ATTENUATION_MAX,
     SOURCE_G652,
+    TYPICAL_ATTENUATION,
     ValueSource,
     g652d_attenuation_limit,
     g652d_dispersion_limits,
@@ -40,6 +42,7 @@ from opticps.optical_channel.link import (
     beta3_s3_per_m,
     cd_null_frequency_hz,
     dispersive_field,
+    fiber_metadata,
 )
 from opticps.transmitter.frame import build_frame
 
@@ -61,6 +64,9 @@ COMPARED_FIELDS = (
     "received_dbm",
     "launch_dbm",
 )
+ATTENUATION_ARM = "G.652.D attenuation only"
+# Setting S switches on the whole beta3 term, which has a part from D as well as from S.
+BETA3_ARM = "beta3 term on (S given, D and attenuation as v1.0)"
 COLORS = {"1550": "#1f4e79", "1310": "#c0504d"}
 LABEL_STYLE = {"Uniform": "-", "Outer70": "--"}
 
@@ -68,14 +74,18 @@ LABEL_STYLE = {"Uniform": "-", "Outer70": "--"}
 def _describe(extra: dict[str, Any]) -> dict[str, Any]:
     """Return a JSON-safe description of the link settings of one sweep point."""
     link = LinkConfig(**extra)
+    record = fiber_metadata(link)
     return {
         "extra_attenuation_db": link.extra_attenuation_db,
         "fiber_length_km": link.fiber_length_km,
-        "fiber_type": link.fiber.fiber_type if link.fiber else "none (v1.0 defaults)",
-        "wavelength_nm": link.wavelength_m * 1e9,
-        "attenuation_db_per_km": link.attenuation_db_per_km,
-        "dispersion_ps_per_nm_km": link.dispersion_ps_per_nm_km,
-        "dispersion_slope_ps_per_nm2_km": link.dispersion_slope_ps_per_nm2_km,
+        "fiber_type": record["fiber_type"],
+        "wavelength_nm": record["wavelength_nm"],
+        "attenuation_db_per_km": record["attenuation_db_per_km"],
+        "dispersion_ps_per_nm_km": record["dispersion_ps_per_nm_km"],
+        "dispersion_slope_ps_per_nm2_km": record["dispersion_slope_ps_per_nm2_km"],
+        "attenuation_source": record["attenuation_source"],
+        "dispersion_source": record["dispersion_source"],
+        "dispersion_slope_source": record["dispersion_slope_source"],
     }
 
 
@@ -100,7 +110,7 @@ def _run(
     result = sweep(waves, frames, cfg, demo[profile_key], links, tag)
     for points in result.values():
         for point, extra in zip(points, links, strict=True):
-            point["link"] = _describe(extra)
+            point["link"] = _describe(extra) | {"runs": cfg["runs"], "noise_seed_tag": tag}
     return result
 
 
@@ -122,11 +132,31 @@ def analytical_curves(start: float, stop: float, step: float) -> dict[str, Any]:
         "representative_within_limits": all(
             all(within_g652d_limits(replace(p, attenuation_db_per_km=0.0)).values()) for p in rep
         ),
-        "typical_attenuation_exceeds_limit_at_nm": [
-            w
-            for w, p in zip(wavelengths, rep, strict=True)
-            if not within_g652d_limits(p)["attenuation"]
-        ][:1],
+        "typical_attenuation_exceeds_limit_nm": _exceedance(wavelengths, rep),
+    }
+
+
+def _exceedance(wavelengths: list[float], rep: list[Any]) -> dict[str, Any]:
+    """Describe where the Table I.1 value is above the Table 2 cable limit, over the whole curve.
+
+    Table I.1 states values only for 1260 to 1360, 1530 to 1565 and 1565 to 1625 nm. Between
+    1360 and 1530 nm the curve is a linear interpolation, an OpticPS assumption, and so is
+    the crossover where it falls back to the cable limit.
+    """
+    above = [
+        w
+        for w, p in zip(wavelengths, rep, strict=True)
+        if not within_g652d_limits(p)["attenuation"]
+    ]
+    first_band = TYPICAL_ATTENUATION[0]
+    # Interpolation 0.5 -> 0.275 over 1360 to 1530 nm meets the 0.40 dB/km limit here.
+    crossover = 1360.0 + (first_band[2] - ATTENUATION_MAX) / (first_band[2] - 0.275) * 170.0
+    return {
+        "wavelengths_on_grid_nm": above,
+        "first_nm": above[0] if above else None,
+        "last_on_grid_nm": above[-1] if above else None,
+        "crossover_interpolated_nm": crossover,
+        "stated_by_table_i1_nm": [first_band[0], first_band[1]],
     }
 
 
@@ -171,7 +201,7 @@ def numerical_validation(cfg: dict[str, Any], demo: dict[str, Any]) -> dict[str,
         fiber = g652d_preset(float(wavelength), variant)
         full = LinkConfig(fiber=fiber, fiber_length_km=float(length))
         flat = LinkConfig(
-            wavelength_m=full.wavelength_m,
+            wavelength_m=full.effective_wavelength_m,
             dispersion_ps_per_nm_km=fiber.dispersion_ps_per_nm_km,
             fiber_length_km=float(length),
         )
@@ -206,6 +236,7 @@ def numerical_validation(cfg: dict[str, Any], demo: dict[str, Any]) -> dict[str,
         beta2 = -d * 1550e-9**2 / (2 * np.pi * SPEED_OF_LIGHT)
         beta3 = beta3_s3_per_m(1550e-9, d, s)
         beta3_d_only = beta3_s3_per_m(1550e-9, d, 0.0)
+        beta3_s_only = beta3_s3_per_m(1550e-9, 0.0, s)
         third_order.append(
             {
                 "profile": key,
@@ -214,6 +245,12 @@ def numerical_validation(cfg: dict[str, Any], demo: dict[str, Any]) -> dict[str,
                 "beta2_s2_per_m": beta2,
                 "beta3_s3_per_m": beta3,
                 "beta3_from_D_only_s3_per_m": beta3_d_only,
+                "beta3_from_S_only_s3_per_m": beta3_s_only,
+                "cd_null_ghz": cd_null_frequency_hz(
+                    LinkConfig(fiber=rep, fiber_length_km=length_km)
+                )
+                / 1e9,
+                "receiver_bandwidth_hz": demo[key]["receiver_bandwidth_hz"],
                 "second_order_phase_rad": abs(0.5 * beta2 * length_km * 1e3 * omega**2),
                 "third_order_phase_rad": beta3 * length_km * 1e3 * omega**3 / 6,
             }
@@ -258,10 +295,8 @@ def before_after(
     """Run v1.0 defaults and the 1550 nm G.652.D preset on the demo's own fiber sweep."""
     rep = g652d_preset(1550.0)
     arms = {
-        "G.652.D attenuation only": {"attenuation_db_per_km": rep.attenuation_db_per_km},
-        "G.652.D slope only": {
-            "dispersion_slope_ps_per_nm2_km": rep.dispersion_slope_ps_per_nm2_km
-        },
+        ATTENUATION_ARM: {"attenuation_db_per_km": rep.attenuation_db_per_km},
+        BETA3_ARM: {"dispersion_slope_ps_per_nm2_km": rep.dispersion_slope_ps_per_nm2_km},
     }
     keep = set(cfg["before_after"]["attribution_waveforms"])
     reduced = [w for w in wave_set if w.name in keep]
@@ -358,6 +393,7 @@ def run_fiber_validation(config_path: Path, selection_path: Path, out_dir: Path)
             dispersion_ps_per_nm_km=low.dispersion_ps_per_nm_km,
             dispersion_slope_ps_per_nm2_km=low.dispersion_slope_ps_per_nm2_km,
             dispersion_source=ValueSource.SPECIFICATION_LIMIT,
+            dispersion_slope_source=ValueSource.SPECIFICATION_LIMIT,
         ),
         "D representative": rep,
         "D at upper bound": replace(
@@ -365,6 +401,7 @@ def run_fiber_validation(config_path: Path, selection_path: Path, out_dir: Path)
             dispersion_ps_per_nm_km=high.dispersion_ps_per_nm_km,
             dispersion_slope_ps_per_nm2_km=high.dispersion_slope_ps_per_nm2_km,
             dispersion_source=ValueSource.SPECIFICATION_LIMIT,
+            dispersion_slope_source=ValueSource.SPECIFICATION_LIMIT,
         ),
     }
     sens_chosen = set(cfg["sensitivity"]["waveforms"])
@@ -419,8 +456,16 @@ def run_fiber_validation(config_path: Path, selection_path: Path, out_dir: Path)
     results["assumptions"] = [
         "Single polarization, no PMD, no nonlinearity, no amplifier or laser noise (link.py).",
         "Attenuation limits are for cable; Table 2 Note 1 excludes short cables such as jumpers.",
-        "Table I.1 typical link values are not cable limits; 0.5 dB/km at 1310 nm exceeds the "
-        "Table 2 limit because it includes splices and connectors.",
+        "Table I.1 typical link values are not cable limits. Table I.1 is titled 'Representative "
+        "values of concatenated optical fibre links', and Appendix I says link attenuation is "
+        "affected by splices, passive components and installation, which G.652 does not specify. "
+        "That 0.5 dB/km at 1310 nm exceeds the 0.40 dB/km cable limit for that reason is an "
+        "inference, not a statement of the Recommendation.",
+        "Excess loss added to a Table I.1 link value may count splice and connector loss twice; "
+        "here it is a sweep parameter that places the error rate in a measurable range, not a "
+        "splice budget.",
+        "Responsivity, V_pi and the modulator are the same at 1550 nm and 1310 nm. Real devices "
+        "differ between the bands, so the two wavelengths differ here only in the fiber.",
         "The representative dispersion curve is a three-term fit through Table I.1 D and S at "
         "1550 nm, a model choice and not a stated value.",
         "Southampton's fiber type and length are unconfirmed.",
@@ -432,8 +477,11 @@ def run_fiber_validation(config_path: Path, selection_path: Path, out_dir: Path)
     return results
 
 
-def _save(fig: Any, ax: Any, path: Path, stamp: str, legend: bool = True) -> None:
-    if legend:
+def _save(fig: Any, ax: Any, path: Path, stamp: str, below: bool = False) -> None:
+    """Finish a figure; with below=True the legend sits under the axes, off the curves."""
+    if below:
+        ax.legend(frameon=False, fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.18))
+    else:
         ax.legend(frameon=False, fontsize=7)
     ax.grid(alpha=0.25)
     ax.spines[["top", "right"]].set_visible(False)
@@ -462,7 +510,7 @@ def fiber_figures(results: dict[str, Any], out: Path) -> None:
     a = results["analytical"]
     w = a["wavelength_nm"]
 
-    fig, ax = plt.subplots(figsize=(5.6, 3.4))
+    fig, ax = plt.subplots(figsize=(5.6, 3.9))
     ax.step(
         w,
         a["attenuation_limit_db_per_km"],
@@ -479,9 +527,9 @@ def fiber_figures(results: dict[str, Any], out: Path) -> None:
     ax.set_xlabel("Wavelength (nm)")
     ax.set_ylabel("Attenuation (dB/km)")
     ax.set_title("G.652.D attenuation", fontsize=9)
-    _save(fig, ax, out / "attenuation_vs_wavelength.png", "ANALYTICAL")
+    _save(fig, ax, out / "attenuation_vs_wavelength.png", "ANALYTICAL", below=True)
 
-    fig, ax = plt.subplots(figsize=(5.6, 3.4))
+    fig, ax = plt.subplots(figsize=(5.6, 3.9))
     ax.fill_between(
         w,
         a["dispersion_lower_ps_per_nm_km"],
@@ -500,7 +548,7 @@ def fiber_figures(results: dict[str, Any], out: Path) -> None:
     ax.set_xlabel("Wavelength (nm)")
     ax.set_ylabel("Dispersion D (ps/(nm km))")
     ax.set_title("G.652.D chromatic dispersion", fontsize=9)
-    _save(fig, ax, out / "dispersion_vs_wavelength.png", "ANALYTICAL")
+    _save(fig, ax, out / "dispersion_vs_wavelength.png", "ANALYTICAL", below=True)
 
     sweeps = results["length_sweeps"]["data"]
     for key, name in (("profile_A", "A"), ("profile_B", "B")):

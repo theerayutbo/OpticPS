@@ -109,6 +109,32 @@ def test_measured_values_override_and_change_provenance_only_where_measured():
     assert "Southampton log 12" in updated.reference
 
 
+def test_measuring_d_does_not_relabel_the_slope():
+    base = g652d_preset(1550)
+    updated = apply_measurements(base, "log", dispersion_ps_per_nm_km=16.4)
+    assert updated.dispersion_source is ValueSource.MEASURED
+    assert updated.dispersion_slope_source is ValueSource.REPRESENTATIVE
+    assert updated.dispersion_slope_ps_per_nm2_km == base.dispersion_slope_ps_per_nm2_km
+    assert updated.to_metadata()["dispersion_slope_source"] == "representative-simulation-value"
+
+
+def test_a_measured_slope_is_tagged_measured_and_only_the_slope():
+    updated = apply_measurements(g652d_preset(1550), "log", dispersion_slope_ps_per_nm2_km=0.058)
+    assert updated.dispersion_slope_ps_per_nm2_km == 0.058
+    assert updated.dispersion_slope_source is ValueSource.MEASURED
+    assert updated.dispersion_source is ValueSource.REPRESENTATIVE
+    assert updated.attenuation_source is ValueSource.REPRESENTATIVE
+
+
+def test_every_preset_tags_its_slope():
+    assert g652d_preset(1550).dispersion_slope_source is ValueSource.REPRESENTATIVE
+    assert g652d_preset(1550, "limit-low").dispersion_slope_source is (
+        ValueSource.SPECIFICATION_LIMIT
+    )
+    fiber = custom_fiber("x", 1550, 0.2, 17.0, 0.056, ValueSource.MANUFACTURER, "sheet")
+    assert fiber.to_metadata()["dispersion_slope_source"] == "manufacturer-data"
+
+
 def test_other_fiber_types_are_not_forced_onto_g652d():
     fiber = custom_fiber("G.655 example", 1550, 0.22, 4.5, 0.05, ValueSource.MANUFACTURER, "sheet")
     assert fiber.fiber_type == "G.655 example"

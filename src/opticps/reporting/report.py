@@ -280,7 +280,7 @@ One symbol error makes a block undecodable or wrong, and no FEC is implemented. 
 
 ## 7. Experimental setup
 
-PLACEHOLDER: no Southampton experiment has been run. The intended setup is M8199B, driver as required, Mach-Zehnder modulator, VOA and fiber, photodiode, and a receiver yet to be identified. Complete this section from the experiment log. The procedure is in output/README_SOUTHAMPTON.md.
+PLACEHOLDER: no Southampton experiment has been run. The intended setup is M8199B, driver as required, Mach-Zehnder modulator, VOA and fiber (fiber standard and length unconfirmed), photodiode, and a receiver that is a Keysight Infiniium UXR Series oscilloscope (256 GSa/s, model suffix unconfirmed). Complete this section from the experiment log. The procedure is in output/README_SOUTHAMPTON.md.
 
 ## 8. Keysight waveform generation
 

@@ -50,6 +50,7 @@ class ValueSource(StrEnum):
     MANUFACTURER = "manufacturer-data"
     MEASURED = "laboratory-measured"
     DEFAULT = "simulation-default"
+    USER_SPECIFIED = "user-specified"
 
 
 def _check_band(wavelength_nm: float) -> None:
@@ -138,6 +139,7 @@ class FiberParameters:
     dispersion_slope_ps_per_nm2_km: float
     attenuation_source: ValueSource
     dispersion_source: ValueSource
+    dispersion_slope_source: ValueSource
     assumptions: str
     reference: str
 
@@ -150,6 +152,7 @@ class FiberParameters:
         record = asdict(self)
         record["attenuation_source"] = self.attenuation_source.value
         record["dispersion_source"] = self.dispersion_source.value
+        record["dispersion_slope_source"] = self.dispersion_slope_source.value
         record["units"] = {
             "wavelength": "nm",
             "attenuation": "dB/km",
@@ -176,6 +179,7 @@ def g652d_preset(wavelength_nm: float, variant: str = "representative") -> Fiber
             sellmeier_slope(wavelength_nm, lambda0, s0),
             ValueSource.REPRESENTATIVE,
             ValueSource.REPRESENTATIVE,
+            ValueSource.REPRESENTATIVE,
             f"Attenuation: Table I.1 link values, linear between bands. Dispersion: three-term "
             f"curve fitted through Table I.1 D1550 and S1550 (lambda0 {lambda0:.1f} nm, S0 "
             f"{s0:.4f}). Not a specific fiber.",
@@ -200,7 +204,9 @@ def g652d_preset(wavelength_nm: float, variant: str = "representative") -> Fiber
         slope,
         ValueSource.SPECIFICATION_LIMIT,
         ValueSource.SPECIFICATION_LIMIT,
-        "On a specification boundary. Worst-case envelope, not a real fiber.",
+        ValueSource.SPECIFICATION_LIMIT,
+        "On a specification boundary; the slope is the local slope of the bound curve. "
+        "Worst-case envelope, not a real fiber.",
         SOURCE_G652,
     )
 
@@ -223,6 +229,7 @@ def custom_fiber(
         dispersion_slope_ps_per_nm2_km,
         source,
         source,
+        source,
         "User-supplied values; no standard limits applied.",
         reference,
     )
@@ -235,7 +242,12 @@ def apply_measurements(
     dispersion_ps_per_nm_km: float | None = None,
     dispersion_slope_ps_per_nm2_km: float | None = None,
 ) -> FiberParameters:
-    """Override preset values with Southampton measurements, keeping what was not measured."""
+    """Override preset values with Southampton measurements, keeping what was not measured.
+
+    Each value has its own provenance tag: a measured D does not relabel the slope, and a
+    measured slope is tagged as measured. Length and wavelength are not set here; they are the
+    fiber_length_km of the link and the wavelength passed to the preset.
+    """
     updated = base
     if attenuation_db_per_km is not None:
         updated = replace(
@@ -250,7 +262,11 @@ def apply_measurements(
             dispersion_source=ValueSource.MEASURED,
         )
     if dispersion_slope_ps_per_nm2_km is not None:
-        updated = replace(updated, dispersion_slope_ps_per_nm2_km=dispersion_slope_ps_per_nm2_km)
+        updated = replace(
+            updated,
+            dispersion_slope_ps_per_nm2_km=dispersion_slope_ps_per_nm2_km,
+            dispersion_slope_source=ValueSource.MEASURED,
+        )
     return replace(updated, reference=f"{base.reference}; measured: {reference}")
 
 

@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+from opticps.optical_channel.fiber import ValueSource
 from opticps.shaping.distributions import validate_probabilities
 from opticps.transmitter.frame import Frame
 
@@ -62,6 +63,8 @@ FIBER_FIELDS = (
     "attenuation_source",
     "dispersion_source",
 )
+# Checked against ValueSource when present; the slope tag is new, so older records may lack it.
+FIBER_SOURCE_FIELDS = ("attenuation_source", "dispersion_source", "dispersion_slope_source")
 
 
 class CaptureValidationError(ValueError):
@@ -108,6 +111,23 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
             problems.append("fiber must be an object (see FiberParameters.to_metadata)")
         else:
             problems.extend(f"fiber is missing {k}" for k in FIBER_FIELDS if fiber.get(k) is None)
+            allowed = {source.value for source in ValueSource}
+            problems.extend(
+                f"fiber {k} {fiber[k]!r} is not one of {sorted(allowed)}"
+                for k in FIBER_SOURCE_FIELDS
+                if fiber.get(k) is not None
+                and not (isinstance(fiber[k], str) and fiber[k] in allowed)
+            )
+            length = fiber.get("fiber_length_km")
+            if length is not None and (
+                isinstance(length, bool)
+                or not isinstance(length, (int, float))
+                or abs(length - metadata["fiber_length_km"]) > 1e-9
+            ):
+                problems.append(
+                    f"fiber fiber_length_km {length!r} disagrees with top-level "
+                    f"fiber_length_km {metadata['fiber_length_km']}"
+                )
     launch = metadata.get("optical_launch_power_dBm")
     if launch is not None and launch < metadata["optical_received_power_dBm"]:
         problems.append("received power exceeds launch power")

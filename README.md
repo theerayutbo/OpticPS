@@ -42,10 +42,10 @@ uv run pytest
 uv run opticps generate    # M8199B waveforms, references, manifest, validation
 uv run opticps validate    # re-check the exported packages
 uv run opticps simulate    # simulated comparison, several minutes
-uv run opticps fiber-validate   # G.652.D fiber model validation, results/fiber_validation/
 uv run opticps report      # PDF and Markdown report
 uv run opticps slides      # PowerPoint and PDF slides
-uv run opticps demo        # all of the above
+uv run opticps demo        # generate, validate, simulate, report and slides (not fiber-validate)
+uv run opticps fiber-validate   # G.652.D fiber model validation, results/fiber_validation/; run separately
 ```
 
 ## Keysight workflow
@@ -61,9 +61,9 @@ These are starting points, not proof the optical link supports either speed. Opt
 
 ## Fiber model (1.1)
 
-`LinkConfig(fiber=...)` takes a `FiberParameters` that supplies wavelength, attenuation, dispersion and dispersion slope. Without it, the link uses the v1.0 defaults (0.2 dB/km, 17 ps/(nm km), 1550 nm, no slope) and gives numerically identical results. Presets (`opticps.optical_channel.fiber.select_fiber`): `none`, `g652d-representative`, `g652d-limit-low`, `g652d-limit-high`, `custom`. Nothing is applied unless chosen, and the Southampton fiber type and length are unconfirmed.
+`LinkConfig(fiber=...)` takes a `FiberParameters` that supplies wavelength, attenuation, dispersion and dispersion slope. Without it, the link uses the v1.0 defaults (0.2 dB/km, 17 ps/(nm km), 1550 nm, no slope) and gives numerically identical results. A fiber field that disagrees with the fiber description raises an error; a slope left unset is the v1.0 second-order model, while 0.0 is a true zero slope. Presets (`opticps.optical_channel.fiber.select_fiber`): `none`, `g652d-representative`, `g652d-limit-low`, `g652d-limit-high`, `custom`. Nothing is applied unless chosen, and the Southampton fiber type and length are unconfirmed.
 
-The presets follow Rec. ITU-T G.652 (08/2024), edition 10.0. Limits are for cable and exclude short cables such as jumpers; Table I.1 typical link values are not limits; the representative dispersion curve is a fit through the Table I.1 values. Measurements override presets through `apply_measurements`, which marks them laboratory-measured, and capture metadata has an optional `fiber` field. PMD is listed and not simulated. Results are analytical or simulated; none is experimentally validated. See `reports/Fiber_Model_Validation_Report.pdf`.
+The presets follow Rec. ITU-T G.652 (08/2024), edition 10.0. Limits are for cable and exclude short cables such as jumpers; Table I.1 typical link values are not limits; the representative dispersion curve is a fit through the Table I.1 values. Measurements override presets through `apply_measurements`, which marks each measured value laboratory-measured (the slope has its own tag), and capture metadata has an optional `fiber` field. PMD is listed and not simulated. Results are analytical or simulated; none is experimentally validated. See `reports/Fiber_Model_Validation_Report.pdf`.
 
 ## Southampton data import
 

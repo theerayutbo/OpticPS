@@ -43,7 +43,16 @@ def test_analytical_curves_follow_the_tables():
     assert curves["dispersion_lower_ps_per_nm_km"][at] == pytest.approx(13.3, abs=0.05)
     assert curves["dispersion_upper_ps_per_nm_km"][at] == pytest.approx(18.6, abs=0.05)
     assert curves["representative_within_limits"] is True
-    assert curves["typical_attenuation_exceeds_limit_at_nm"] == [1260.0]
+    exceed = curves["typical_attenuation_exceeds_limit_nm"]
+    # Table I.1 is above the Table 2 limit from 1260 nm to where the interpolation meets 0.40.
+    assert exceed["first_nm"] == 1260.0
+    assert exceed["last_on_grid_nm"] == 1435.0
+    assert exceed["crossover_interpolated_nm"] == pytest.approx(1435.56, abs=0.01)
+    assert exceed["stated_by_table_i1_nm"] == [1260.0, 1360.0]
+    assert (
+        1310.0 in exceed["wavelengths_on_grid_nm"]
+        and 1550.0 not in exceed["wavelengths_on_grid_nm"]
+    )
 
 
 @pytest.mark.parametrize("wavelength", [1550.0, 1310.0])
@@ -113,3 +122,28 @@ def test_fiber_report_text_states_scope_and_cites_the_standard():
     assert "[analytical]" in text
     assert "Fiber model" in fiber_section(fr, "figures")
     assert fiber_slide(fr)[0].startswith("Fiber model")
+
+
+@needs_fiber
+def test_report_corrections_after_review():
+    fr = json.loads(FIBER.read_text())
+    text = markdown(fr, "figures")
+    assert "Excess loss (dB)" in text and text.count("Excess loss (dB)") >= 8
+    assert "includes splices and connectors" not in text
+    assert "Inference, not stated in the Recommendation" in text
+    assert "double" in text and "twice" in text
+    assert "from 1260 to 1435 nm" in text
+    assert "1383 \u00b1 3 nm" in text
+    assert "0.1268" in text and "0.0357" in text and "slope only" not in text
+    assert "Only the before and after comparison below is paired with v1.0" in text
+    assert "same at 1550 nm and 1310 nm" in text
+    assert "read 2026-10-30" in text
+    assert "length and laser wavelength enter" not in text
+    assert "`" not in fiber_section(fr, "figures").replace("```", "")
+    assert "sections above" not in fiber_section(fr, "figures")
+
+
+def test_main_report_does_not_call_the_receiver_unidentified():
+    source = Path("src/opticps/reporting/report.py").read_text()
+    assert "yet to be identified" not in source
+    assert "Infiniium UXR" in source and "unconfirmed" in source
