@@ -1,0 +1,30 @@
+# ITU-T G.652.D fiber model validation. Simulated and analytical only; no value here
+# describes the Southampton link, whose fiber type and length are unconfirmed.
+demo_config: configs/demo.yaml
+demo_results: results/synthetic/demo_results.json
+wavelengths_nm: [1550, 1310]
+curves:
+  start_nm: 1260
+  stop_nm: 1625
+  step_nm: 1
+# Length sweeps use a lower fixed excess loss than the v1.0 fiber sweep so that the
+# zero-length point is nearly error free and the length dependence is visible.
+length_sweep:
+  runs: 4
+  waveforms: [PAM4_Uniform, PAM4_Fixed_Outer70]
+  profile_A: {extra_attenuation_db: 18, fiber_km: [0, 5, 10, 20, 30, 40]}
+  profile_B: {extra_attenuation_db: 13, fiber_km: [0, 1, 2, 3, 4, 5, 6]}
+# One point per profile, 1550 nm, G.652.D representative unless varied.
+sensitivity:
+  runs: 8
+  waveforms: [PAM4_Uniform, PAM4_Fixed_Outer70]
+  attenuation_db_per_km: [0.20, 0.275, 0.30, 0.35]
+  profile_A: {extra_attenuation_db: 8, fiber_km: 40}
+  profile_B: {extra_attenuation_db: 10, fiber_km: 4}
+# Attribution of the v1.0 to G.652.D difference, on the waveforms below.
+before_after:
+  attribution_waveforms: [PAM4_Uniform, PAM4_Fixed_Outer70]
+numerical:
+  fiber_km: 10
+  samples: 65536
+  modulation_depth: 0.02

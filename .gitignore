@@ -18,6 +18,7 @@ dist/
 # Copyrighted papers are cited, never redistributed
 *.pdf
 !reports/OpticPS_Research_Report.pdf
+!reports/Fiber_Model_Validation_Report.pdf
 !slides/OpticPS_Research_Presentation.pdf
 
 # Private laboratory data must never be committed

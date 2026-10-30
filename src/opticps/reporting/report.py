@@ -177,8 +177,8 @@ def _protocol_b(results: dict[str, Any]) -> str:
     )
 
 
-def markdown(results: dict[str, Any], figures: str) -> str:
-    """Return the report text."""
+def markdown(results: dict[str, Any], figures: str, fiber: str = "") -> str:
+    """Return the report text. fiber is an optional fiber model subsection."""
     facts = all_facts(results)
     gain = facts["gain"]
     a = facts["a"]
@@ -280,7 +280,7 @@ One symbol error makes a block undecodable or wrong, and no FEC is implemented. 
 
 ## 7. Experimental setup
 
-PLACEHOLDER: no Southampton experiment has been run. The intended setup is M8199B, driver as required, Mach-Zehnder modulator, VOA and fiber, photodiode, and a receiver yet to be identified. Complete this section from the experiment log. The procedure is in output/README_SOUTHAMPTON.md.
+PLACEHOLDER: no Southampton experiment has been run. The intended setup is M8199B, driver as required, Mach-Zehnder modulator, VOA and fiber (fiber standard and length unconfirmed), photodiode, and a receiver that is a Keysight Infiniium UXR Series oscilloscope (256 GSa/s, model suffix unconfirmed). Complete this section from the experiment log. The procedure is in output/README_SOUTHAMPTON.md.
 
 ## 8. Keysight waveform generation
 
@@ -291,6 +291,8 @@ Files follow the rules in docs/HARDWARE_COMPATIBILITY.md: first row DataOut1, on
 ## 9. Optical channel model
 
 The simulation uses a sine-law modulator with finite extinction, fiber attenuation, chromatic dispersion as an all-pass phase, square-law detection, thermal noise, level-dependent shot noise and receiver filtering. It omits laser noise, Kerr effects, and amplifiers. Electrical symbol energy is not treated as optical power: all optical values come from the field. For a symmetric drive at quadrature, mean power and OMA are equal across distributions; bias error and compression break this.
+
+{fiber}
 
 ## 10. Receiver DSP
 
@@ -407,8 +409,13 @@ def _inline(text: str) -> str:
     return re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escape(text))
 
 
-def render_pdf(text: str, path: Path, work: Path, banner: str) -> None:
-    """Render the supported Markdown subset to PDF."""
+def render_pdf(
+    text: str, path: Path, work: Path, banner: str, title: str = "OpticPS Research Report"
+) -> None:
+    """Render the supported Markdown subset to PDF.
+
+    A figure caption ending in " [analytical]" is labelled analytical; others, simulated.
+    """
     _fonts()
     body = ParagraphStyle("body", fontName="DejaVu", fontSize=9.5, leading=13.5, spaceAfter=6)
     h1 = ParagraphStyle("h1", fontName="DejaVu-Bold", fontSize=20, leading=25, spaceAfter=10)
@@ -440,11 +447,15 @@ def render_pdf(text: str, path: Path, work: Path, banner: str) -> None:
             reader = ImageReader(match.group(2))
             w, h = reader.getSize()
             shown = min(width, 13 * cm)
+            label = match.group(1)
+            kind = " (simulated)"
+            if label.endswith(" [analytical]"):
+                label, kind = label.removesuffix(" [analytical]"), " (analytical)"
             story.append(
                 KeepTogether(
                     [
                         Image(match.group(2), width=shown, height=shown * h / w),
-                        Paragraph(_inline(match.group(1)) + " (simulated)", caption),
+                        Paragraph(_inline(label) + kind, caption),
                     ]
                 )
             )
@@ -487,7 +498,7 @@ def render_pdf(text: str, path: Path, work: Path, banner: str) -> None:
 
     document = SimpleDocTemplate(
         str(path), pagesize=A4, leftMargin=2 * cm, rightMargin=2 * cm, topMargin=1.8 * cm,
-        bottomMargin=1.6 * cm, title="OpticPS Research Report", author="Theerayut Boonkird",
+        bottomMargin=1.6 * cm, title=title, author="Theerayut Boonkird",
     )  # fmt: skip
     if story and isinstance(story[-1], PageBreak):
         story.pop()
@@ -496,17 +507,29 @@ def render_pdf(text: str, path: Path, work: Path, banner: str) -> None:
 
 def build_report(results_path: Path, out_dir: Path) -> Path:
     """Build figures, Markdown and PDF. Returns the PDF path."""
+    from opticps.reporting.fiber_report import fiber_section, load_fiber_results
+
     results = json.loads(results_path.read_text())
     figure_dir = results_path.parent / "figures"
     all_figures(results_path, figure_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     relative = f"../{figure_dir.as_posix()}"
-    text = markdown(results, relative)
+    fiber_results = load_fiber_results(results_path)
+    fiber_dir = results_path.parent.parent / "fiber_validation" / "figures"
+    fiber_relative = f"../{fiber_dir.as_posix()}"
+    text = markdown(
+        results,
+        relative,
+        fiber_section(fiber_results, fiber_relative) if fiber_results else "",
+    )
     (out_dir / "OpticPS_Research_Report.md").write_text(text)
     pdf = out_dir / "OpticPS_Research_Report.pdf"
     equations = out_dir / ".equations"
     equations.mkdir(exist_ok=True)
-    render_pdf(text.replace(relative, figure_dir.as_posix()), pdf, equations, results["banner"])
+    pdf_text = text.replace(relative, figure_dir.as_posix())
+    render_pdf(
+        pdf_text.replace(fiber_relative, fiber_dir.as_posix()), pdf, equations, results["banner"]
+    )
     for item in equations.glob("*.png"):
         item.unlink()
     equations.rmdir()
