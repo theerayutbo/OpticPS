@@ -13,3 +13,8 @@ All findings below are SIMULATED or calculated. No measurements exist yet.
 - Simulated/calculated, seed 42. Source: `output/keysight_m8199b/*/experiment_manifest.csv`.
 - At equal baud, shaping lowers net payload rate. Profile A: Uniform 15.50 Gbit/s; PS70 and Outer70 14.47; PS80 13.22; Adaptive 13.93.
 - PS70 and Outer70 are rate matched by construction.
+
+## F-003 Simulated link comparison (not experimental)
+- Source: `results/synthetic/demo_results.json`, config e39084adac9d, seed 42.
+- Near 1 bit/symbol, inner-heavy loses and outer-heavy gains against Uniform; see LOG entry for intervals. Intervals reflect noise only, for one payload and one generic link.
+- With peak unconstrained, PS70 beats Uniform for 4 to 11.5 dB SNR; 4 dB is the edge of the computed range.

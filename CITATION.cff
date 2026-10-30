@@ -1,11 +1,11 @@
 cff-version: 1.2.0
 message: "If you use this software, please cite it as below."
-title: "OpticPS: uniform, fixed-shaped and adaptive-shaped PAM4 comparison framework"
+title: "OpticPS: An Open-Source Framework for Probabilistic Shaping in Optical Communications"
 type: software
 authors:
   - family-names: Boonkird
     given-names: Theerayut
-version: 0.1.0
+version: 1.0.0
 date-released: 2026-10-30
 license: MIT
 repository-code: "https://github.com/theerayutbo/OpticPS"

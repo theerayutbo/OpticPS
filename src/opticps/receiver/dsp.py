@@ -258,6 +258,7 @@ class CaptureResult:
     minimum_distance: Metrics
     map: Metrics
     decisions_map: IntArray
+    preamble_correlation: float
 
 
 def process_capture(
@@ -306,4 +307,5 @@ def process_capture(
         minimum_distance=evaluate(md, equalized, frame, law, priors),
         map=evaluate(decided, equalized, frame, law, priors),
         decisions_map=decided,
+        preamble_correlation=float(np.corrcoef(equalized[:PREAMBLE_LENGTH], template)[0, 1]),
     )

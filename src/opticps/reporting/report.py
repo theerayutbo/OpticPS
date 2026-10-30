@@ -190,15 +190,25 @@ def markdown(results: dict[str, Any], figures: str) -> str:
         if facts["inner_never_wins"]
         else "exceeded Uniform at some PSNR"
     )
-    crossover = facts["average_power_inner_wins_from_db"]
     a_runs = results["profile_A"]["back_to_back"]["Uniform"][0]["runs"]
-    average_text = (
-        f"With peak unconstrained and noise scaled to average electrical power, PS70 exceeds "
-        f"Uniform from about {crossover:g} dB SNR."
-        if crossover is not None
-        else "With peak unconstrained, PS70 did not exceed Uniform in the computed range."
-    )
+    wins = facts["average_power_inner_wins_db"]
+    low_edge, high_edge = facts["average_power_range_db"]
+    if wins:
+        limit = (
+            " The lower end is the edge of the computed range, not a crossover."
+            if wins[0] == low_edge
+            else ""
+        )
+        average_text = (
+            f"With peak unconstrained and noise scaled to average electrical power, PS70 exceeds "
+            f"Uniform between {wins[0]:g} and {wins[-1]:g} dB SNR, within the computed "
+            f"{low_edge:g} to {high_edge:g} dB range.{limit} Above that, its lower entropy limits it."
+        )
+    else:
+        average_text = "With peak unconstrained, PS70 did not exceed Uniform in the computed range."
     sections = f"""# OpticPS Research Report
+
+An Open-Source Framework for Probabilistic Shaping in Optical Communications
 
 **{results["banner"]}**
 
@@ -242,7 +252,7 @@ PSNR is 9 / sigma squared on the alphabet {{0, 1, 2, 3}}, as in [1]. MAP detecti
 
 EQ: \\hat{{x}}=\\arg\\max_x\\ p(y|x)\\,P(x)
 
-Reproduction of [1]: Uniform reaches 1 bit/symbol at {gain["uniform_smd_psnr_db"]:.2f} dB (SMD) and {gain["uniform_bmd_psnr_db"]:.2f} dB (BMD). Outer70 gains {gain["outer70_smd_gain_db"]:.2f} dB and {gain["outer70_bmd_gain_db"]:.2f} dB. The paper gives 0.63 dB for the same BMD case.
+Reproduction of [1]: Uniform reaches 1 bit/symbol at {gain["uniform_smd_psnr_db"]:.2f} dB (SMD) and {gain["uniform_bmd_psnr_db"]:.2f} dB (BMD). Outer70 gains {gain["outer70_smd_gain_db"]:.2f} dB and {gain["outer70_bmd_gain_db"]:.2f} dB. The paper gives 0.63 dB for the same BMD case. The rates quoted in section 1 are SMD; the figure below plots BMD.
 
 ![Rate versus PSNR at fixed peak]({figures}/rate_vs_psnr.png)
 
@@ -330,7 +340,7 @@ All values are simulated, mean of {a_runs} runs with bootstrap intervals over ru
 
 ### Adaptive versus fixed on held-out runs
 
-Selection used simulated training runs only, with disjoint test seeds. Values are paired differences in R_BMD, bit/symbol.
+Selection used simulated training runs only. Test runs are held out in noise seeds only: the Uniform training frame and the Uniform contender carry the same symbols. Only one parameter is fitted, so any effect should be small. Values are paired differences in R_BMD, bit/symbol.
 
 {_adaptive_table(results)}
 
@@ -344,11 +354,11 @@ Selection used simulated training runs only, with disjoint test seeds. Values ar
 
 ## 13. Statistical analysis
 
-Error rates use Clopper-Pearson intervals [14], which stay valid at low counts but assume independent errors, and so are optimistic under ISI. Rates use a percentile bootstrap over independent runs [12, 13], never over samples. Eight runs give coarse intervals. Points with fewer than 10 symbol errors appear in figures only as upper bounds. Physical measurement uncertainty does not apply yet: these are simulations.
+Error rates use Clopper-Pearson intervals [14], which stay valid at low counts but assume independent errors, and so are optimistic under ISI. Rates use a percentile bootstrap over independent runs [12, 13], never over samples. Runs differ only in noise and share one symbol sequence and one link, so these narrow intervals describe noise variation only. They are conditional on this payload and link, and say nothing about variation between experiments. Points with fewer than 10 symbol errors appear in figures only as upper bounds. Physical measurement uncertainty does not apply yet: these are simulations.
 
 ## 14. Discussion
 
-The requested PS70 and PS80 trade rate away in this model without gaining margin, since inner levels sit closer to two neighbours and the swing is unchanged. That does not make inner-heavy shaping wrong everywhere. {average_text} Such a gain requires a peak swing that an unamplified modulator link may not provide, as [1, 8] discuss.
+The requested PS70 and PS80 trade rate away in this model without gaining margin, since inner levels each have two neighbours while the swing and level spacing stay unchanged. That does not make inner-heavy shaping wrong everywhere. {average_text} Such a gain requires a peak swing that an unamplified modulator link may not provide, as [1, 8] discuss.
 
 An outer-heavy input raises electrical RMS, so a real driver may compress it. Sine compression also narrows outer level spacing, which penalizes outer-heavy input and has not been optimized away here. Measured level spacing will decide this.
 

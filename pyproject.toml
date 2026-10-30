@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "opticps"
-version = "0.1.0"
-description = "Research framework comparing uniform, fixed-shaped and adaptive-shaped PAM4 on IM/DD optical links"
+version = "1.0.0"
+description = "OpticPS: An Open-Source Framework for Probabilistic Shaping in Optical Communications"
 readme = "README.md"
 requires-python = ">=3.11,<3.15"
 license = "MIT"

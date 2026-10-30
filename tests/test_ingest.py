@@ -177,7 +177,7 @@ def test_mock_receiver_end_to_end(manifest, tmp_path):
     summary = analyze_directory(tmp_path, ROOT, PROFILE, tmp_path / "out")
     assert summary["data_sources"] == ["simulated"]
     assert summary["test_captures"] == 6
-    assert summary["comparisons"][0]["runs"] == 3
+    assert "insufficient" in summary["comparisons"][0]["result"]
     metrics = (tmp_path / "out" / "capture_metrics.csv").read_text().splitlines()
     assert len(metrics) == 7
     capture = load_capture(tmp_path / "PAM4_Uniform-r1-test.json")

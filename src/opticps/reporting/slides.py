@@ -61,10 +61,10 @@ def deck(results: dict[str, Any], figures: Path) -> list[Slide]:
         )
     return [
         Slide(
-            "OpticPS: Uniform, Fixed and Adaptive Shaped PAM4 for IM/DD",
+            "OpticPS: An Open-Source Framework for Probabilistic Shaping in Optical Communications",
             [
                 "Research collaboration between researchers at Manchester and Southampton",
-                "Technical discussion deck",
+                "Uniform, Fixed and Adaptive Shaped PAM4 for IM/DD: technical discussion deck",
                 results["banner"],
             ],
         ),
@@ -169,7 +169,7 @@ def deck(results: dict[str, Any], figures: Path) -> list[Slide]:
             True,
         ),
         Slide(
-            f"Profile B near {b['received_dbm']:.1f} dBm, and fiber",
+            f"Profile B near {b['received_dbm']:.1f} dBm",
             versus(b),
             fig("air_vs_rx_B.png"),
             True,
@@ -232,7 +232,10 @@ def write_pptx(slides: list[Slide], path: Path) -> None:
             line.font.size = Pt(19 if len(model.bullets) < 5 else 17)
             paragraph.space_after = Pt(11)
         if model.image:
-            slide.shapes.add_picture(model.image, Inches(6.3), Inches(1.55), width=Inches(6.6))
+            picture = slide.shapes.add_picture(model.image, Inches(6.3), Inches(1.55))
+            scale = min(Inches(6.6) / picture.width, Inches(5.2) / picture.height)
+            picture.width = int(picture.width * scale)
+            picture.height = int(picture.height * scale)
         if model.simulated:
             note = slide.shapes.add_textbox(Inches(0.5), Inches(6.9), Inches(12.3), Inches(0.4))
             flag = note.text_frame.paragraphs[0].add_run()
@@ -269,8 +272,8 @@ def write_pdf(slides: list[Slide], path: Path) -> None:
         if model.image:
             reader = ImageReader(model.image)
             w, h = reader.getSize()
-            shown = 6.6 * 72
-            shown_h = shown * h / w
+            scale = min(6.6 * 72 / w, 5.2 * 72 / h)
+            shown, shown_h = w * scale, h * scale
             pdf.drawImage(model.image, 6.3 * 72, height - 112 - shown_h, shown, shown_h)
         if model.simulated:
             pdf.setFont("DejaVu-Bold", 11)

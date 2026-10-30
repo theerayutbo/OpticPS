@@ -1,6 +1,10 @@
 # OpticPS
 
-Research framework comparing **Uniform**, **Fixed-shaped** and **Adaptive-shaped** PAM4 on intensity-modulation/direct-detection optical links, with waveform packages for the Keysight M8199B.
+**OpticPS: An Open-Source Framework for Probabilistic Shaping in Optical Communications**
+
+OpticPS stands for Optical Probabilistic Shaping. The name is not limited to PAM4: PAM8, PAM16 and coherent systems are possible future extensions.
+
+This release compares **Uniform**, **Fixed-shaped** and **Adaptive-shaped** PAM4 on intensity-modulation/direct-detection optical links, with waveform packages for the Keysight M8199B.
 
 > **Status: simulation only.** No Southampton measurements have been imported. M8199B playback has not been verified. The M8199B file rules come from the project owner's notes of the M8100 Programming Guide, and have not been checked against the guide itself. See `docs/HARDWARE_COMPATIBILITY.md`.
 
