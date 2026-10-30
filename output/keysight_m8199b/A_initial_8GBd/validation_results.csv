@@ -12,6 +12,7 @@ PAM4_Uniform,reference_length,PASS,32768
 PAM4_Uniform,reference_levels,PASS,index-level map
 PAM4_Uniform,waveform_sha256,PASS,88ec8b50d4e4540233bdbb1ff61c340867294b5ecc9c7f13ff8c8e7f600df69b
 PAM4_Uniform,reference_sha256,PASS,symbols file
+PAM4_Uniform,target_is_requested,PASS,"[0.25, 0.25, 0.25, 0.25]"
 PAM4_Uniform,distribution_within_tolerance,PASS,"max dev 0.00674, limit 0.01215"
 PAM4_Uniform,preamble_balanced,PASS,256 of each outer level
 PAM4_Uniform,noise_free_reconstruction,PASS,0 symbol errors
@@ -30,6 +31,7 @@ PAM4_Fixed_PS70,reference_length,PASS,32768
 PAM4_Fixed_PS70,reference_levels,PASS,index-level map
 PAM4_Fixed_PS70,waveform_sha256,PASS,680835759bf30bcab7cec2256ae58c2ac102592740d3a85856d01679254a7cdd
 PAM4_Fixed_PS70,reference_sha256,PASS,symbols file
+PAM4_Fixed_PS70,target_is_requested,PASS,"[0.15, 0.35, 0.35, 0.15]"
 PAM4_Fixed_PS70,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
 PAM4_Fixed_PS70,preamble_balanced,PASS,256 of each outer level
 PAM4_Fixed_PS70,noise_free_reconstruction,PASS,0 symbol errors
@@ -49,6 +51,7 @@ PAM4_Fixed_PS80,reference_length,PASS,32768
 PAM4_Fixed_PS80,reference_levels,PASS,index-level map
 PAM4_Fixed_PS80,waveform_sha256,PASS,b8d14eea28389a119c6499970a53e2756e1ca04881e3fcb558a070a54f7b5844
 PAM4_Fixed_PS80,reference_sha256,PASS,symbols file
+PAM4_Fixed_PS80,target_is_requested,PASS,"[0.1, 0.4, 0.4, 0.1]"
 PAM4_Fixed_PS80,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
 PAM4_Fixed_PS80,preamble_balanced,PASS,256 of each outer level
 PAM4_Fixed_PS80,noise_free_reconstruction,PASS,0 symbol errors
@@ -87,6 +90,7 @@ PAM4_Fixed_Outer70,reference_length,PASS,32768
 PAM4_Fixed_Outer70,reference_levels,PASS,index-level map
 PAM4_Fixed_Outer70,waveform_sha256,PASS,021ad1c273bed8759225497523f88b678ef7923bcb013fb6cd63c063a8c058be
 PAM4_Fixed_Outer70,reference_sha256,PASS,symbols file
+PAM4_Fixed_Outer70,target_is_requested,PASS,"[0.35, 0.15, 0.15, 0.35]"
 PAM4_Fixed_Outer70,distribution_within_tolerance,PASS,"max dev 0.00039, limit 0.00098"
 PAM4_Fixed_Outer70,preamble_balanced,PASS,256 of each outer level
 PAM4_Fixed_Outer70,noise_free_reconstruction,PASS,0 symbol errors
@@ -95,19 +99,19 @@ PAM4_Fixed_Outer70,matcher_rate,PASS,"k=1912, n=1024"
 PAM4_Fixed_Outer70,ccdm_inverse_recovers_bits,PASS,59272 bits
 experiment_manifest.csv,checksum_file_entry,PASS,4cfdf64bb57771ee
 references/PAM4_Adaptive/PAM4_Adaptive_info_bits.txt,checksum_file_entry,PASS,4bef25a32d6e361e
-references/PAM4_Adaptive/PAM4_Adaptive_metadata.json,checksum_file_entry,PASS,0caba3efc533dedc
+references/PAM4_Adaptive/PAM4_Adaptive_metadata.json,checksum_file_entry,PASS,38075b0130f57fd7
 references/PAM4_Adaptive/PAM4_Adaptive_symbols.csv,checksum_file_entry,PASS,f0f04a8514fafa06
 references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_info_bits.txt,checksum_file_entry,PASS,a035c3047dbb1380
-references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_metadata.json,checksum_file_entry,PASS,167d39a453d02517
+references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_metadata.json,checksum_file_entry,PASS,689fccc0009331eb
 references/PAM4_Fixed_Outer70/PAM4_Fixed_Outer70_symbols.csv,checksum_file_entry,PASS,652dc99c4c8fbb90
 references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_info_bits.txt,checksum_file_entry,PASS,09b29c644aa19101
-references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_metadata.json,checksum_file_entry,PASS,f960210ceea8756b
+references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_metadata.json,checksum_file_entry,PASS,7491cc085f579d41
 references/PAM4_Fixed_PS70/PAM4_Fixed_PS70_symbols.csv,checksum_file_entry,PASS,1625203b90ff5e26
 references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_info_bits.txt,checksum_file_entry,PASS,d7c13eb362e9be1d
-references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_metadata.json,checksum_file_entry,PASS,9a2abfcf1597f40f
+references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_metadata.json,checksum_file_entry,PASS,2a46cecb79c81eec
 references/PAM4_Fixed_PS80/PAM4_Fixed_PS80_symbols.csv,checksum_file_entry,PASS,8a58da36a9fe3b2d
 references/PAM4_Uniform/PAM4_Uniform_info_bits.txt,checksum_file_entry,PASS,c678248355e1bb60
-references/PAM4_Uniform/PAM4_Uniform_metadata.json,checksum_file_entry,PASS,8a568659cf1e6823
+references/PAM4_Uniform/PAM4_Uniform_metadata.json,checksum_file_entry,PASS,036b92c137929242
 references/PAM4_Uniform/PAM4_Uniform_symbols.csv,checksum_file_entry,PASS,da613288fdbfea27
 waveforms/PAM4_Adaptive.csv,checksum_file_entry,PASS,f9da0720e1316bb8
 waveforms/PAM4_Fixed_PS70.csv,checksum_file_entry,PASS,680835759bf30bca

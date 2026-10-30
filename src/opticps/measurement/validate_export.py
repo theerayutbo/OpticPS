@@ -18,9 +18,17 @@ import numpy as np
 
 from opticps.distribution_matching.ccdm import ConstantCompositionMatcher
 from opticps.instruments.m8199b import GRANULARITY_SAMPLES, MAX_SAMPLES
+from opticps.transmitter.pulse import rrc_frequency_response
 
 IID_SIGMA_LIMIT = 5.0
 LEVELS = (-3, -1, 1, 3)
+# Requested targets, held here so a consistently mislabelled package cannot pass.
+EXPECTED_TARGETS = {
+    "PAM4_Uniform": (0.25, 0.25, 0.25, 0.25),
+    "PAM4_Fixed_PS70": (0.15, 0.35, 0.35, 0.15),
+    "PAM4_Fixed_PS80": (0.10, 0.40, 0.40, 0.10),
+    "PAM4_Fixed_Outer70": (0.35, 0.15, 0.15, 0.35),
+}
 
 
 @dataclass(frozen=True)
@@ -113,6 +121,8 @@ def validate_waveform(folder: Path, row: dict[str, str], expected_header: str) -
     payload = indices[start:]
     realised = [payload.count(s) / len(payload) for s in range(4)]
     target = metadata["shaping"]["target_probabilities"]
+    if name in EXPECTED_TARGETS:
+        record("target_is_requested", tuple(target) == EXPECTED_TARGETS[name], target)
     worst = max(abs(a - b) for a, b in zip(realised, target, strict=True))
     if metadata["frame"]["matcher_composition"] is None:
         # Independent symbols: the deviation is sampling noise.
@@ -140,8 +150,12 @@ def validate_waveform(folder: Path, row: dict[str, str], expected_header: str) -
         errors = sum(a != b for a, b in zip(recovered, indices, strict=True))
         record("noise_free_reconstruction", errors == 0, f"{errors} symbol errors")
     else:
-        record("noise_free_reconstruction", True, "rrc: covered by receiver matched-filter test")
-        recovered = indices
+        response = rrc_frequency_response(len(samples), sps, metadata["pulse"]["roll_off"])
+        spectrum = np.fft.fft(np.array(samples)) * response
+        filtered = np.fft.ifft(spectrum).real[::sps] * full_scale
+        recovered = [min(range(4), key=lambda s: abs(LEVELS[s] - v)) for v in filtered.tolist()]
+        errors = sum(a != b for a, b in zip(recovered, indices, strict=True))
+        record("noise_free_reconstruction", errors == 0, f"{errors} symbol errors, RRC filtered")
 
     bits_text = (reference_dir / f"{name}_info_bits.txt").read_text().strip()
     blocks = metadata["frame"]["matcher_blocks"]

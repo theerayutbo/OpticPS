@@ -67,7 +67,9 @@ def waveforms(adaptive_p0: float) -> list[Waveform]:
 
 
 def realised(frame: Frame) -> np.ndarray:
-    """Return the payload symbol frequencies, used as receiver priors."""
+    """Return receiver priors: the design for direct Uniform, else the known composition."""
+    if frame.matcher_counts is None:
+        return np.full(4, 0.25)
     return np.bincount(frame.payload_indices, minlength=4) / frame.payload_indices.size
 
 

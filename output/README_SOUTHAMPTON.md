@@ -69,15 +69,15 @@ Nothing below can be assumed from this repository. Write the answers in the expe
 
 **5. Electrical check.** Connect to a suitable scope or attenuator, **not** the modulator. Start at a low amplitude. CSV values are normalized: ±1 maps to whatever amplitude the instrument is set to, and this does not imply any voltage. Confirm four levels, the preamble pattern, and the loop rate from the table. Check that the waveform seam shows no glitch. Record Vpp and RMS.
 
-**6. Modulator, bias, power.** Never assume the modulator accepts the AWG maximum output. Check limits, then connect with output off, raise amplitude gradually. Bias through a separate DC port or bias tee: AC coupling blocks the mean, so nothing in the CSV sets the bias. Find quadrature and record the bias voltage. Keep the **same AWG amplitude for all waveforms**: this is the condition being compared. Measure launch power, OMA and extinction ratio for each waveform. Do not rescale waveforms to equalize electrical RMS: they differ by design (Uniform 0.750, PS70 0.620, PS80 0.544, Adaptive 0.882, Outer70 0.856 in normalized units).
+**6. Modulator, bias, power.** Never assume the modulator accepts the AWG maximum output. Check limits, then connect with output off, raise amplitude gradually. Bias through a separate DC port or bias tee: AC coupling blocks the mean, so nothing in the CSV sets the bias. Find quadrature and record the bias voltage. Keep the **same AWG amplitude for all waveforms**: this is the condition being compared. Measure launch power, OMA and extinction ratio for each waveform. Do not rescale waveforms to equalize electrical RMS: they differ by design. Values are in the `waveform_rms` column of each manifest (Profile B: Uniform 0.750, PS70 0.620, PS80 0.544, Adaptive 0.882, Outer70 0.856, in normalized units).
 
-**AC coupling and low-frequency content.** CCDM waveforms have zero mean over the frame; Uniform has a mean of 2.8e-4 in normalized units. The loop rate (244 kHz or 854 kHz) falls within the band of many coupling networks, so watch for baseline wander, and note any bias tee or amplifier corner frequency.
+**AC coupling and low-frequency content.** CCDM waveforms have zero mean over the frame; Uniform has a small nonzero mean, listed in the `waveform_mean` column. The loop rate (244 kHz or 854 kHz) falls within the band of many coupling networks, so watch for baseline wander, and note any bias tee or amplifier corner frequency.
 
 **7. Back-to-back.** Sweep a VOA, about 8 points around where Uniform is near 1 bit/symbol. At each point, measure received optical power, and capture all waveforms.
 
-**8. Fiber.** Repeat at each fiber length. Keep launch power fixed. Record the fiber type, length and loss. At 56 GBaud, chromatic dispersion limits simulated reach to a few kilometres.
+**8. Fiber.** Repeat at each fiber length. Keep launch power fixed. Record the fiber type, length and loss. At 56 GBaud, simulated chromatic dispersion degrades performance noticeably within a few kilometres; see the report.
 
-**9. Capture.** Capture at least 2 frames, at no less than twice the baud rate, ideally more. Take at least 5 repeated captures per condition, in interleaved order (U, PS70, PS80, A, O, U, ...) so drift does not bias one waveform. Capture a **separate** set for training, and mark it. Save raw data:
+**9. Capture.** Capture at least 2 frames, at no less than twice the baud rate, ideally more. Take at least 5 repeated captures per condition (paired comparisons below 5 runs are refused), in interleaved order (U, PS70, PS80, A, O, U, ...) so drift does not bias one waveform. Capture a **separate** set for training, and mark it. Save raw data:
 
 ```
 received_time_s,received_voltage_v

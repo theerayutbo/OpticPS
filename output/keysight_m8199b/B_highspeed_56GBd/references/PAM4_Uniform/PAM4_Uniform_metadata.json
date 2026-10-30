@@ -28,7 +28,7 @@
   },
   "generator": {
     "package": "opticps",
-    "version": "0.1.0"
+    "version": "1.0.0"
   },
   "instrument": "Keysight M8199B (hardware playback not verified)",
   "number_of_samples": 262144,

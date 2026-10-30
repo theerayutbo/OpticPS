@@ -98,3 +98,18 @@ Next: full demo run, report, slides, independent review.
 ## 2026-10-30 | Correction to the Phases 5-8 entry
 
 The GMI test was tightened back to the planned 0.01 bit and passes for Uniform, PS70 and Outer70.
+
+## 2026-10-30 | Phase 9-10 v1.0 review and final run | commit: this commit
+
+Reviews:
+- Grok, read-only: returned no findings (stopped after its opening sentence, exit 0). Not counted as a review.
+- Sonnet Loki: PASS, no blockers, 11 minor findings. It recomputed the 14 dB rates by scipy quad, and one report row from results.
+- Fable was used once, for the pre-build design review. By user instruction it is not used as a worker afterwards. The plan's Fable review of Phase 10 was replaced.
+
+Changes from review: Uniform priors no longer come from the payload; paired comparisons need 5 runs; `target_is_requested` check with independent targets; RRC reconstruction is actually tested; preamble correlation is reported; the "held-out" and interval wording in the report is corrected; slide picture bounds; the 4 dB statement.
+
+Final simulated results, seed 42, config e39084adac9d, version 1.0.0, runtime 288 s, 8 runs:
+- Profile A near -22.01 dBm, R_BMD versus Uniform: PS70 -0.150 [-0.151,-0.147], PS80 -0.267 [-0.270,-0.264], Adaptive +0.036 [0.033,0.039], Outer70 +0.041 [0.037,0.045].
+- Profile B near -19.01 dBm: PS70 -0.141, PS80 -0.236, Adaptive +0.093 [0.090,0.097], Outer70 +0.081 [0.078,0.084].
+- Point adaptation versus Outer70: +0.018 at 26 dB; unresolved +0.001 [-0.001,0.003] at 25 dB; +0.107 at 21 dB, where it selects uniform.
+- Validation: 119 of 119 per profile. Waveform CSVs byte-identical before and after review changes.

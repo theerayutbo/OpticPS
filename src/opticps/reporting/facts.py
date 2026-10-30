@@ -86,23 +86,21 @@ def all_facts(results: dict[str, Any]) -> dict[str, Any]:
     i14 = psnr.index(14.0)
     curves = theory["rate_curves"]
     inner_never_wins = all(
-        curves["PS70"]["smd"][i] <= curves["Uniform"]["smd"][i] + 1e-9 for i in range(len(psnr))
+        max(curves["PS70"]["smd"][i], curves["PS80"]["smd"][i])
+        <= curves["Uniform"]["smd"][i] + 1e-9
+        for i in range(len(psnr))
     )
     average_snr = theory["average_power_snr_db"]
     average = theory["average_power_smd"]
-    crossover = next(
-        (
-            x
-            for x, a, b in zip(average_snr, average["PS70"], average["Uniform"], strict=True)
-            if a > b
-        ),
-        None,
-    )
+    inner_wins = [
+        x for x, a, b in zip(average_snr, average["PS70"], average["Uniform"], strict=True) if a > b
+    ]
     return {
         "a": profile_facts(results, "profile_A"),
         "b": profile_facts(results, "profile_B"),
         "gain": gain,
         "rates_14db": {k: v["smd"][i14] for k, v in curves.items()},
         "inner_never_wins": inner_never_wins,
-        "average_power_inner_wins_from_db": crossover,
+        "average_power_inner_wins_db": inner_wins,
+        "average_power_range_db": (average_snr[0], average_snr[-1]),
     }

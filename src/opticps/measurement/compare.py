@@ -36,6 +36,8 @@ CONTROLLED_FIELDS = (
     ("receiver_bandwidth_Hz", "Receiver bandwidth"),
 )
 TOLERANCE = 0.05
+MIN_PAIRED_RUNS = 5
+MIN_PREAMBLE_CORRELATION = 0.3
 
 
 def fairness_audit(captures: list[Capture]) -> list[dict[str, str]]:
@@ -145,6 +147,8 @@ def analyze_directory(
             "r_smd": result.map.r_smd,
             "r_bmd": result.map.r_bmd,
             "snr_db": result.map.snr_db,
+            "preamble_correlation": result.preamble_correlation,
+            "sync_reliable": result.preamble_correlation >= MIN_PREAMBLE_CORRELATION,
             "air_gbps": result.map.r_bmd * meta["symbol_rate_Bd"] / 1e9,
         }
         rows.append(row)
@@ -161,11 +165,11 @@ def analyze_directory(
     for i, first in enumerate(names):
         for second in names[i + 1 :]:
             common = sorted(set(groups[first]) & set(groups[second]))
-            if len(common) < 2:
+            if len(common) < MIN_PAIRED_RUNS:
                 comparisons.append(
                     {
                         "pair": [first, second],
-                        "result": "insufficient paired runs",
+                        "result": f"insufficient paired runs (need {MIN_PAIRED_RUNS})",
                         "runs": len(common),
                     }
                 )
