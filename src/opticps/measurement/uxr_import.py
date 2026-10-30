@@ -31,6 +31,7 @@ DEFAULT_MAX_SAMPLES = 500_000_000
 METADATA_MAX_BYTES = 4096  # per identification dataset (Frame, FileType)
 METADATA_MAX_TEXT = 256  # characters kept from any metadata string
 METADATA_MAX_ELEMENTS = 64  # elements kept from any array attribute
+METADATA_MAX_ATTRIBUTES = 256  # attributes kept from the channel group
 DEFAULT_WAVEFORM_TYPES = ("NORMAL", "AVERAGE")
 CSV_DEFAULT_TYPES = ("NORMAL", "RAW", "AVERAGE")
 CSV_TYPE_NAMES = ("NORMAL", "RAW", "INTERPOLATE", "AVERAGE", "VERSUS")
@@ -105,7 +106,10 @@ def _plain(value: Any) -> Any:
         return _scalar(value, "attribute")
     if array.size > METADATA_MAX_ELEMENTS:
         return f"<{array.size} values, not kept>"
-    return [_text(v) if isinstance(v, bytes | np.bytes_) else v for v in array.reshape(-1).tolist()]
+    return [
+        _text(v) if isinstance(v, bytes | np.bytes_ | str | np.str_) else v
+        for v in array.reshape(-1).tolist()
+    ]
 
 
 def _number(value: Any, name: str) -> float:
@@ -255,7 +259,20 @@ def read_hdf5(
         dataset = _member(
             group, data_name, f"dataset {data_name} in /Waveforms/{group_name}", "dataset", None
         )
-        attrs = {k: _plain(v) for k, v in group.attrs.items()}
+        if len(group.attrs) > METADATA_MAX_ATTRIBUTES:
+            raise UxrImportError(
+                f"{group_name} holds {len(group.attrs)} attributes, more than the limit "
+                f"{METADATA_MAX_ATTRIBUTES}"
+            )
+        attrs = {}
+        for key in group.attrs.keys():  # noqa: SIM118 - names only; values read one by one
+            shape = group.attrs.get_id(key).shape
+            count = 0 if shape is None else int(np.prod(shape))
+            attrs[_text(key)] = (
+                f"<{count} values, not kept>"
+                if count > METADATA_MAX_ELEMENTS
+                else _plain(group.attrs[key])
+            )
         for name in ("NumPoints", "XInc", "XOrg", "XUnits", "YUnits"):
             if name not in attrs:
                 raise UxrImportError(f"Attribute {name} not found on /Waveforms/{group_name}")
@@ -390,10 +407,9 @@ def _first_value(handle: Any, group: str, name: str) -> Any:
             f"/{group}/{name} holds {dataset.size * dataset.dtype.itemsize} bytes, more than "
             f"the metadata limit {METADATA_MAX_BYTES}"
         )
-    values = np.asarray(dataset[()]).reshape(-1)
-    if values.size == 0:
+    if dataset.size == 0:
         raise UxrImportError(f"/{group}/{name} is empty")
-    return values[0]
+    return dataset[(0,) * dataset.ndim]  # first element only, never the whole dataset
 
 
 def _is_number(cell: str) -> bool:

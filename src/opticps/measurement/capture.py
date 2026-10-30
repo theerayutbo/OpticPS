@@ -44,6 +44,13 @@ REQUIRED_FIELDS: dict[str, Any] = {
     "symbol_probabilities": list,
     "units": dict,
 }
+NUMERIC_OPTIONAL_FIELDS = (
+    "optical_launch_power_dBm",
+    "oma_dBm",
+    "extinction_ratio_dB",
+    "awg_sample_rate_Sa_per_s",
+    "electrical_amplitude_Vpp",
+)
 NULLABLE_REQUIRED = ("optical_received_power_dBm",)  # key must be present; null = not measured
 OPTIONAL_FIELDS = (
     "optical_launch_power_dBm",
@@ -82,6 +89,15 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
             problems.append(f"missing field {name}")
         elif not isinstance(metadata[name], kind) or isinstance(metadata[name], bool):
             problems.append(f"field {name} has the wrong type")
+    if problems:
+        raise CaptureValidationError("; ".join(problems))
+
+    problems.extend(
+        f"optional field {name} must be a number or null, got {type(metadata[name]).__name__}"
+        for name in NUMERIC_OPTIONAL_FIELDS
+        if metadata.get(name) is not None
+        and (isinstance(metadata[name], bool) or not isinstance(metadata[name], (int, float)))
+    )
     if problems:
         raise CaptureValidationError("; ".join(problems))
 

@@ -1189,8 +1189,12 @@ def test_compare_uxr_keeps_profiles_separate(seed_result, tmp_path):
     clone_results(seed_result, results, "PAM4_A", 6, 0.2, profile="P2", tag="p2-")
     clone_results(seed_result, results, "PAM4_B", 6, 0.1, profile="P2", tag="p2-")
     comparisons = compare_uxr(results)["comparisons"]
-    assert [(c["profile"], c["pair"]) for c in comparisons] == [("P2", ["PAM4_A", "PAM4_B"])]
-    assert comparisons[0]["mean"] == pytest.approx(0.1)  # P1's PAM4_A never mixes into P2
+    assert [(c["profile"], c["pair"]) for c in comparisons] == [
+        ("P1", ["PAM4_A"]),
+        ("P2", ["PAM4_A", "PAM4_B"]),
+    ]
+    assert "alone in this condition" in comparisons[0]["result"] and "verdict" not in comparisons[0]
+    assert comparisons[1]["mean"] == pytest.approx(0.1)  # P1's PAM4_A never mixes into P2
     assert (
         "P2, attenuation 0 dB, fiber 0 km: PAM4_A vs PAM4_B"
         in (results / "uxr_report.md").read_text()
@@ -1791,7 +1795,9 @@ def test_results_without_a_sidecar_are_counted_in_a_warning_not_dropped_silently
     assert "without a sidecar" in (folder / "uxr_report.md").read_text()
 
 
-def test_flagged_reference_mismatch_stays_in_the_comparison_and_is_counted(seed_result, tmp_path):
+def test_flagged_reference_mismatch_withholds_the_pair_verdict_but_stays_counted(
+    seed_result, tmp_path
+):
     from opticps.measurement.uxr_compare import compare_uxr
 
     folder = tmp_path / "flagged"
@@ -1803,12 +1809,30 @@ def test_flagged_reference_mismatch_stays_in_the_comparison_and_is_counted(seed_
     path.write_text(json.dumps(item))
     summary = compare_uxr(folder)
     (pair,) = summary["comparisons"]
-    assert "verdict" in pair and pair["runs"] == 6
+    assert "verdict" not in pair and pair["result"].startswith("verdict withheld")
+    assert "1 of 12 captures flagged reference_mismatch_suspected" in pair["result"]
+    assert pair["runs"] == 6 and pair["flagged_captures"] == ["PAM4_B-r3"]
+    assert len(pair["captures"]) == 12
     assert summary["flagged_reference_mismatch"] == ["PAM4_B-r3"]
-    assert any(
-        "1 of 12 captures flagged reference_mismatch_suspected" in c for c in pair["caveats"]
-    )
-    assert "reference_mismatch_suspected, kept in" in (folder / "uxr_report.md").read_text()
+    assert summary["test_captures"] == 12
+    assert "pair verdicts withheld" in (folder / "uxr_report.md").read_text()
+
+
+def test_all_runs_of_one_waveform_flagged_gives_no_verdict(seed_result, tmp_path):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "allflagged"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, folder, "PAM4_B", 6, 0.2)
+    for path in folder.glob("PAM4_B-*_analysis.json"):
+        item = json.loads(path.read_text())
+        item["reference_mismatch_suspected"] = True
+        path.write_text(json.dumps(item))
+    summary = compare_uxr(folder)
+    (pair,) = summary["comparisons"]
+    assert "verdict" not in pair and "mean" not in pair
+    assert "6 of 12 captures flagged" in pair["result"]
+    assert len(summary["flagged_reference_mismatch"]) == 6
 
 
 @pytest.mark.parametrize("sigma", [1.3, 1.5])
@@ -1986,3 +2010,142 @@ def test_two_point_sweep_following_the_southampton_guide_gives_two_verdicts(tmp_
     assert not summary["warnings"] and not summary["excluded_unreliable_rate_estimate"]
     report = (results / "uxr_report.md").read_text()
     assert report.count("A_initial_8GBd, attenuation") >= 2
+
+
+# ----------------------------------------------------------------------------- rework 4
+def equal_drops_at_every_frame_gap(wave, frame, count, sps):
+    """Drop `count` symbols after every frame: spacing stays regular, its clock is wrong."""
+    period = frame.indices.size * sps
+    pieces, cursor = [], 0
+    while cursor < wave.samples_v.size:
+        pieces.append(wave.samples_v[cursor : cursor + period])
+        cursor += period + count * sps
+    return ScopeWaveform(
+        np.concatenate(pieces), wave.x_increment_s, 0.0, "V", 1, None, None, None, "synthetic", {}
+    )
+
+
+@pytest.mark.parametrize("sigma", [0.33, 0.6])
+def test_equal_drops_at_every_frame_gap_clear_reliable_despite_a_firm_clock(sigma):
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sps": 8, "bandwidth": 30e9, "sigma": sigma, "seed": 3}
+    wave = scope_capture(frame, 40.0, frames=4.4, start_frac=0.37, **kw)
+    clean = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    assert clean.clock_confidence == "high" and clean.rate_estimate_reliable is True
+    hurt = analyze_scope_capture(
+        equal_drops_at_every_frame_gap(wave, frame, 2, 8), SYMBOL_RATE, frame, UNIFORM_PRIORS
+    )
+    assert hurt.frames_found >= 3 and abs(hurt.clock_offset_ppm - 40) > 30  # 2 in 32768 = 61 ppm
+    assert hurt.rate_estimate_reliable is False
+    assert hurt.clock_confidence == "low" and hurt.clock_stderr_ppm is None
+    assert any("Clock estimates disagree despite" in w and "payload" in w for w in hurt.warnings)
+
+
+def test_ingest_keeps_firm_clock_reliable_for_a_training_capture_without_payload_evidence():
+    frame = uniform_frame(32768, seed=5)
+    kw = {"link": False, "sps": 8, "bandwidth": 30e9, "sigma": 0.9, "seed": 4}
+    wave = scope_capture(frame, 150.0, frames=4.4, start_frac=0.37, **kw)
+    analysis = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, score_payload=False)
+    assert analysis.rate_estimate_reliable is True
+
+
+def test_hdf5_variable_length_strings_are_read_and_text_is_bounded(tmp_path):
+    path = tmp_path / "v.h5"
+    write_h5(
+        path,
+        np.arange(64),
+        attrs={
+            "Note": np.array(["x" * 5000], dtype=h5py.string_dtype()),
+            "Names": np.array(["a" * 5000, "b"], dtype=h5py.string_dtype()),
+        },
+    )
+    vlen = np.dtype([("Model", h5py.string_dtype()), ("Serial", "S6"), ("Date", "S6")])
+
+    def vlen_frame(f):
+        data = np.empty((2, 2), dtype=vlen)
+        data[...] = ("UXR-" + "m" * 5000, b"SN-1", b"2026")
+        f.create_group("Frame").create_dataset("TheFrame", data=data)
+
+    make_frame_group(path, vlen_frame)
+    wave = read_hdf5(path)
+    assert wave.model is not None and wave.model.startswith("UXR-") and len(wave.model) <= 256
+    assert wave.serial == "SN-1"
+    assert len(wave.attributes["Note"]) <= 256
+    assert all(len(v) <= 256 for v in wave.attributes["Names"])
+
+
+def test_hdf5_attribute_count_is_capped(tmp_path):
+    path = tmp_path / "many.h5"
+    write_h5(path, np.arange(64), attrs={f"A{i}": i for i in range(400)})
+    with pytest.raises(UxrImportError, match="attributes, more than the limit"):
+        read_hdf5(path)
+
+
+def test_conditions_round_attenuation_and_length_and_a_lone_waveform_is_reported(
+    seed_result, tmp_path
+):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    folder = tmp_path / "round"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0, sidecar_changes={"attenuation_dB": 10.0})
+    clone_results(
+        seed_result,
+        folder,
+        "PAM4_B",
+        6,
+        0.2,
+        sidecar_changes={"attenuation_dB": 10.04},
+    )
+    clone_results(
+        seed_result, folder, "PAM4_A", 6, 0.0, sidecar_changes={"attenuation_dB": 14.0}, tag="x-"
+    )
+    summary = compare_uxr(folder)
+    by_condition = {c["condition"]: c for c in summary["comparisons"]}
+    paired = by_condition["A_initial_8GBd, attenuation 10 dB, fiber 0 km"]
+    assert "verdict" in paired and paired["runs"] == 6
+    alone = by_condition["A_initial_8GBd, attenuation 14 dB, fiber 0 km"]
+    assert alone["result"] == "no comparison, waveform PAM4_A is alone in this condition"
+    assert summary["condition_resolution"] == {"attenuation_dB": 0.1, "fiber_length_km": 0.001}
+    assert "within 0.1 dB and 0.001 km" in (folder / "uxr_report.md").read_text()
+
+
+@pytest.mark.parametrize("bad", [-0.1, float("nan"), float("inf")])
+def test_power_tolerance_must_be_finite_and_not_negative(seed_result, tmp_path, bad):
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    clone_results(seed_result, tmp_path / "t", "PAM4_A", 6, 0.0)
+    with pytest.raises(ValueError, match="power tolerance"):
+        compare_uxr(tmp_path / "t", power_tolerance_db=bad)
+
+
+@pytest.mark.parametrize("bad", ["-1", "nan", "abc"])
+def test_cli_rejects_a_bad_power_tolerance(bad, capsys):
+    with pytest.raises(SystemExit):
+        main(["compare-uxr", "--power-tolerance-db", bad])
+    assert "power-tolerance-db" in capsys.readouterr().err
+
+
+def test_string_valued_numeric_optional_gives_a_clean_error(uxr_files, tmp_path):
+    from opticps.measurement.capture import CaptureValidationError, validate_metadata
+
+    _, row, probabilities = uxr_files
+    metadata = sidecar(row, probabilities=probabilities)
+    validate_metadata(metadata)
+    for name in ("optical_launch_power_dBm", "oma_dBm", "electrical_amplitude_Vpp"):
+        bad = {**metadata, name: "high"}
+        with pytest.raises(CaptureValidationError, match=f"optional field {name} must be a number"):
+            validate_metadata(bad)
+
+
+def test_compare_cli_prints_withheld_results_as_readable_lines(seed_result, tmp_path, capsys):
+    folder = tmp_path / "cli"
+    clone_results(seed_result, folder, "PAM4_A", 6, 0.0)
+    clone_results(seed_result, folder, "PAM4_B", 6, 0.2)
+    path = folder / "PAM4_B-r3_analysis.json"
+    item = json.loads(path.read_text())
+    item["reference_mismatch_suspected"] = True
+    path.write_text(json.dumps(item))
+    assert main(["compare-uxr", "--results", str(folder)]) == 0
+    out = capsys.readouterr().out
+    assert "PAM4_A vs PAM4_B: verdict withheld, 1 of 12 captures flagged" in out
+    assert "'pair'" not in out and "{'" not in out

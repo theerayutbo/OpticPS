@@ -17,7 +17,13 @@ with a warning. A set-point not recorded in all or some captures gives a verdict
 Independence checks: a file or decoded-sample hash may appear in only one result, so one
 acquisition cannot count as several runs, and never in both training and test. Only identical
 bytes or samples are caught; a re-export with different bytes cannot be detected. A verdict for
-a pair is withheld when data sources mix or a controlled field differs between the captures.
+a pair is withheld when data sources mix or a controlled field differs between the captures,
+and when any capture it uses is flagged reference_mismatch_suspected (flagged captures stay
+counted and listed).
+
+Conditions group on attenuation rounded to CONDITION_ATTENUATION_DB (0.1 dB) and fiber length
+to CONDITION_LENGTH_KM (0.001 km), so a set-point read back with instrument noise still lands
+in its condition; the metrics table keeps the recorded values.
 """
 
 # SPDX-License-Identifier: MIT
@@ -46,6 +52,8 @@ HASH_KEYS = ("source_sha256", "samples_sha256")
 UNDETECTED = "a re-export of the same acquisition with different bytes cannot be detected"
 MISSING_STATUSES = ("not recorded", "partly recorded")
 POWER_LABEL = "Optical received power"
+CONDITION_ATTENUATION_DB = 0.1  # attenuation and length are rounded to these before grouping
+CONDITION_LENGTH_KM = 0.001
 
 
 def _check_independent(training: list[dict[str, Any]], test: list[dict[str, Any]]) -> None:
@@ -109,7 +117,13 @@ def _row(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _condition(row: dict[str, Any]) -> tuple[str, float, float]:
-    return (row["profile"], row["attenuation_dB"], row["fiber_length_km"])
+    return (
+        row["profile"],
+        round(
+            round(row["attenuation_dB"] / CONDITION_ATTENUATION_DB) * CONDITION_ATTENUATION_DB, 6
+        ),
+        round(round(row["fiber_length_km"] / CONDITION_LENGTH_KM) * CONDITION_LENGTH_KM, 6),
+    )
 
 
 def _condition_name(condition: tuple[str, float, float]) -> str:
@@ -121,6 +135,8 @@ def compare_uxr(
     results_dir: Path, out_dir: Path | None = None, power_tolerance_db: float = POWER_TOLERANCE_DB
 ) -> dict[str, Any]:
     """Build the per-condition paired comparison, fairness audit and report."""
+    if not np.isfinite(power_tolerance_db) or power_tolerance_db < 0:
+        raise ValueError(f"power tolerance must be finite and 0 or more, got {power_tolerance_db}")
     out_dir = results_dir if out_dir is None else out_dir
     loaded = [json.loads(p.read_text()) for p in sorted(results_dir.glob("*_analysis.json"))]
     items = [i for i in loaded if isinstance(i, dict) and "sidecar" in i]
@@ -167,6 +183,29 @@ def compare_uxr(
         groups[_condition(row)][row["waveform"]][row["run_id"]] = row
     comparisons: list[dict[str, Any]] = []
     rng = np.random.default_rng(0)
+    present: dict[tuple[str, float, float], set[str]] = defaultdict(set)
+    for row in rows:
+        present[_condition(row)].add(row["waveform"])
+    for condition in sorted(present):
+        if len(groups.get(condition, {})) < 2:
+            only = ", ".join(sorted(present[condition]))
+            alone = len(present[condition]) == 1
+            comparisons.append(
+                {
+                    "profile": condition[0],
+                    "condition": _condition_name(condition),
+                    "pair": sorted(present[condition]),
+                    "result": (
+                        f"no comparison, waveform {only} is alone in this condition"
+                        if alone
+                        else f"no comparison, fewer than 2 waveforms ({only}) have a usable rate "
+                        "estimate in this condition"
+                    ),
+                    "runs": 0,
+                    "caveats": [],
+                    "warnings": [],
+                }
+            )
     for condition in sorted(groups):
         names = sorted(groups[condition])
         for i, first in enumerate(names):
@@ -183,8 +222,8 @@ def compare_uxr(
     flagged = [r["capture_id"] for r in rows if r["reference_mismatch_suspected"]]
     if flagged:
         warnings.append(
-            f"{len(flagged)} test capture(s) flagged reference_mismatch_suspected and kept in the "
-            f"comparison: {', '.join(flagged)}"
+            f"{len(flagged)} test capture(s) flagged reference_mismatch_suspected, counted and "
+            f"listed; any pair using one has its verdict withheld: {', '.join(flagged)}"
         )
     for item in comparisons:
         warnings.extend(item.get("warnings", []))
@@ -201,6 +240,10 @@ def compare_uxr(
         "flagged_reference_mismatch": flagged,
         "skipped_without_sidecar": skipped,
         "power_tolerance_dB": power_tolerance_db,
+        "condition_resolution": {
+            "attenuation_dB": CONDITION_ATTENUATION_DB,
+            "fiber_length_km": CONDITION_LENGTH_KM,
+        },
         "warnings": warnings,
         "comparisons": comparisons,
         "fairness_audit": audit,
@@ -274,11 +317,20 @@ def _compare_pair(
     }
     flagged = sorted(i["capture_id"] for i in used if i.get("reference_mismatch_suspected"))
     if flagged:
-        caveats.append(
+        reasons.append(
             f"{len(flagged)} of {len(used)} captures flagged reference_mismatch_suspected "
-            f"(kept in): {', '.join(flagged)}"
+            f"({', '.join(flagged)}); a verdict from references that may not match the "
+            "transmitted frames would be wrong"
         )
-    base.update({"runs": len(common), "reported": reported, "caveats": caveats})
+    base.update(
+        {
+            "runs": len(common),
+            "captures": sorted(i["capture_id"] for i in used),
+            "flagged_captures": flagged,
+            "reported": reported,
+            "caveats": caveats,
+        }
+    )
     base["warnings"] = warnings
     if reasons:
         comparisons.append({**base, "result": "verdict withheld, " + " and ".join(reasons)})
@@ -311,13 +363,22 @@ def _report(summary: dict[str, Any], rows: list[dict[str, Any]]) -> str:
     for row in rows:
         flag = "" if row["rate_estimate_reliable"] else " (rate estimate unreliable, excluded)"
         if row["reference_mismatch_suspected"]:
-            flag += " (reference_mismatch_suspected, kept in)"
+            flag += " (reference_mismatch_suspected, pair verdicts withheld)"
         lines.append(
             f"- {row['capture_id']} ({row['profile']} {row['waveform']}, run {row['run_id']}): "
             f"SER {row['ser_report']}; {row['frames_analyzed']} frames analysed, "
             f"{row['frames_lost']} lost{flag}."
         )
-    lines += ["", "## Paired comparisons (R_BMD), one per condition", ""]
+    resolution = summary["condition_resolution"]
+    lines += [
+        "",
+        "## Paired comparisons (R_BMD), one per condition",
+        "",
+        "Captures share a condition when profile matches and attenuation and fiber length agree "
+        f"within {resolution['attenuation_dB']:g} dB and {resolution['fiber_length_km']:g} km "
+        "(values are rounded to these before grouping).",
+        "",
+    ]
     for item in summary["comparisons"]:
         pair = f"{item['condition']}: " + " vs ".join(item["pair"])
         text = item.get("verdict") or f"{item['result']}, {item['runs']} runs"

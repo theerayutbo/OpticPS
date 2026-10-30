@@ -45,6 +45,12 @@ SYMBOL_RATE_TOLERANCE = 1e-6
 # the payload and decided by minimum distance, so it predicts the payload error rate of a
 # correct reference at any noise level. A wrong reference, or symbols dropped after the head,
 # leave the training block good and the payload at chance. The check never looks at SNR.
+# Within one profile every reference shares one training block, so a wrong reference leaves the
+# training block good: the excess test is what catches it. The training limit below (SER 0.6 or
+# more, 0.8 of the random-guess rate 0.75) covers a different case, a corrupted or unrelated
+# capture at very low SNR whose training block is itself near chance. Remaining blind window: a
+# training SER of about 0.53 to 0.60 is not flagged by that limit; it lies far below the
+# operating region (SER under about 0.1).
 MISMATCH_CONFIDENCE = 0.99
 MISMATCH_EXCESS = 0.10
 MISMATCH_TRAINING_FRACTION = 0.8

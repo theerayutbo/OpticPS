@@ -54,6 +54,12 @@ TRACK_CLIP = 2.0
 TRACK_PASSES = 2
 TRACK_RESIDUAL_LIMIT = 0.5
 TRACK_MAX_CORRECTION_PPM = 10.0
+# With a firm clock, a tracker/spacing disagreement is a note unless the symbols themselves
+# disagree: payload minimum-distance SER more than FIRM_PAYLOAD_EXCESS above the 99% upper bound
+# of the training SER, or a training block itself near chance.
+FIRM_CONFIDENCE = 0.99
+FIRM_PAYLOAD_EXCESS = 0.10
+FIRM_TRAINING_SER = 0.6
 
 
 @dataclass(frozen=True)
@@ -728,6 +734,7 @@ def analyze_scope_capture(
     phase = float(PHASES[low] + PHASES[high]) / 2  # centre of the open part of the eye
     tracks = []
     disputed: list[tuple[float, float]] = []
+    firm_disputed: list[tuple[float, float]] = []
     # Three or more regularly spaced preambles fit a line with a residual to check, so the
     # spacing clock stands against the in-frame tracker, which is the weaker estimate.
     firm_clock = compensate_clock and timing.confidence == "high"
@@ -742,8 +749,8 @@ def analyze_scope_capture(
         too_big = timing.confidence in ("high", "medium") and correction > TRACK_MAX_CORRECTION_PPM
         failed = track.residual_rms is not None and track.residual_rms > TRACK_RESIDUAL_LIMIT
         if too_big or failed:
-            if too_big and not firm_clock:
-                disputed.append(
+            if too_big:
+                (firm_disputed if firm_clock else disputed).append(
                     (
                         1e6 * (rate / track.q / symbol_rate_nominal - 1),
                         1e6 * (rate / timing.q / symbol_rate_nominal - 1),
@@ -837,6 +844,39 @@ def analyze_scope_capture(
             "preambles has no residual to reveal that. The clock is marked low confidence and "
             "the rate estimate unreliable; capture 3 or more full frames"
         )
+    if firm_disputed:
+        per_frame = training_symbols // len(results)
+        train_ser = training_errors / training_symbols
+        upper = clopper_pearson(
+            min(per_frame, round(train_ser * per_frame)), per_frame, FIRM_CONFIDENCE
+        )[1]
+        poor = ""
+        if score_payload:
+            scored_md = [f.minimum_distance for f in results if f.minimum_distance is not None]
+            payload_ser = sum(m.symbol_errors for m in scored_md) / sum(
+                m.symbols for m in scored_md
+            )
+            if payload_ser > upper + FIRM_PAYLOAD_EXCESS:
+                poor = (
+                    f"the payload symbol error rate {payload_ser:.3g} is far above the "
+                    f"{upper:.3g} (upper {FIRM_CONFIDENCE:.0%} bound) that the training block "
+                    f"({train_ser:.3g}) predicts"
+                )
+        if not poor and train_ser >= FIRM_TRAINING_SER:
+            poor = f"the training block is decided at {train_ser:.3g} errors, near chance"
+        if poor:
+            tracker_ppm, spacing_ppm = max(firm_disputed, key=lambda p: abs(p[0] - p[1]))
+            disputed.append((tracker_ppm, spacing_ppm))
+            reliable = False
+            warnings.append(
+                f"Clock estimates disagree despite {timing.frame_numbers.size} regular "
+                f"preambles: timing tracking inside the frame gives {tracker_ppm:.1f} ppm, the "
+                f"fit to frame spacing gives {spacing_ppm:.1f} ppm "
+                f"({abs(tracker_ppm - spacing_ppm):.1f} ppm apart, limit "
+                f"{TRACK_MAX_CORRECTION_PPM:g}), and {poor}. Equal dropped or inserted samples "
+                "at every frame gap keep the spacing regular but shift its clock, so the rate "
+                "estimate is marked unreliable"
+            )
     residuals = [t.residual_rms for t in tracks if t.residual_rms is not None]
     untracked = [t for t in tracks if t.residual_rms is None]
     if residuals and max(residuals) > TRACK_RESIDUAL_LIMIT:

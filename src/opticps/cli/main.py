@@ -21,6 +21,16 @@ DEFAULT_FIBER_CONFIG = Path("configs/fiber_validation.yaml")
 DEFAULT_FIBER_RESULTS = Path("results/fiber_validation")
 
 
+def _non_negative_float(text: str) -> float:
+    try:
+        value = float(text)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"{text!r} is not a number") from None
+    if not value >= 0 or value == float("inf"):
+        raise argparse.ArgumentTypeError(f"{text!r} must be a finite number, 0 or more")
+    return value
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
     from opticps.measurement.validate_export import validate_profile
     from opticps.transmitter.export import generate_all
@@ -134,12 +144,10 @@ def cmd_compare_uxr(args: argparse.Namespace) -> int:
     for row in summary["fairness_audit"]:
         print(f"{row['variable']:<32}{row['status']:<18}{row['range']}")
     for item in summary["comparisons"]:
-        if "verdict" in item:
-            print(f"{item['condition']}: {' vs '.join(item['pair'])}: {item['verdict']}")
-            for caveat in item["caveats"]:
-                print(f"  caveat, {caveat}")
-        else:
-            print(item)
+        pair = f"{item['condition']}: {' vs '.join(item['pair'])}"
+        print(f"{pair}: {item.get('verdict') or item['result']}")
+        for caveat in item.get("caveats", []):
+            print(f"  caveat, {caveat}")
     for warning in summary["warnings"]:
         print(f"warning: {warning}")
     for name in summary["excluded_unreliable_rate_estimate"]:
@@ -260,7 +268,7 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--results", type=Path, default=Path("results/uxr"))
     command.add_argument(
         "--power-tolerance-db",
-        type=float,
+        type=_non_negative_float,
         default=0.5,
         help="largest received-power spread (dB) within a condition before the verdict is withheld",
     )
