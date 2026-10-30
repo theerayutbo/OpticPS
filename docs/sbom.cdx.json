@@ -11,6 +11,16 @@
   "components": [
     {
       "type": "library",
+      "name": "ast_serialize",
+      "version": "0.13.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "charset-normalizer",
       "version": "3.5.2",
       "licenses": [
@@ -51,11 +61,41 @@
     },
     {
       "type": "library",
+      "name": "h5py",
+      "version": "3.16.0",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "iniconfig",
+      "version": "2.3.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "kiwisolver",
       "version": "1.5.1",
       "licenses": [
         {
           "expression": "BSD License"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "librt",
+      "version": "0.16.0",
+      "licenses": [
+        {
+          "expression": "MIT"
         }
       ]
     },
@@ -76,6 +116,26 @@
       "licenses": [
         {
           "expression": "Python Software Foundation License"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "mypy",
+      "version": "2.4.1",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "mypy_extensions",
+      "version": "1.1.0",
+      "licenses": [
+        {
+          "expression": "MIT"
         }
       ]
     },
@@ -111,6 +171,16 @@
     },
     {
       "type": "library",
+      "name": "pathspec",
+      "version": "1.1.1",
+      "licenses": [
+        {
+          "expression": "Mozilla Public License 2.0 (MPL 2.0)"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "pillow",
       "version": "13.0.0",
       "licenses": [
@@ -121,8 +191,48 @@
     },
     {
       "type": "library",
+      "name": "pluggy",
+      "version": "1.7.0",
+      "licenses": [
+        {
+          "expression": "MIT License"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "Pygments",
+      "version": "2.21.0",
+      "licenses": [
+        {
+          "expression": "BSD-2-Clause"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "pyparsing",
       "version": "3.3.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pypdf",
+      "version": "6.21.4",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "pytest",
+      "version": "9.2.0",
       "licenses": [
         {
           "expression": "MIT"
@@ -171,6 +281,16 @@
     },
     {
       "type": "library",
+      "name": "ruff",
+      "version": "0.17.3",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ]
+    },
+    {
+      "type": "library",
       "name": "scipy",
       "version": "1.17.1",
       "licenses": [
@@ -186,6 +306,16 @@
       "licenses": [
         {
           "expression": "MIT License"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "types-PyYAML",
+      "version": "6.0.12.20261030",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
         }
       ]
     },

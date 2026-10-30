@@ -10,6 +10,7 @@ Runtime dependencies are installed, not vendored. Versions are pinned in `uv.loc
 | PyYAML | MIT |
 | python-pptx | MIT |
 | reportlab | BSD |
+| h5py | BSD-3-Clause |
 | lxml | BSD-3-Clause |
 | pillow | MIT-CMU |
 | xlsxwriter | BSD-2-Clause |

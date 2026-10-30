@@ -75,6 +75,37 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ingest_uxr(args: argparse.Namespace) -> int:
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    summary = ingest_uxr(
+        args.input,
+        args.sidecar,
+        args.output,
+        args.profile,
+        args.results,
+        channel=args.channel,
+        accept_unverified_bin=args.accept_unverified_bin,
+        x_increment_s=args.x_increment_s,
+        split=args.split,
+    )
+    print(f"{summary['capture_id']} ({summary['split']}): {summary['source_format']}")
+    print(
+        f"clock offset {summary['clock_offset_ppm']:.2f} ppm "
+        f"({summary['clock_confidence']} confidence), "
+        f"{summary['frames_complete']} complete of {summary['frames_found']} frames found"
+    )
+    if summary["split"] == "test":
+        print(f"SER: {summary['map']['ser_report']}")
+        print(f"BER: {summary['map']['ber_report']}")
+    else:
+        print(summary["note"])
+    for warning in summary["warnings"]:
+        print(f"warning: {warning}")
+    print(f"Results in {args.results}")
+    return 0
+
+
 def cmd_analyze(args: argparse.Namespace) -> int:
     from opticps.measurement.compare import analyze_directory
 
@@ -153,6 +184,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     command = add("ingest", cmd_ingest, "check a folder of captures")
     command.add_argument("--input", type=Path, required=True)
+
+    command = add("ingest-uxr", cmd_ingest_uxr, "import and analyze one oscilloscope export")
+    command.add_argument("--input", type=Path, required=True, help=".h5, .csv or .bin export")
+    command.add_argument("--channel", type=int, default=1)
+    command.add_argument("--sidecar", type=Path, required=True, help="capture metadata JSON")
+    command.add_argument("--profile", required=True)
+    command.add_argument("--accept-unverified-bin", action="store_true")
+    command.add_argument("--x-increment-s", type=float, help="needed for one-column CSV")
+    command.add_argument("--split", choices=("training", "test"), help="if the sidecar has none")
+    command.add_argument("--results", type=Path, default=Path("results/uxr"))
 
     command = add("analyze", cmd_analyze, "analyze captures against exported references")
     command.add_argument("--input", type=Path, required=True)

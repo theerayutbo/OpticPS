@@ -26,6 +26,7 @@ dependencies = [
   "pyyaml>=6.0",
   "python-pptx>=1.0",
   "reportlab>=4.0",
+  "h5py>=3.10",
 ]
 
 [project.scripts]
@@ -63,5 +64,5 @@ check_untyped_defs = true
 files = ["src/opticps"]
 
 [[tool.mypy.overrides]]
-module = ["pptx.*", "reportlab.*", "scipy.*", "matplotlib.*"]
+module = ["pptx.*", "reportlab.*", "scipy.*", "matplotlib.*", "h5py.*"]
 ignore_missing_imports = true
