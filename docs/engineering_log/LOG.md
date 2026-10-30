@@ -113,3 +113,9 @@ Final simulated results, seed 42, config e39084adac9d, version 1.0.0, runtime 28
 - Profile B near -19.01 dBm: PS70 -0.141, PS80 -0.236, Adaptive +0.093 [0.090,0.097], Outer70 +0.081 [0.078,0.084].
 - Point adaptation versus Outer70: +0.018 at 26 dB; unresolved +0.001 [-0.001,0.003] at 25 dB; +0.107 at 21 dB, where it selects uniform.
 - Validation: 119 of 119 per profile. Waveform CSVs byte-identical before and after review changes.
+
+## 2026-10-30 | Official guides obtained
+
+M8100 Programming Guide (146 pages) and UXR Programmer's Guide (2156 pages) were fetched with a plain curl client, no altered User-Agent, from Keysight's public www.keysight.com/nz/ asset URLs, which served the PDFs directly. Text was extracted locally. The PDFs are not committed.
+
+Result: the exported waveform CSV format is confirmed against pp129-133: mandatory first row DataOut1, normalized floats within -1 to +1, `:TRAC:IMP` syntax, segment id 1. Not found in that guide: 512-sample granularity, 1,048,576 maximum, M8199B AC coupling. Playback remains unverified. The rows in VERIFICATION.md and HARDWARE_COMPATIBILITY.md are updated on branch v1.2-uxr.
