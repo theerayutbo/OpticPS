@@ -135,7 +135,7 @@ def test_estimated_gmi_matches_analytic(p):
         noisy = pam_levels(4)[frame.indices] + rng.normal(0, sigma, frame.indices.size)
         result = process_capture(np.repeat(noisy, 8), 64e9, 8e9, frame, np.array(p), taps=1)
         values.append(result.map.r_bmd)
-    assert np.mean(values) == pytest.approx(achievable_rates(p, 16.0).bmd, abs=0.03)
+    assert np.mean(values) == pytest.approx(achievable_rates(p, 16.0).bmd, abs=0.01)
 
 
 def test_ffe_removes_known_isi_with_ls_and_lms():

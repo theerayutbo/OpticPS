@@ -94,3 +94,7 @@ Note: the plan's GMI gate was 0.01 bit. The test uses 0.03 with six frames; this
 Failures: X-005 to X-009.
 
 Next: full demo run, report, slides, independent review.
+
+## 2026-10-30 | Correction to the Phases 5-8 entry
+
+The GMI test was tightened back to the planned 0.01 bit and passes for Uniform, PS70 and Outer70.

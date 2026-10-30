@@ -230,7 +230,9 @@ def generate_profile(
                 "preamble": [0, 512],
                 "training": [512, 1024],
                 "payload": [frame.payload_start, profile.symbols],
-                "preamble_definition": "511-chip m-sequence x^9+x^5+1 at +/-3, plus 1 balance symbol",
+                "preamble_definition": (
+                    "511-chip m-sequence x^9+x^5+1 at +/-3, plus 1 balance symbol"
+                ),
                 "matcher_block_length": frame.block_length,
                 "matcher_blocks": frame.n_blocks,
                 "bits_per_block": frame.bits_per_block,
