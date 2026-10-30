@@ -52,6 +52,15 @@ OPTIONAL_FIELDS = (
     "modulator_parameters",
     "calibration",
     "operator_notes",
+    "fiber",
+)
+FIBER_FIELDS = (
+    "fiber_type",
+    "wavelength_nm",
+    "attenuation_db_per_km",
+    "dispersion_ps_per_nm_km",
+    "attenuation_source",
+    "dispersion_source",
 )
 
 
@@ -93,6 +102,12 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
         problems.append("fiber length and attenuation must be non-negative")
     if not -80 <= metadata["optical_received_power_dBm"] <= 30:
         problems.append("optical received power is outside a plausible range")
+    fiber = metadata.get("fiber")
+    if fiber is not None:
+        if not isinstance(fiber, dict):
+            problems.append("fiber must be an object (see FiberParameters.to_metadata)")
+        else:
+            problems.extend(f"fiber is missing {k}" for k in FIBER_FIELDS if fiber.get(k) is None)
     launch = metadata.get("optical_launch_power_dBm")
     if launch is not None and launch < metadata["optical_received_power_dBm"]:
         problems.append("received power exceeds launch power")

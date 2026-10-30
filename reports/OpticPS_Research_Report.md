@@ -87,6 +87,17 @@ Files follow the rules in docs/HARDWARE_COMPATIBILITY.md: first row DataOut1, on
 
 The simulation uses a sine-law modulator with finite extinction, fiber attenuation, chromatic dispersion as an all-pass phase, square-law detection, thermal noise, level-dependent shot noise and receiver filtering. It omits laser noise, Kerr effects, and amplifiers. Electrical symbol energy is not treated as optical power: all optical values come from the field. For a symmetric drive at quadrature, mean power and OMA are equal across distributions; bias error and compression break this.
 
+### Fiber model, ITU-T G.652.D (version 1.1.0)
+
+The link can use a selectable fiber description with attenuation, dispersion and dispersion slope, each tagged with its provenance. The `g652d-representative` preset follows Rec. ITU-T G.652 (08/2024) Table I.1 and a three-term dispersion curve fitted to it; the limit presets sit on the Table 2 dispersion bounds. No fiber type is applied unless selected, and the Southampton fiber type and length are unconfirmed. The simulated results in the sections above use the v1.0 defaults of 0.2 dB/km and 17 ps/(nm km) with no slope, and are unchanged.
+
+Re-running the v1.0 fiber sweep with the same seed and waveforms reproduced 45 of 45 saved points exactly. Replacing the defaults by the representative G.652.D values at 1550 nm changes attenuation from 0.2 to 0.275 dB/km. Details are in reports/Fiber_Model_Validation_Report.pdf. Nothing in it is experimentally validated.
+
+![Dispersion bounds and representative curve, ITU-T G.652.D, 1260 to 1625 nm [analytical]](../results/fiber_validation/figures/dispersion_vs_wavelength.png)
+
+![Profile A, v1.0 defaults against G.652.D at 1550 nm](../results/fiber_validation/figures/before_after_A.png)
+
+
 ## 10. Receiver DSP
 
 Resampling, matched filter, circular preamble correlation with polarity detection, phase search, preamble calibration, a 15-tap FFE, and detection. All fitting uses preamble and training symbols only. Metrics are SER, Gray label BER, and R_SMD and R_BMD estimated with the training-fitted channel law.

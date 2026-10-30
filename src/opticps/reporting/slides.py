@@ -18,6 +18,8 @@ from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
 from opticps.reporting.facts import all_facts, verdict
+from opticps.reporting.fiber_report import fiber_slide as fiber_slide_text
+from opticps.reporting.fiber_report import load_fiber_results
 from opticps.reporting.report import _fonts
 from opticps.visualization.figures import all_figures
 
@@ -37,8 +39,13 @@ class Slide:
     simulated: bool = False
 
 
-def deck(results: dict[str, Any], figures: Path) -> list[Slide]:
-    """Return slides, built from saved results only."""
+def deck(
+    results: dict[str, Any],
+    figures: Path,
+    fiber: dict[str, Any] | None = None,
+    fiber_figures: Path | None = None,
+) -> list[Slide]:
+    """Return slides, built from saved results only. A fiber slide is added if fiber is given."""
     facts = all_facts(results)
     a = facts["a"]
     b = facts["b"]
@@ -59,6 +66,10 @@ def deck(results: dict[str, Any], figures: Path) -> list[Slide]:
             f"{point['attenuation_db']} dB: chose P(±3) = {point['selected_p_outer']:.2f}; "
             f"vs Outer70 {verdict(item['mean'], item['ci95'], 'b/sym')}"
         )
+    fiber_slide = []
+    if fiber is not None and fiber_figures is not None:
+        title, bullets = fiber_slide_text(fiber)
+        fiber_slide = [Slide(title, bullets, str(fiber_figures / "before_after_A.png"), True)]
     return [
         Slide(
             "OpticPS: An Open-Source Framework for Probabilistic Shaping in Optical Communications",
@@ -183,6 +194,7 @@ def deck(results: dict[str, Any], figures: Path) -> list[Slide]:
             fig("adaptive_vs_fixed.png"),
             True,
         ),
+        *fiber_slide,
         Slide(
             "Key findings and limitations",
             [
@@ -291,7 +303,9 @@ def build_slides(results_path: Path, out_dir: Path) -> Path:
     if not list(figure_dir.glob("*.png")):
         all_figures(results_path, figure_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    slides = deck(results, figure_dir)
+    fiber = load_fiber_results(results_path)
+    fiber_dir = results_path.parent.parent / "fiber_validation" / "figures"
+    slides = deck(results, figure_dir, fiber, fiber_dir)
     pptx_path = out_dir / "OpticPS_Research_Presentation.pptx"
     write_pptx(slides, pptx_path)
     write_pdf(slides, out_dir / "OpticPS_Research_Presentation.pdf")

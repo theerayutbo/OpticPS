@@ -17,7 +17,8 @@ Under a fixed drive swing, the natural constraint on an unamplified Mach-Zehnder
 - PAM2/4/8/16, Gray labelling, Maxwell-Boltzmann and arbitrary distributions
 - Exact, reversible CCDM by enumerative ranking; finite-block rate loss
 - NRZ and RRC periodic pulse shaping, with data-independent common scaling
-- IM/DD link: sine-law MZM, fiber loss, chromatic dispersion, thermal and shot noise, ADC
+- IM/DD link: sine-law MZM, fiber loss, chromatic dispersion with optional slope, thermal and shot noise, ADC
+- Selectable fiber model (1.1): `none` (v1.0 defaults), ITU-T G.652.D representative and bound presets, custom; each value tagged with its provenance
 - Receiver: sync, polarity and phase recovery, calibration, FFE (LS, LMS), MD and MAP detection, GMI estimation
 - Adaptive selection from training data with a leakage guard
 - Protocol A (equal baud), Protocol B (equal net rate), fairness audit, run-level bootstrap
@@ -41,6 +42,7 @@ uv run pytest
 uv run opticps generate    # M8199B waveforms, references, manifest, validation
 uv run opticps validate    # re-check the exported packages
 uv run opticps simulate    # simulated comparison, several minutes
+uv run opticps fiber-validate   # G.652.D fiber model validation, results/fiber_validation/
 uv run opticps report      # PDF and Markdown report
 uv run opticps slides      # PowerPoint and PDF slides
 uv run opticps demo        # all of the above
@@ -57,6 +59,12 @@ Waveforms are in `output/keysight_m8199b/<profile>/waveforms/`, with settings in
 
 These are starting points, not proof the optical link supports either speed. OpticPS never connects to an instrument and never enables an output. Operating steps are in `output/README_SOUTHAMPTON.md`.
 
+## Fiber model (1.1)
+
+`LinkConfig(fiber=...)` takes a `FiberParameters` that supplies wavelength, attenuation, dispersion and dispersion slope. Without it, the link uses the v1.0 defaults (0.2 dB/km, 17 ps/(nm km), 1550 nm, no slope) and gives numerically identical results. Presets (`opticps.optical_channel.fiber.select_fiber`): `none`, `g652d-representative`, `g652d-limit-low`, `g652d-limit-high`, `custom`. Nothing is applied unless chosen, and the Southampton fiber type and length are unconfirmed.
+
+The presets follow Rec. ITU-T G.652 (08/2024), edition 10.0. Limits are for cable and exclude short cables such as jumpers; Table I.1 typical link values are not limits; the representative dispersion curve is a fit through the Table I.1 values. Measurements override presets through `apply_measurements`, which marks them laboratory-measured, and capture metadata has an optional `fiber` field. PMD is listed and not simulated. Results are analytical or simulated; none is experimentally validated. See `reports/Fiber_Model_Validation_Report.pdf`.
+
 ## Southampton data import
 
 Save captures as `received_time_s,received_voltage_v` plus a JSON sidecar (`data/templates/capture_template.json`) under `data/private/southampton/`, which git ignores.
@@ -71,7 +79,7 @@ The receiver model is unknown, so the format is receiver-agnostic.
 
 ## Reports and slides
 
-`reports/OpticPS_Research_Report.pdf`, `slides/OpticPS_Research_Presentation.pptx`, and a PDF of the slides. All are built from `results/synthetic/demo_results.json`.
+`reports/OpticPS_Research_Report.pdf`, `slides/OpticPS_Research_Presentation.pptx`, and a PDF of the slides. All are built from `results/synthetic/demo_results.json`. When `results/fiber_validation/fiber_results.json` exists they include a fiber model section and slide. `reports/Fiber_Model_Validation_Report.pdf` and `.md` come from `uv run opticps fiber-validate`.
 
 ## Repository structure
 
@@ -101,4 +109,5 @@ MIT, copyright Theerayut Boonkird. Algorithms were written independently from pu
 - No FEC; no measured data
 - M8199B rules not independently verified; playback unverified; receiver unknown
 - Driver compression, AC coupling and baseline wander are not modelled
+- Fiber: single polarization, no PMD, no Kerr effect; G.652.D values are standard limits or representative models, not measurements
 - Conclusions from one channel do not generalize

@@ -1,6 +1,6 @@
 # External fact verification
 
-Status values: verified = read in the primary source; summary = read through a search or fetch summary; user-supplied = stated by the user, source not read.
+Status values: verified = read in the primary source; summary = read through a search or fetch summary; user-supplied = stated by the user, source not read; reconstructed = recovered from a garbled extraction and checked by another route; unconfirmed = not yet known.
 
 | Fact | Source | How read | Status |
 |---|---|---|---|
@@ -19,6 +19,12 @@ Status values: verified = read in the primary source; summary = read through a s
 | Max 1,048,576 samples | M8100 Programming Guide, per user | Not read | user-supplied |
 | `:TRAC:IMP 'M2.DataOut1', 1, "path", CSV` | M8100 Programming Guide, per user | Not read | user-supplied |
 | AC-coupled, nominally 50 ohm output | User | Not read | user-supplied |
+
+| G.652.D attenuation, dispersion, PMD, fibre and cable attributes (Table 2); Note 1 (not for short cables), Note 2 (1260 nm extension, +0.07 dB/km) | Rec. ITU-T G.652 (08/2024), edition 10.0 | Text extraction, read | verified |
+| Dispersion bounds Eq. (6-3), 8.625 + 0.052(lambda - 1460) to 12.472 + 0.068(lambda - 1460) | Rec. ITU-T G.652 (08/2024) | Text extraction, read | verified |
+| Dispersion bounds Eq. (6-2a,b,c), 1260 to 1460 nm | Rec. ITU-T G.652 (08/2024) | Garbled extraction; signs reconstructed, confirmed by continuity with Eq. (6-3) at 1460 nm | reconstructed |
+| Table I.1 typical link values: 0.5 dB/km (1260 to 1360 nm), 0.275 (1530 to 1565), 0.35 (1565 to 1625), D1550 17, S1550 0.056 | Rec. ITU-T G.652 (08/2024) | Text extraction, read | verified |
+| Southampton fiber type and length | Project owner | Not stated | unconfirmed |
 
 Hardware playback: NOT verified. Requires confirmation from the Southampton operator.
 

@@ -5,7 +5,7 @@ type: software
 authors:
   - family-names: Boonkird
     given-names: Theerayut
-version: 1.0.0
+version: 1.1.0
 date-released: 2026-10-30
 license: MIT
 repository-code: "https://github.com/theerayutbo/OpticPS"
