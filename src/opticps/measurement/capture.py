@@ -43,6 +43,7 @@ REQUIRED_FIELDS: dict[str, Any] = {
     "symbol_probabilities": list,
     "units": dict,
 }
+NULLABLE_REQUIRED = ("optical_received_power_dBm",)  # key must be present; null = not measured
 OPTIONAL_FIELDS = (
     "optical_launch_power_dBm",
     "oma_dBm",
@@ -63,6 +64,8 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
     """Raise CaptureValidationError listing every problem found."""
     problems: list[str] = []
     for name, kind in REQUIRED_FIELDS.items():
+        if name in NULLABLE_REQUIRED and name in metadata and metadata[name] is None:
+            continue  # present and null: explicitly not measured, never guessed
         if name not in metadata or metadata[name] is None:
             problems.append(f"missing field {name}")
         elif not isinstance(metadata[name], kind) or isinstance(metadata[name], bool):
@@ -91,11 +94,13 @@ def validate_metadata(metadata: dict[str, Any]) -> None:
         problems.append("receiver bandwidth exceeds the sample rate")
     if metadata["fiber_length_km"] < 0 or metadata["attenuation_dB"] < 0:
         problems.append("fiber length and attenuation must be non-negative")
-    if not -80 <= metadata["optical_received_power_dBm"] <= 30:
-        problems.append("optical received power is outside a plausible range")
-    launch = metadata.get("optical_launch_power_dBm")
-    if launch is not None and launch < metadata["optical_received_power_dBm"]:
-        problems.append("received power exceeds launch power")
+    received = metadata["optical_received_power_dBm"]
+    if received is not None:
+        if not -80 <= received <= 30:
+            problems.append("optical received power is outside a plausible range")
+        launch = metadata.get("optical_launch_power_dBm")
+        if launch is not None and launch < received:
+            problems.append("received power exceeds launch power")
     try:
         validate_probabilities(metadata["symbol_probabilities"], 4)
     except ValueError as error:

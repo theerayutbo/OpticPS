@@ -17,7 +17,12 @@ from typing import Any
 import numpy as np
 
 from opticps.instruments.m8199b import MAX_SAMPLE_RATE, MIN_SAMPLE_RATE
-from opticps.measurement.capture import Capture, load_capture, load_reference
+from opticps.measurement.capture import (
+    Capture,
+    CaptureValidationError,
+    load_capture,
+    load_reference,
+)
 from opticps.optimization.adaptive import assert_disjoint, select_distribution
 from opticps.receiver.dsp import process_capture
 from opticps.statistics.intervals import paired_difference_interval
@@ -107,6 +112,15 @@ def analyze_directory(
     captures = [load_capture(path) for path in sorted(capture_dir.glob("*.json"))]
     if not captures:
         raise FileNotFoundError(f"No capture metadata in {capture_dir}")
+    measured = [
+        c.metadata["capture_id"] for c in captures if c.metadata["data_source"] == "measured"
+    ]
+    if measured:
+        raise CaptureValidationError(
+            f"Measured captures {measured} must not go through the periodic analyze path, "
+            "which assumes one exact period. Use `opticps ingest-uxr` for each capture, then "
+            "`opticps compare-uxr --results DIR`"
+        )
     training = [c for c in captures if c.metadata["split"] == "training"]
     test = [c for c in captures if c.metadata["split"] == "test"]
     assert_disjoint(

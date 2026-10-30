@@ -1,4 +1,10 @@
 {
+  "_help": {
+    "must_fill_in": "These cannot be null or placeholders; the validator rejects the file: related_transmit_experiment_id, receiver_instrument_model, capture_timestamp (ISO 8601), capture_sample_rate_Sa_per_s, symbol_rate_Bd, receiver_bandwidth_Hz, fiber_length_km, attenuation_dB, symbol_probabilities, split, data_source, units.",
+    "null_means_not_measured": "optical_received_power_dBm must be present. null means not measured, and it is shown as 'not recorded' in the fairness audit. Never estimate it.",
+    "optional_may_be_null_or_removed": "optical_launch_power_dBm, oma_dBm, extinction_ratio_dB, awg_sample_rate_Sa_per_s, electrical_amplitude_Vpp, modulator_parameters, calibration, operator_notes. Leave null if you did not measure it. Do not estimate it.",
+    "ignored_by_the_validator": "This _help block is ignored; delete it if you like."
+  },
   "schema_version": "1.0",
   "capture_id": "S01-PS70-att24-r1-test",
   "related_transmit_experiment_id": "COPY FROM experiment_manifest.csv",
@@ -20,8 +26,16 @@
   "awg_sample_rate_Sa_per_s": null,
   "electrical_amplitude_Vpp": null,
   "modulator_parameters": null,
-  "symbol_probabilities": [0.25, 0.25, 0.25, 0.25],
-  "units": {"time": "s", "voltage": "V"},
+  "symbol_probabilities": [
+    0.25,
+    0.25,
+    0.25,
+    0.25
+  ],
+  "units": {
+    "time": "s",
+    "voltage": "V"
+  },
   "calibration": null,
   "operator_notes": ""
 }

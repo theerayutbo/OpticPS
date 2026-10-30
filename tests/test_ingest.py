@@ -7,6 +7,8 @@ import pytest
 
 from opticps.instruments.mock_receiver import capture_waveform
 from opticps.measurement.capture import (
+    NULLABLE_REQUIRED,
+    REQUIRED_FIELDS,
     Capture,
     CaptureValidationError,
     load_capture,
@@ -203,3 +205,63 @@ def test_same_capture_in_both_splits_rejected(manifest, tmp_path):
     (tmp_path / "clone.csv").write_text(first.data_path.read_text())
     with pytest.raises(DataLeakageError):
         analyze_directory(tmp_path, ROOT, PROFILE, tmp_path / "out")
+
+
+def test_received_power_may_be_null_but_the_key_is_required():
+    meta = good()
+    meta["optical_received_power_dBm"] = None
+    meta["optical_launch_power_dBm"] = -20  # no launch-versus-received check without a value
+    validate_metadata(meta)
+    del meta["optical_received_power_dBm"]
+    with pytest.raises(CaptureValidationError, match="missing field optical_received_power_dBm"):
+        validate_metadata(meta)
+    meta["optical_received_power_dBm"] = "high"
+    with pytest.raises(CaptureValidationError, match="wrong type"):
+        validate_metadata(meta)
+    meta["optical_received_power_dBm"] = 90
+    with pytest.raises(CaptureValidationError, match="plausible"):
+        validate_metadata(meta)
+
+
+def test_null_received_power_shows_as_not_recorded_in_the_audit():
+    a, b = good(), good()
+    a["optical_received_power_dBm"] = b["optical_received_power_dBm"] = None
+    rows = {
+        r["variable"]: r for r in fairness_audit([Capture(a, np.zeros(1)), Capture(b, np.zeros(1))])
+    }
+    assert rows["Optical received power"]["status"] == "not recorded"
+    b["optical_received_power_dBm"] = -10
+    rows = {
+        r["variable"]: r for r in fairness_audit([Capture(a, np.zeros(1)), Capture(b, np.zeros(1))])
+    }
+    assert rows["Optical received power"]["status"] == "partly recorded"
+
+
+def test_null_received_power_flows_through_analysis_and_csv(manifest, tmp_path):
+    first = make(manifest, "PAM4_Uniform", "r1", "test", tmp_path, 1)
+    metadata = json.loads(first.metadata_path.read_text())
+    metadata["optical_received_power_dBm"] = None
+    first.metadata_path.write_text(json.dumps(metadata))
+    summary = analyze_directory(tmp_path, ROOT, PROFILE, tmp_path / "out")
+    assert summary["test_captures"] == 1
+    rows = (tmp_path / "out" / "capture_metrics.csv").read_text().splitlines()
+    header = rows[0].split(",")
+    assert rows[1].split(",")[header.index("received_power_dBm")] == ""
+    assert summary["fairness_audit"][5]["status"] == "not recorded"
+
+
+def test_template_nulls_match_the_validator():
+    import json
+
+    template = json.loads(Path("data/templates/capture_template.json").read_text())
+    help_text = template.pop("_help")
+    assert "optical_received_power_dBm" in help_text["null_means_not_measured"]
+    for name in REQUIRED_FIELDS:
+        if template[name] is None and name not in NULLABLE_REQUIRED:
+            assert name in help_text["must_fill_in"]  # a null that must be filled says so
+    with pytest.raises(CaptureValidationError) as caught:
+        validate_metadata(template)
+    message = str(caught.value)
+    assert "optical_received_power_dBm" not in message
+    for name in ("capture_sample_rate_Sa_per_s", "symbol_rate_Bd", "fiber_length_km"):
+        assert f"missing field {name}" in message

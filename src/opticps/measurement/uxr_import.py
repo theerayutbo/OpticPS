@@ -1,8 +1,8 @@
 """Import oscilloscope (Keysight Infiniium / UXR) waveform exports.
 
-Three formats are read: HDF5, CSV and BIN. Only what could be confirmed from the vendor
-help pages is relied on; every inference is recorded in ScopeWaveform.attributes and
-unverified formats are gated behind explicit flags. Nothing is guessed: ambiguous or
+Three formats are read: HDF5, CSV and BIN. The layouts follow the UXR Programmer's Guide
+(pp598, 2090-2098) and the Infiniium HDF5 schema page; none has been tested on a real file.
+Anything not documented is recorded in ScopeWaveform.attributes, and ambiguous or
 unrecognised content raises UxrImportError instead of producing a waveform.
 """
 
@@ -22,12 +22,21 @@ from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
 VOLT_NAMES = ("volt", "volts", "v")
+VOLT_SCALES = {"V": 1.0, "mV": 1e-3, "uV": 1e-6, "\u00b5V": 1e-6, "\u03bcV": 1e-6}
+TIME_SCALES = {
+    "s": 1.0, "ms": 1e-3, "us": 1e-6, "\u00b5s": 1e-6, "\u03bcs": 1e-6, "ns": 1e-9, "ps": 1e-12,
+}  # fmt: skip
+UNIT_WORDS = {"volt": "V", "volts": "V", "second": "s", "seconds": "s"}
+DEFAULT_MAX_SAMPLES = 500_000_000
 DEFAULT_WAVEFORM_TYPES = ("NORMAL", "AVERAGE")
 UNIFORM_TOLERANCE = 1e-3
 BIN_FILE_HEADER = struct.Struct("<2s2sii")
 BIN_WAVE_HEADER = struct.Struct("<iiiiifdddii16s16s24s16sdI")
 BIN_DATA_HEADER = struct.Struct("<ihhi")
 BIN_FLOAT32 = 1
+BIN_COOKIE = b"AG"
+BIN_VERSION = b"10"
+BIN_TYPES = (1, 3)
 BIN_UNIT_VOLT = 1
 BIN_UNIT_SECOND = 2
 
@@ -100,6 +109,20 @@ def _check_units(label: str, value: str, accepted: Iterable[str]) -> None:
         raise UxrImportError(f"{label} is {value!r}; only {tuple(accepted)[0]} is supported")
 
 
+def _unit_scale(text: str, table: dict[str, float], what: str) -> float:
+    """Return the factor that converts a stated unit to the base unit; unknown units raise."""
+    unit = UNIT_WORDS.get(text.strip().lower(), text.strip())
+    if unit not in table:
+        raise UxrImportError(f"{what} unit {text!r} is not recognised; accepted {sorted(table)}")
+    return table[unit]
+
+
+def _title_unit(cell: str) -> str | None:
+    """Return the unit written in brackets or parentheses at the end of a column title."""
+    found = re.findall(r"\(([^)]*)\)|\[([^\]]*)\]", cell)
+    return (found[-1][0] or found[-1][1]).strip() if found else None
+
+
 def _check_increment(x_increment_s: float) -> None:
     if not x_increment_s > 0 or not np.isfinite(x_increment_s):
         raise UxrImportError(f"Time increment must be positive and finite, got {x_increment_s}")
@@ -111,16 +134,32 @@ def _finite_samples(samples: FloatArray) -> FloatArray:
     return samples
 
 
+def _member(parent: Any, name: str, what: str) -> Any:
+    """Return a hard-linked child; soft and external links are never followed."""
+    import h5py
+
+    link = parent.get(name, getlink=True)
+    if link is None:
+        raise UxrImportError(f"Missing {what}")
+    if isinstance(link, h5py.SoftLink | h5py.ExternalLink):
+        raise UxrImportError(f"{what} is a {type(link).__name__}; links are not followed")
+    return parent[name]
+
+
 def read_hdf5(
     path: Path,
     channel: int = 1,
     segment: int | None = None,
     allow_waveform_types: Iterable[str] | None = None,
+    max_samples: int = DEFAULT_MAX_SAMPLES,
 ) -> ScopeWaveform:
     """Read one channel of an Infiniium HDF5 export (layout from the vendor schema page).
 
-    Time = XOrg + i * XInc and volts = YOrg + raw * YInc are inferences, not stated by the
-    vendor. A float dataset is taken as already in volts. Both are recorded as unverified.
+    The file is untrusted: links and external or virtual storage are refused and the
+    dataset shape is checked against NumPoints x NumSegments and max_samples before any
+    data is read. Scaling follows the UXR Programmer's Guide (p598): an H5 float dataset holds
+    actual volts, an H5INt integer dataset needs raw * YInc + YOrg. Time = XOrg + i * XInc.
+    The dataset type is the only indication of which export was used.
     """
     import h5py
 
@@ -130,16 +169,17 @@ def read_hdf5(
     except OSError as error:
         raise UxrImportError(f"{path.name} is not a readable HDF5 file: {error}") from error
     with handle:
-        if "Waveforms" not in handle:
-            raise UxrImportError("HDF5 file has no /Waveforms group")
+        waveforms = _member(handle, "Waveforms", "/Waveforms group")
         group_name = f"Channel {channel}"
-        waveforms = handle["Waveforms"]
-        if group_name not in waveforms:
+        if group_name not in waveforms.keys():  # noqa: SIM118 - key listing, no link followed
             raise UxrImportError(f"Missing {group_name}; the file holds {sorted(waveforms.keys())}")
-        group = waveforms[group_name]
+        group = _member(waveforms, group_name, f"/Waveforms/{group_name}")
         data_name = f"{group_name}Data"
-        if data_name not in group:
-            raise UxrImportError(f"Missing dataset {data_name} in /Waveforms/{group_name}")
+        dataset = _member(group, data_name, f"dataset {data_name} in /Waveforms/{group_name}")
+        if not isinstance(dataset, h5py.Dataset):
+            raise UxrImportError(f"{data_name} is not a dataset")
+        if dataset.is_virtual or dataset.external:
+            raise UxrImportError(f"{data_name} uses virtual or external storage; refused")
         attrs = {k: _plain(v) for k, v in group.attrs.items()}
         for name in ("NumPoints", "XInc", "XOrg", "XUnits", "YUnits", "WaveformType"):
             if name not in attrs:
@@ -155,52 +195,86 @@ def read_hdf5(
         _check_increment(x_inc)
         x_org = _number(attrs["XOrg"], "XOrg")
         num_points = int(_number(attrs["NumPoints"], "NumPoints"))
+        if num_points < 2:
+            raise UxrImportError(f"NumPoints is {num_points}; at least 2 are needed")
         num_segments = int(_number(attrs.get("NumSegments", 1), "NumSegments"))
-        raw = np.asarray(group[data_name])
         notes: dict[str, Any] = {}
+        notes_warn: list[str] = []
+        if num_segments < 0:
+            raise UxrImportError(f"NumSegments is {num_segments}")
+        if num_segments == 0:
+            num_segments = 1
+            notes["num_segments_note"] = (
+                "NumSegments was 0, treated as 1 (non-segmented); the guide's own HDF5 "
+                "example (p2090) shows NumSegments = 0 for a normal capture"
+            )
+        interp = _number(attrs.get("SavedInterpFactor", 1), "SavedInterpFactor")
+        if interp not in (0.0, 1.0):
+            notes_warn.append(
+                f"SavedInterpFactor is {interp:g}; the meaning of XInc under interpolation is "
+                "unverified, so the sample rate may not be the acquisition rate"
+            )
+        if num_segments != 1 and segment is None:
+            raise UxrImportError(
+                f"NumSegments is {num_segments}; select one with segment=N (0-based)"
+            )
+        expected = num_points * num_segments
+        if expected > max_samples or dataset.size > max_samples:
+            raise UxrImportError(
+                f"{max(expected, dataset.size)} values exceed the limit of {max_samples}; "
+                "raise max_samples if this is intended"
+            )
+        if dataset.size != expected or dataset.ndim > 2:
+            raise UxrImportError(
+                f"Dataset shape {dataset.shape} does not match NumPoints*NumSegments = "
+                f"{num_points}*{num_segments}"
+            )
+        if dataset.dtype.kind not in "iuf":
+            raise UxrImportError(f"Unsupported dataset type {dataset.dtype}")
         if num_segments != 1:
-            if segment is None:
-                raise UxrImportError(
-                    f"NumSegments is {num_segments}; select one with segment=N (0-based)"
-                )
-            if not 0 <= segment < num_segments:
+            if segment is None or not 0 <= segment < num_segments:
                 raise UxrImportError(f"Segment {segment} outside 0..{num_segments - 1}")
-            if raw.size != num_points * num_segments:
-                raise UxrImportError(
-                    f"Cannot slice segments: dataset has {raw.size} values, "
-                    f"expected NumPoints*NumSegments = {num_points * num_segments}"
-                )
-            raw = raw.reshape(num_segments, num_points)[segment]
+            if dataset.ndim == 1:
+                raw = np.asarray(dataset[segment * num_points : (segment + 1) * num_points])
+            elif dataset.shape == (num_segments, num_points):
+                raw = np.asarray(dataset[segment])
+            else:
+                raise UxrImportError(f"Dataset shape {dataset.shape} cannot be sliced by segment")
             notes["segment"] = segment
             notes["segment_layout_assumption"] = "segments stored back to back (unverified)"
-        elif raw.size != num_points:
-            raise UxrImportError(f"NumPoints is {num_points} but the dataset has {raw.size} values")
-        if raw.ndim != 1 and num_segments == 1:
-            raw = raw.reshape(-1)
+        else:
+            raw = np.asarray(dataset[()]).reshape(-1)
         if raw.dtype.kind in "iu":
             y_inc = _number(attrs.get("YInc"), "YInc") if "YInc" in attrs else None
             y_org = _number(attrs.get("YOrg"), "YOrg") if "YOrg" in attrs else None
             if y_inc is None or y_org is None or y_inc == 0:
                 raise UxrImportError("Integer dataset needs nonzero YInc and a YOrg to scale")
             samples = y_org + raw.astype(np.float64) * y_inc
-            notes["scaling_assumption"] = "volts = YOrg + raw*YInc for integers (unverified)"
-        elif raw.dtype.kind == "f":
-            samples = raw.astype(np.float64)
-            notes["scaling_assumption"] = "float dataset treated as volts (unverified)"
+            notes["scaling_rule"] = (
+                "integers (H5INt): volts = raw * YInc + YOrg (UXR Programmer's Guide p598)"
+            )
         else:
-            raise UxrImportError(f"Unsupported dataset type {raw.dtype}")
+            samples = raw.astype(np.float64)
+            notes["scaling_rule"] = (
+                "floats (H5): values are actual vertical values, no scaling (UXR Programmer's "
+                "Guide p598)"
+            )
         samples = _finite_samples(samples)
         model = serial = date = None
-        if "Frame" in handle and "TheFrame" in handle["Frame"]:
-            frame = np.asarray(handle["Frame/TheFrame"]).reshape(-1)[0]
+        the_frame = _optional_member(handle, "Frame", "TheFrame")
+        if the_frame is not None:
+            frame = np.asarray(the_frame[()]).reshape(-1)[0]
             names = frame.dtype.names or ()
             model = _text(frame["Model"]) if "Model" in names else None
             serial = _text(frame["Serial"]) if "Serial" in names else None
             date = _text(frame["Date"]) if "Date" in names else None
         file_type = None
-        if "FileType" in handle and "KeysightH5FileType" in handle["FileType"]:
-            file_type = _text(np.asarray(handle["FileType/KeysightH5FileType"]).reshape(-1)[0])
+        type_set = _optional_member(handle, "FileType", "KeysightH5FileType")
+        if type_set is not None:
+            file_type = _text(np.asarray(type_set[()]).reshape(-1)[0])
         extra = {"file_type": file_type, "dataset_dtype": str(raw.dtype), **notes}
+        if notes_warn:
+            extra["warnings"] = notes_warn
         return ScopeWaveform(
             samples_v=samples,
             x_increment_s=x_inc,
@@ -215,6 +289,16 @@ def read_hdf5(
         )
 
 
+def _optional_member(handle: Any, group: str, name: str) -> Any:
+    """Return handle[group][name] if present as hard links, else None; links are refused."""
+    if group not in handle.keys():  # noqa: SIM118
+        return None
+    folder = _member(handle, group, f"/{group}")
+    if name not in folder.keys():  # noqa: SIM118
+        return None
+    return _member(folder, name, f"/{group}/{name}")
+
+
 def _is_number(cell: str) -> bool:
     try:
         float(cell)
@@ -223,19 +307,49 @@ def _is_number(cell: str) -> bool:
     return True
 
 
-def _header_value(rows: list[list[str]], pattern: str) -> str | None:
-    """Return the value of a header entry written as 'key,value', 'key=value' or 'key: value'."""
-    regex = re.compile(rf"\s*(?:{pattern})\s*[=:]?\s*(.*)", re.IGNORECASE)
-    for row in rows:
-        for position, cell in enumerate(row):
-            match = regex.fullmatch(cell)
-            if match is None:
+CSV_KEYS = {
+    "revision", "type", "start", "points", "count", "segments", "xdisprange", "xdisporg",
+    "xinc", "xorg", "xunits", "ydisprange", "ydisporg", "yinc", "yorg", "yunits", "frame",
+    "date", "time", "maxbandwidth", "minbandwidth", "timetags", "data",
+}  # fmt: skip
+CSV_ALIASES = {
+    "xincrement": "xinc", "xorigin": "xorg", "yincrement": "yinc", "yorigin": "yorg",
+    "xunit": "xunits", "yunit": "yunits", "xdisplayrange": "xdisprange",
+    "xdisplayorigin": "xdisporg", "ydisplayrange": "ydisprange", "ydisplayorigin": "ydisporg",
+    "countorsegments": "count",
+}  # fmt: skip
+
+
+def _csv_key(cell: str) -> str | None:
+    """Canonical header key for a cell, or None if it is not one of the documented fields."""
+    key = re.sub(r"[\s_]", "", cell.lower())
+    key = CSV_ALIASES.get(key, key)
+    return key if key in CSV_KEYS else None
+
+
+def _header_fields(rows: list[list[str]]) -> dict[str, str]:
+    """Collect documented header fields from 'key,value', 'key=value' or name-row/value-row text.
+
+    The vendor guide lists the fields (Revision, Type, ... Data) but the separator and exact
+    layout of a real file are unverified, so the three plausible shapes are all read.
+    """
+    fields: dict[str, str] = {}
+    for index, row in enumerate(rows):
+        keys = [_csv_key(cell) for cell in row]
+        if sum(k is not None for k in keys) >= 3 and index + 1 < len(rows):
+            below = rows[index + 1]
+            if len(below) == len(row):
+                for key, value in zip(keys, below, strict=True):
+                    if key is not None and value.strip():
+                        fields.setdefault(key, value.strip())
                 continue
-            if match.group(1).strip():
-                return match.group(1).strip()
-            if position + 1 < len(row) and row[position + 1].strip():
-                return row[position + 1].strip()
-    return None
+        for position, cell in enumerate(row):
+            split = re.split(r"\s*[=:]\s*", cell, maxsplit=1)
+            if len(split) == 2 and _csv_key(split[0]) and split[1].strip():
+                fields.setdefault(str(_csv_key(split[0])), split[1].strip())
+            elif _csv_key(cell) and position == 0 and len(row) >= 2 and row[1].strip():
+                fields.setdefault(str(_csv_key(cell)), row[1].strip())
+    return fields
 
 
 def read_csv(
@@ -243,9 +357,11 @@ def read_csv(
 ) -> ScopeWaveform:
     """Read a CSV of numeric rows after optional non-numeric header rows.
 
-    The Infiniium CSV header layout is unconfirmed, so only two shapes are accepted:
-    (time, value) rows, or value-only rows with XInc taken from a header row or the
-    x_increment_s argument. Transmitter DataOut files are rejected explicitly.
+    The vendor guide (UXR Programmer's Guide pp2091-2092) lists the header fields; the
+    separator and exact spelling in a real file are unverified, so parsing is tolerant. Two
+    data shapes are accepted: (time, value) rows, or value-only rows with XInc taken from
+    the header or the x_increment_s argument. Multi-source files (more columns) and
+    transmitter DataOut files are rejected. Units are parsed; unknown units are rejected.
     """
     with path.open(newline="") as handle:
         rows = [[c.strip() for c in row] for row in csv.reader(handle) if any(row)]
@@ -262,10 +378,25 @@ def read_csv(
     widths = {len(r) for r in rows}
     if widths not in ({1}, {2}) or not all(all(_is_number(c) for c in r) for r in rows):
         raise UxrImportError("CSV data rows must be all numeric with one or two columns")
-    units = _header_value(header, r"y[ _]?units?")
-    if units is not None and units.lower() not in VOLT_NAMES:
-        raise UxrImportError(f"Header states Y units {units!r}; only volts are supported")
-    header_inc_text = _header_value(header, r"x[ _]?inc(?:rement)?")
+    titles = header[-1] if header else []
+    width = len(rows[0])
+    time_title = _title_unit(titles[0]) if width == 2 and titles else None
+    value_cell = width - 1
+    value_title = _title_unit(titles[value_cell]) if len(titles) > value_cell else None
+    fields = _header_fields(header)
+    units = fields.get("yunits")
+    volt_scale = 1.0
+    stated = [u for u in (value_title, units) if u is not None]
+    if stated:
+        scales = {_unit_scale(u, VOLT_SCALES, "Y") for u in stated}
+        if len(scales) > 1:
+            raise UxrImportError(f"Y units {stated} in the header disagree")
+        volt_scale = scales.pop()
+    time_scale = _unit_scale(time_title, TIME_SCALES, "Time") if time_title else 1.0
+    x_units = fields.get("xunits")
+    if x_units is not None and _unit_scale(x_units, TIME_SCALES, "X") != 1.0:
+        raise UxrImportError(f"Header XUnits is {x_units!r}; only Second is supported")
+    header_inc_text = fields.get("xinc")
     header_inc = None
     if header_inc_text is not None:
         try:
@@ -273,10 +404,17 @@ def read_csv(
         except ValueError as error:
             raise UxrImportError(f"Header XInc is not numeric: {header_inc_text!r}") from error
     table = np.array(rows, dtype=np.float64)
-    notes: dict[str, Any] = {"header_rows": len(header)}
+    notes: dict[str, Any] = {
+        "header_rows": len(header),
+        "header_fields": fields,
+        "y_unit_scale_to_volt": volt_scale,
+        "time_unit_scale_to_second": time_scale,
+    }
+    if not stated:
+        notes["y_units_unstated"] = "no unit in the header; values taken as volts (unverified)"
     if table.shape[1] == 2:
-        time = table[:, 0]
-        samples = table[:, 1]
+        time = table[:, 0] * time_scale
+        samples = table[:, 1] * volt_scale
         if time.size < 2:
             raise UxrImportError("CSV needs at least 2 rows")
         step = (time[-1] - time[0]) / (time.size - 1)
@@ -289,7 +427,7 @@ def read_csv(
                 raise UxrImportError(f"Time column step {x_inc:g} disagrees with {label} {given:g}")
         notes["x_increment_source"] = "time column"
     else:
-        samples = table[:, 0]
+        samples = table[:, 0] * volt_scale
         if header_inc is not None and x_increment_s is not None:
             if abs(header_inc - x_increment_s) > UNIFORM_TOLERANCE * header_inc:
                 raise UxrImportError("Header XInc disagrees with x_increment_s")
@@ -301,7 +439,18 @@ def read_csv(
         _check_increment(chosen)
         x_inc, x_org = float(chosen), 0.0
         notes["x_increment_source"] = "header" if header_inc is not None else "argument"
-        notes["x_origin_assumed_zero"] = True
+        if "xorg" in fields and _is_number(fields["xorg"]):
+            x_org = float(fields["xorg"])
+        else:
+            notes["x_origin_assumed_zero"] = True
+    if (
+        "points" in fields
+        and _is_number(fields["points"])
+        and int(float(fields["points"])) != len(samples)
+    ):
+        notes["warnings"] = [
+            f"Header Points is {fields['points']} but the file has {len(samples)} data rows"
+        ]
     return ScopeWaveform(
         samples_v=_finite_samples(samples),
         x_increment_s=x_inc,
@@ -316,24 +465,21 @@ def read_csv(
     )
 
 
-def read_bin(
-    path: Path, channel: int | None = None, accept_unverified_bin: bool = False
-) -> ScopeWaveform:
-    """Read a Keysight BIN file. Integer widths are assumed, so a flag is required.
+def read_bin(path: Path, channel: int | None = None) -> ScopeWaveform:
+    """Read a Keysight BIN file, validating it strictly against the documented layout.
 
-    Assumes 4-byte little-endian integers and floats. Field order follows the vendor
-    page; widths and the meaning of 'X Origin' were not confirmed on real files.
+    Layout: UXR Programmer's Guide pp2093-2098 (file header 12 bytes, waveform header 140
+    bytes, data header 12 bytes, signed 4-byte ints, 4-byte floats, 8-byte doubles, structs
+    packed to 4). Cookie must be 'AG' and version '10'. No real file has been tested.
     """
-    if not accept_unverified_bin:
-        raise UxrImportError(
-            "BIN import is unverified on real files: field widths are assumed. "
-            "Pass accept_unverified_bin=True (--accept-unverified-bin) to use it anyway, "
-            "or export HDF5."
-        )
     blob = path.read_bytes()
     if len(blob) < BIN_FILE_HEADER.size:
         raise UxrImportError("BIN file is shorter than its file header")
     cookie, version, file_size, count = BIN_FILE_HEADER.unpack_from(blob, 0)
+    if cookie != BIN_COOKIE or version != BIN_VERSION:
+        raise UxrImportError(
+            f"BIN cookie/version {cookie!r}/{version!r} is not b'AG'/b'10'; refusing the file"
+        )
     if file_size != len(blob):
         raise UxrImportError(f"BIN File Size field {file_size} differs from actual {len(blob)}")
     if count < 1:
@@ -349,8 +495,15 @@ def read_bin(
             raise UxrImportError("BIN waveform header runs past the end of the file")
         fields = BIN_WAVE_HEADER.unpack_from(blob, offset)
         header_size, wave_type, buffers, points = fields[0], fields[1], fields[2], fields[3]
-        if header_size < BIN_WAVE_HEADER.size:
-            raise UxrImportError(f"BIN waveform header size {header_size} is too small")
+        if header_size != BIN_WAVE_HEADER.size:
+            raise UxrImportError(
+                f"BIN waveform header size {header_size} is not the documented "
+                f"{BIN_WAVE_HEADER.size}"
+            )
+        if wave_type not in BIN_TYPES:
+            raise UxrImportError(
+                f"BIN waveform type {wave_type} is not supported; only 1 (Normal) and 3 (Average)"
+            )
         if buffers != 1:
             raise UxrImportError(f"BIN waveform has {buffers} buffers; only 1 is supported")
         data_at = offset + header_size
@@ -361,8 +514,11 @@ def read_bin(
         )
         if buffer_type != BIN_FLOAT32:
             raise UxrImportError(f"BIN buffer type {buffer_type} is not supported (only 1)")
-        if data_header_size < BIN_DATA_HEADER.size:
-            raise UxrImportError(f"BIN data header size {data_header_size} is too small")
+        if data_header_size != BIN_DATA_HEADER.size:
+            raise UxrImportError(
+                f"BIN data header size {data_header_size} is not the documented "
+                f"{BIN_DATA_HEADER.size}"
+            )
         start = data_at + data_header_size
         if width != 4 or buffer_size != 4 * points or start + buffer_size > len(blob):
             raise UxrImportError("BIN buffer size, width and point count disagree")
@@ -392,12 +548,12 @@ def read_bin(
             "count": count_avg,
             "x_display_range": x_range,
             "x_display_origin": x_display,
-            "x_origin_note": "'X Origin' field used; vendor text is ambiguous (unverified)",
+            "layout_source": "UXR Programmer's Guide pp2093-2098; no real file tested",
             "frame": _text(frame),
             "label": _text(label),
             "time_tag": tags,
             "segment_index": seg_index,
-            "widths_assumed": "4-byte little-endian ints and floats (unverified)",
+            "widths": "4-byte signed ints, 4-byte floats, 8-byte doubles (pp2093-2095)",
         },
     )
 
@@ -406,15 +562,17 @@ def read_scope_file(
     path: Path,
     channel: int = 1,
     x_increment_s: float | None = None,
-    accept_unverified_bin: bool = False,
     segment: int | None = None,
+    allow_waveform_types: Iterable[str] | None = None,
 ) -> ScopeWaveform:
     """Dispatch on the file suffix: .h5/.hdf5, .csv or .bin."""
     suffix = path.suffix.lower()
     if suffix in (".h5", ".hdf5"):
-        return read_hdf5(path, channel, segment)
+        return read_hdf5(path, channel, segment, allow_waveform_types)
+    if suffix in (".csv", ".bin") and (segment is not None or allow_waveform_types):
+        raise UxrImportError("segment and waveform-type options apply to HDF5 files only")
     if suffix == ".csv":
         return read_csv(path, x_increment_s, channel)
     if suffix == ".bin":
-        return read_bin(path, channel, accept_unverified_bin)
+        return read_bin(path, channel)
     raise UxrImportError(f"Unsupported scope file suffix {suffix!r}; use .h5, .csv or .bin")

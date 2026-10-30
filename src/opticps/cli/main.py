@@ -15,6 +15,8 @@ DEFAULT_ROOT = Path("output/keysight_m8199b")
 DEFAULT_CONFIG = Path("configs/m8199b_profiles.yaml")
 DEFAULT_DEMO = Path("configs/demo.yaml")
 DEFAULT_RESULTS = Path("results/synthetic")
+CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "analyze")
+CLEAN_ERRORS = (ValueError, FileNotFoundError, KeyError, json.JSONDecodeError, OSError)
 
 
 def cmd_generate(args: argparse.Namespace) -> int:
@@ -85,15 +87,17 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
         args.profile,
         args.results,
         channel=args.channel,
-        accept_unverified_bin=args.accept_unverified_bin,
         x_increment_s=args.x_increment_s,
         split=args.split,
+        registry=args.registry,
+        segment=args.segment,
+        allow_waveform_types=args.allow_waveform_type,
     )
     print(f"{summary['capture_id']} ({summary['split']}): {summary['source_format']}")
     print(
         f"clock offset {summary['clock_offset_ppm']:.2f} ppm "
-        f"({summary['clock_confidence']} confidence), "
-        f"{summary['frames_complete']} complete of {summary['frames_found']} frames found"
+        f"({summary['clock_confidence']} confidence), {summary['frames_analyzed']} of "
+        f"{summary['frames_expected']} expected frames analysed, {summary['frames_lost']} lost"
     )
     if summary["split"] == "test":
         print(f"SER: {summary['map']['ser_report']}")
@@ -103,6 +107,23 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
     for warning in summary["warnings"]:
         print(f"warning: {warning}")
     print(f"Results in {args.results}")
+    return 0
+
+
+def cmd_compare_uxr(args: argparse.Namespace) -> int:
+    from opticps.measurement.uxr_compare import compare_uxr
+
+    summary = compare_uxr(args.results)
+    for row in summary["fairness_audit"]:
+        print(f"{row['variable']:<32}{row['status']:<18}{row['range']}")
+    for item in summary["comparisons"]:
+        if "verdict" in item:
+            print(f"{' vs '.join(item['pair'])}: {item['verdict']}")
+        else:
+            print(item)
+    for name in summary["excluded_unreliable_rate_estimate"]:
+        print(f"excluded from the rate comparison (unreliable estimate): {name}")
+    print(f"Report in {args.results / 'uxr_report.md'}")
     return 0
 
 
@@ -190,9 +211,18 @@ def build_parser() -> argparse.ArgumentParser:
     command.add_argument("--channel", type=int, default=1)
     command.add_argument("--sidecar", type=Path, required=True, help="capture metadata JSON")
     command.add_argument("--profile", required=True)
-    command.add_argument("--accept-unverified-bin", action="store_true")
     command.add_argument("--x-increment-s", type=float, help="needed for one-column CSV")
     command.add_argument("--split", choices=("training", "test"), help="if the sidecar has none")
+    command.add_argument("--results", type=Path, default=Path("results/uxr"))
+    command.add_argument(
+        "--registry", type=Path, help="leakage registry (default under data/private)"
+    )
+    command.add_argument("--segment", type=int, help="segment to read (0-based); HDF5 only")
+    command.add_argument(
+        "--allow-waveform-type", action="append", help="accept this HDF5 WaveformType (repeatable)"
+    )
+
+    command = add("compare-uxr", cmd_compare_uxr, "paired comparison and report from ingest-uxr")
     command.add_argument("--results", type=Path, default=Path("results/uxr"))
 
     command = add("analyze", cmd_analyze, "analyze captures against exported references")
@@ -218,7 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    return int(args.handler(args))
+    if args.command not in CLEAN_COMMANDS:
+        return int(args.handler(args))
+    try:
+        return int(args.handler(args))
+    except CLEAN_ERRORS as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

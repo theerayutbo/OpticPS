@@ -45,11 +45,11 @@ Frame layout, the same for all waveforms: symbols 0 to 511 preamble (m-sequence 
 Nothing below can be assumed from this repository. Write the answers in the experiment log.
 
 - M8199B options, module identifier and channel count.
-- Whether the output really is AC-coupled and 50 Ω, and the maximum output voltage. The project owner's notes say AC-coupled, nominally 50 Ω; this has not been checked against the data sheet.
+- Whether the output really is AC-coupled and 50 Ω, and the maximum output voltage. The project owner's notes say AC-coupled, nominally 50 Ω. The Programming Guide's `:OUTPut:COUPling` entry lists M8198A and M8199A only (p97), so this is not confirmed for the M8199B. Read the voltage limits from the unit before loading: `:SOURce:VOLTage:AMPLitude? 'identifier', MAX` and `MIN` (M8100 Programming Guide p57; the guide's example identifier is `'M2.DataOut'`, other pages write `'M1.DataOut1'`, so check which one your unit accepts). OpticPS sends no SCPI.
 - Modulator V_pi, maximum RF input, bandwidth, connector, and bias method.
 - Whether the amplifier, if any, can damage the modulator at any AWG setting.
-- CSV format, against the M8100 Series Programming Guide (M8100-91B50, March 2026). The project could not read the guide directly. The header, range, 512-sample rule and import command below came from the project owner's notes.
-- Receiver model, bandwidth, sample rate and export format.
+- CSV format, against the M8100 Series Programming Guide (M8100-91B50, March 2026), now read. Confirmed there: the mandatory first row naming the column (`DataOut1`), normalized values from -1.0 to +1.0 (scientific notation accepted), and `:TRACe:IMPort 'identifier', <segment_id>, <file_name>, <file_format>` with formats BIN8, TXT or CSV and segment id 1 only (pp129-133). Not found in the guide and still from the project owner's notes: the 512-sample multiple and the 1,048,576-sample maximum. Both are kept as safe rules.
+- Receiver: a Keysight Infiniium UXR Series oscilloscope at 256 GSa/s, exact model suffix unconfirmed. Record what the instrument reports, its bandwidth setting and the export format. See `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`.
 
 ## Protocol
 
@@ -83,7 +83,7 @@ Nothing below can be assumed from this repository. Write the answers in the expe
 received_time_s,received_voltage_v
 ```
 
-or `sample_index,received_voltage_v`, plus a JSON sidecar of the same name. Copy `data/templates/capture_template.json`. Required fields include the receiver model, capture sample rate, bandwidth, received power, fiber length, attenuation, timestamp, and `related_transmit_experiment_id` from the manifest. Use `"split": "training"` or `"test"`, and `"data_source": "measured"`. Leave a value null if you did not measure it. Do not estimate it. Store data under `data/private/southampton/`, which git ignores.
+or `sample_index,received_voltage_v`, plus a JSON sidecar of the same name. Copy `data/templates/capture_template.json`. Fields that must be filled in (the file is rejected otherwise) are the receiver model, capture sample rate, symbol rate, receiver bandwidth, fiber length, attenuation, timestamp, and `related_transmit_experiment_id` from the manifest. The key `optical_received_power_dBm` must be present, but `null` means not measured. Use `"split": "training"` or `"test"`, and `"data_source": "measured"`. Leave an optional value null if you did not measure it. Do not estimate it. A scope capture goes through `opticps ingest-uxr`, not `opticps analyze`. Store data under `data/private/southampton/`, which git ignores.
 
 **10. Synchronization.** Automatic: the software finds the preamble, polarity and sampling phase using the reference files.
 

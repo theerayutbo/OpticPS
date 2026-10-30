@@ -1,29 +1,22 @@
-# Handoff: v1.2 UXR (Dev), branch v1.2-uxr
+# Handoff: v1.2 UXR (Dev), branch v1.2-uxr, rework 1
 
-Not accepted; awaiting independent review. All fixtures are synthetic; no real UXR file was seen.
+Not accepted; awaiting independent re-review. All fixtures are synthetic; no real UXR file was seen. The official guides (read as text, not committed) replaced earlier inferences.
 
 ## Files
-- New: `src/opticps/measurement/uxr_import.py` (HDF5/CSV/BIN), `src/opticps/receiver/capture_dsp.py`, `src/opticps/measurement/uxr_ingest.py`, `tests/test_uxr.py`, `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`
-- Edited: `src/opticps/cli/main.py` (`ingest-uxr` added, others untouched), `pyproject.toml` + `uv.lock` (h5py, BSD-3-Clause, mypy override), `docs/sbom.cdx.json`, THIRD_PARTY_LICENSES, DEPENDENCY_AUDIT, CHANGELOG
-- Unchanged: `output/`, `configs/`, `dsp.py`, `capture.py`, `compare.py`
+- New: `src/opticps/measurement/uxr_compare.py`. Heavily changed: `receiver/capture_dsp.py`, `measurement/uxr_import.py`, `measurement/uxr_ingest.py`, `tests/test_uxr.py`.
+- Edited: `cli/main.py` (`compare-uxr`, `--registry/--segment/--allow-waveform-type`, clean errors for uxr commands and `analyze`), `measurement/compare.py` (`analyze` refuses measured captures), `measurement/capture.py` (`optical_received_power_dBm` present but nullable), `tests/test_ingest.py`, `data/templates/capture_template.json`, docs (protocol, HARDWARE_COMPATIBILITY, VERIFICATION, STATUS, README, CHANGELOG), `output/README_SOUTHAMPTON.md` text only. Merge of main committed first (dfe7bfa); version stays 1.0.0.
+
+## Rework findings (1 to 16)
+1 tracking: early-late statistic on blocks of payload decisions, slope calibrated on training, line fit, one sequential pass then 2 refits. 2 `compare-uxr` plus `analyze` refusal. 3 lost frames counted, worst case stated. 4 content-hash registry (`--registry`, written after success). 5 training reports no payload value. 6 distinct symbols. 7 irregular spacing falls back; warning is true. 8 `--segment`, `--allow-waveform-type`. 9 units parsed. 10 manifest priors and symbol-rate gate, `reference_mismatch_suspected`. 11 length guard, no 1e-30 path, clean CLI errors. 12 full pytest after merge. 13 protocol overclaims removed (Profile B is 4.57 sps). 14 zero-error capture-level stats. 15 HDF5 links, external, virtual, shape and maximum checks. 16 NumSegments 0 is real (guide p2090); SavedInterpFactor warning.
+Coordinator additions: null received power (A); UXR receiver docs and M8100 guide statuses (B); BIN strict validation replaces the unverified flag; HDF5 scaling cited to p598; CSV header fields parsed; manual SCPI table with pages.
 
 ## Results (this machine)
-- `tests/test_uxr.py`: 36 tests, all pass. Full suite: 169 passed, 3 skipped, 1 failed.
-- The failure is `test_reporting.py::test_engineering_log_is_complete`: committed `docs/engineering_log/STATUS.md` has no commit hash. Not caused by this branch; not touched.
-- ruff check, ruff format --check, mypy clean; license audit 34 packages, 0 flagged; `git diff --stat output/` empty.
-- Clock offset (ppm error): 4 frames at +100/-60 ppm and 50 ppm: <= 0.02; noisy 7-frame capture: 0.05; single frame: <= 0.5. Tests assert < 1 (multi-frame) and < 5 (single frame).
-- 50 ppm uncompensated (32768-symbol frame): 31,941 errors of 63,488 vs 0 compensated.
-- SER at sigma 0.5: 1016 errors in 28,672 vs analytic 0.0341, inside the 99.9% Clopper-Pearson interval.
-
-## Design notes
-- Linear processing: FIR (only if ratio > 1.05) + cubic spline to 8 sps; normalized linear preamble correlation; sub-sample peak by fine search; two passes (nominal rate, then estimated rate).
-- Clock from regression of preamble spacing (>=3 frames: high, with stderr; 2: medium); 1 preamble: preamble-to-training spacing, low.
-- One sampling phase per capture chosen on preamble+training FFE error (centre of the plateau). Calibration, FFE, likelihood fitted per frame on preamble+training only; guard symbols give real neighbours at frame edges.
-- `compensate_clock=False` is a diagnostic switch (used by one test).
-- Zero errors: `ser`/`ber` are None; reports say "0 errors in N symbols, 95% upper bound X" (one-sided).
+- Single frame, Profile B, sigma 0.33, 20 seeds, clocks -150 to +200 ppm: SER mean 6.5e-4, min 4.0e-4, max 8.8e-4. Multi-frame, same setup: 6.5e-4. Clock error at most 0.07 ppm.
+- Counts and tip SHA: see the final reply.
 
 ## Limitations and open risks
-- Interpretation: `split` already required by `validate_metadata`, so I kept that and added an `--split` fallback; no default. Training captures are fitted/diagnosed, never scored; the same capture id or file under both splits raises DataLeakageError (index in results dir).
-- HDF5 scaling rules, segment layout, BIN widths, BIN "X Origin" meaning, and CSV header handling are unverified inferences; HDF5 attributes are read from the channel group only; BIN channel = waveform position.
-- Single-frame clock is low confidence; long frames with one preamble can drift. Looped playback with period exactly one frame is assumed. Frames repeat the payload, so pooled errors are not independent. Synthetic NRZ edges ring through the anti-alias FIR; real bandlimited data should not.
-- `ingest-uxr` output is not yet wired into `analyze_directory` paired comparisons.
+- Tracking is decision-directed and needs band-limited edges. With unfiltered rectangular pulses the statistic is noisy; the result is then discarded or flagged unreliable. The 0.5-sample residual limit and the 10 ppm cap on corrections to a spacing-fitted clock are judgement values.
+- A frame with a damaged but findable preamble is analysed and shows its errors; only frames with no preamble peak are "lost".
+- The leakage registry cannot see other registries, re-exports or re-acquisitions (the protocol says so).
+- CSV separator and spelling, BIN on a real file, and HDF5 attribute names against a real file are unverified. Manifest realised probabilities can sum to 1.000001; the gate accepts 1e-5.
+- `reporting/report.py` placeholder text still says "receiver yet to be identified"; reports were not regenerated.

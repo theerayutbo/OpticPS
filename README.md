@@ -6,7 +6,7 @@ OpticPS stands for Optical Probabilistic Shaping. The name is not limited to PAM
 
 This release compares **Uniform**, **Fixed-shaped** and **Adaptive-shaped** PAM4 on intensity-modulation/direct-detection optical links, with waveform packages for the Keysight M8199B.
 
-> **Status: simulation only.** No Southampton measurements have been imported. M8199B playback has not been verified. The M8199B file rules come from the project owner's notes of the M8100 Programming Guide, and have not been checked against the guide itself. See `docs/HARDWARE_COMPATIBILITY.md`.
+> **Status: simulation only.** No Southampton measurements have been imported. M8199B playback has not been verified. The M8199B CSV header, range and import command are confirmed against the M8100 Programming Guide; the 512-sample multiple, the memory maximum and AC coupling are not found in it and remain from the project owner's notes. See `docs/HARDWARE_COMPATIBILITY.md`.
 
 ## Key result so far
 
@@ -67,7 +67,14 @@ uv run opticps analyze --input data/private/southampton/ --profile A_initial_8GB
 uv run opticps compare
 ```
 
-The receiver model is unknown, so the format is receiver-agnostic.
+The receiver is a Keysight Infiniium UXR Series oscilloscope at 256 GSa/s (exact model suffix unconfirmed), but the older capture format stays receiver-agnostic. Real UXR exports (HDF5, CSV, BIN) are not periodic captures, so they never go through `analyze`. Use:
+
+```bash
+uv run opticps ingest-uxr --input data/private/southampton/run1.h5 --sidecar data/private/southampton/run1.json --profile A_initial_8GBd --results results/uxr
+uv run opticps compare-uxr --results results/uxr
+```
+
+See `docs/SOUTHAMPTON_UXR_LAB_PROTOCOL.md`. The importers are tested on synthetic files only.
 
 ## Reports and slides
 
@@ -99,6 +106,6 @@ MIT, copyright Theerayut Boonkird. Algorithms were written independently from pu
 
 - Simulation with generic parameters, not the Southampton link
 - No FEC; no measured data
-- M8199B rules not independently verified; playback unverified; receiver unknown
+- M8199B 512-sample and memory rules not in the Programming Guide; playback unverified; UXR model suffix unconfirmed and no real export seen
 - Driver compression, AC coupling and baseline wander are not modelled
 - Conclusions from one channel do not generalize
