@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import brentq
 
 from opticps.modulation.pam import pam_levels
 
@@ -43,7 +44,10 @@ def entropy_bits(probabilities: object) -> float:
 
 
 def maxwell_boltzmann(lam: float, order: int = 4) -> Prob:
-    """Return P(x) = exp(-lam |x|^2) / Z. lam = 0 is uniform; lam < 0 is outer-heavy."""
+    """Return P(x) = exp(-lam |x|^2) / Z.
+
+    Sign convention: lam > 0 is inner-heavy, lam = 0 is uniform, lam < 0 is outer-heavy.
+    """
     levels = pam_levels(order)
     weights = np.exp(-lam * levels**2)
     return weights / weights.sum()
@@ -61,6 +65,79 @@ def lambda_of_symmetric_pam4(p_outer: float) -> float:
     """Return the Maxwell-Boltzmann lambda equivalent to a symmetric PAM4 distribution."""
     symmetric_pam4(p_outer)
     return float(np.log((0.5 - p_outer) / p_outer) / 8.0)
+
+
+def symmetric_from_pairs(pair_probabilities: object) -> Prob:
+    """Return the symmetric PMF with P(-x_j) = P(+x_j) = q_j, j = 1..M/2.
+
+    q is ordered inner pair first (|x| = 1, 3, ...). The result is in level order,
+    lowest level first, so M = 4 gives [q_2, q_1, q_1, q_2]. Each q_j must be finite
+    and non-negative and the q_j must sum to 1/2.
+    """
+    q = np.asarray(pair_probabilities, dtype=float)
+    if q.ndim != 1 or q.size < 1:
+        raise ValueError("Pair probabilities must be a non-empty one-dimensional vector")
+    if not np.all(np.isfinite(q)) or np.any(q < 0):
+        raise ValueError(f"Pair probabilities must be finite and non-negative: {q}")
+    if abs(q.sum() - 0.5) > 1e-9:
+        raise ValueError(f"Pair probabilities must sum to 1/2, got {q.sum()}")
+    return np.concatenate([q[::-1], q])
+
+
+def pairs_of(probabilities: object, tol: float = 1e-9) -> Prob:
+    """Return q_j = P(+x_j), inner pair first, of a symmetric PMF; raise if not symmetric."""
+    p = validate_probabilities(probabilities)
+    if p.size % 2:
+        raise ValueError(f"A symmetric PMF needs an even alphabet size, got {p.size}")
+    if np.max(np.abs(p - p[::-1])) > tol:
+        raise ValueError(f"Distribution is not symmetric about zero: {p.tolist()}")
+    return p[p.size // 2 :].copy()
+
+
+def _mb_stable(lam: float, order: int) -> Prob:
+    """Maxwell-Boltzmann PMF with the exponent shifted, safe for large |lam|."""
+    exponent = -lam * pam_levels(order) ** 2
+    weights = np.exp(exponent - exponent.max())
+    return weights / weights.sum()
+
+
+def mb_for_entropy(entropy: float, order: int, sign: int = 1) -> Prob:
+    """Return the Maxwell-Boltzmann PMF of the given entropy, by a root find on lambda.
+
+    sign = +1 selects inner-heavy (lam > 0), sign = -1 outer-heavy (lam < 0), with the
+    repo convention P(x) proportional to exp(-lam x^2). MB(+lam) and MB(-lam) do not
+    have the same entropy for M > 4, so the entropy is matched on the chosen side.
+    The reachable range is (1, log2 M] bits for M >= 4: lam -> +-infinity puts all mass
+    on the two innermost or outermost levels (1 bit, never attained). M = 2 admits only
+    1 bit. Raises ValueError when the target is outside that range.
+    """
+    if sign not in (1, -1):
+        raise ValueError(f"sign must be +1 (inner-heavy) or -1 (outer-heavy), got {sign}")
+    pam_levels(order)  # validates the order
+    top = float(np.log2(order))
+    if not np.isfinite(entropy):
+        raise ValueError(f"Entropy must be finite, got {entropy}")
+    if order == 2:
+        if abs(entropy - 1.0) > 1e-9:
+            raise ValueError(f"PAM2 has entropy 1 bit at most, target {entropy} is unreachable")
+        return np.array([0.5, 0.5])
+    if entropy > top + 1e-12 or entropy <= 1.0:
+        raise ValueError(
+            f"Entropy {entropy} is unreachable for MB at M={order}: need 1 < H <= {top}"
+        )
+    if entropy >= top - 1e-12:
+        return np.full(order, 1.0 / order)
+
+    def gap(mu: float) -> float:
+        return entropy_bits(_mb_stable(sign * mu, order)) - entropy
+
+    hi = 1.0
+    while gap(hi) > 0:
+        hi *= 2.0
+        if hi > 1e9:
+            raise ValueError(f"Entropy {entropy} is too close to 1 bit to resolve at M={order}")
+    mu = brentq(gap, 0.0, hi, xtol=1e-15, rtol=1e-14)
+    return _mb_stable(sign * mu, order)
 
 
 @dataclass(frozen=True)

@@ -63,7 +63,8 @@ Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERI
 - [ ] Stage 1 adaptive M-PAM: IN PROGRESS. PAM4-bound sites: `docs/FEATURE_GAP_MATRIX.md`.
   - [x] C1 Gate 0 and anchor.
   - [x] C2 `optimization/rates.py` generic in M (SMD, BMD, `bmd_raw`, order-aware PSNR, average SNR) with `tests/test_mpam_rates.py`; PAM4 values bit-identical, anchor green. Independent review pending.
-  - [ ] C3 to C8: NOT STARTED.
+  - [x] C3 `shaping/distributions.py` pair family (`symmetric_from_pairs`, `pairs_of`, `mb_for_entropy`; lam > 0 inner-heavy), `distribution_matching/ccdm.py` `quantize_symmetric_composition` (equal to legacy at M=4 wherever legacy does not split a pair; legacy untouched), `symmetric_rate_loss`, `InvalidSymbolError`, `scripts/profile_ccdm.py` and `docs/notes/ccdm_profile.md` (M=16, n=1024: 9.3 ms encode, 9.9 ms decode, threshold 1 s not exceeded), `tests/test_mpam_shaping.py`. Independent review pending.
+  - [ ] C4 to C8: NOT STARTED.
 - [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
 - [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
 - [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py:35`.

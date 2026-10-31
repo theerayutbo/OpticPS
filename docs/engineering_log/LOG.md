@@ -172,3 +172,15 @@ Findings: (1) GH120 versus GH200 is not below 1e-9: 120 nodes are 1.9e-8 (M=16),
 Loki FAILed C2 on tests and wording; rate values were right. Fixed in a new commit: (1) independent integrator with hand-written Gray tables at M=8 and 16, plus a test that the package labels equal those tables; (2) unequal per-level sigma tested against that integrator at M=4/8/16 and direct versus log kernel at M=4; (3) bmd_raw is the GMI at s=1 of q = prod P(b_k|y)/P_X(x), not of prod P(b_k|y) (M=8, exp(-0.1x^2), 20 dB: 1.43647 versus 1.40726), docstring and provenance corrected and both identities tested; (4) PAM4 fallback test with p=[1e-320, .5, .25, .25-1e-320]; (5) non-finite rates raise ValueError instead of bmd=0 from max(0, nan); PAM4 finite results unchanged; (6) numbers corrected.
 
 Unequal-sigma disagreement (Loki saw 3e-8 to 1.5e-7): it is quadrature error, not a kernel bug. Gauss-Hermite error grows with the sigma spread: ratio 0.7-1.4 gives 1e-7 to 2e-7 at 120 nodes, 2e-9 at 240, 5e-10 at 320; ratio 0.5-2 gives 2e-6 to 1.5e-5, 4e-8 to 2e-7, 7e-9 to 2e-8. Likely because nodes are centred per level with that level's sigma while the integrand contains other widths. The 1e-9 convergence claim holds for equal sigma only. Tolerance for unequal sigma tests: 1e-6 at default nodes, 1e-8 at 320 nodes. Comparisons below 1e-7 across orders must fix nodes on both sides.
+
+## 2026-10-31 | v1.3-mpam C3 (pair family, symmetric CCDM, profiling)
+
+Dev: Sonnet. Base 2522755. `rates.py` and `test_mpam_rates.py` untouched (on hold).
+
+`distributions.py`: `symmetric_from_pairs`, `pairs_of`, `mb_for_entropy(H, M, sign)`. Repo sign convention confirmed: P ~ exp(-lam x^2), lam > 0 inner-heavy (PS70 lam > 0); the old docstring only said lam < 0 is outer-heavy, now states both. MB(+lam) versus MB(-lam) entropy: equal at M=4 to 1e-12; M=8 at lam 0.2 is 1.708 versus 1.074 bits (tested at M=8 and 16). Reachable entropy is 1 < H <= log2 M; edge cases raise.
+
+`ccdm.py`: `quantize_symmetric_composition` (half quantised then mirrored, n even), `symmetric_rate_loss`, `from_symmetric_probabilities`, `target_rate_loss`, `InvalidSymbolError`. `try_decode` and typed `CompositionError`/`RankOverflowError` already existed; the gap was a negative symbol (raw numpy error) and a float block, now typed. M=4 equality: not unconditional. The legacy rule splits a pair on tied remainders (uniform, n=6 gives (2,2,1,1)); over even n 2..2048 and 101 PMFs 3330 of 103424 differ, every one a legacy asymmetric result or raise. At n in 32..16384 (and 65536) and every legacy PMF they are identical, so legacy paths (config n=1024) are unchanged and were not switched.
+
+Profile (Intel i5-8259U, Python 3.11.15, numpy 2.4.6, seed 20261031), M=16: n=256 0.8/0.7 ms, n=1024 9.3/9.9 ms, n=4096 129/135 ms encode/decode; peak 149 KiB at n=4096. Threshold 1 s not approached.
+
+Tests: 64 new in `tests/test_mpam_shaping.py` (type class enumeration alphabet 8 n=5, alphabet 4 n=6, round trips M=2..16 n=1024, pair sweep, legacy equality, log-gamma loss, negative cases). Full run 557 passed in 250.05 s (493 before); ruff check, format and mypy clean. Not yet reviewed by Loki.

@@ -17,7 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from opticps.shaping.distributions import entropy_bits, validate_probabilities
+from opticps.shaping.distributions import entropy_bits, pairs_of, validate_probabilities
 
 
 class DistributionMatcherError(ValueError):
@@ -26,6 +26,10 @@ class DistributionMatcherError(ValueError):
 
 class CompositionError(DistributionMatcherError):
     """The received block does not have the matcher's composition."""
+
+
+class InvalidSymbolError(CompositionError):
+    """The block holds a value that is not an integer symbol index of the alphabet."""
 
 
 class RankOverflowError(DistributionMatcherError):
@@ -52,6 +56,36 @@ def quantize_composition(probabilities: object, n: int) -> tuple[int, ...]:
             f"Block length {n} cannot represent distribution {p.tolist()}"
         )
     return tuple(int(c) for c in counts)
+
+
+def quantize_symmetric_composition(probabilities: object, n: int) -> tuple[int, ...]:
+    """Return symmetric integer symbol counts summing to n; pairs +-x_j are never split.
+
+    The lower half of the alphabet (outermost level first) is quantised to n/2 symbols
+    by the largest-remainder rule and mirrored, so counts[i] == counts[M-1-i] and the
+    total is exactly n. n must be even and the PMF symmetric with an even alphabet.
+    quantize_composition is untouched; for M = 4 the two agree on the legacy PMFs
+    (tests/test_mpam_shaping.py).
+    """
+    if n <= 0 or n % 2:
+        raise ValueError(f"Block length must be positive and even, got {n}")
+    p = validate_probabilities(probabilities)
+    pairs_of(p)  # raises unless symmetric with an even alphabet
+    if p.size == 2:  # the only symmetric PMF is (1/2, 1/2)
+        return (n // 2, n // 2)
+    half = quantize_composition(2.0 * p[: p.size // 2], n // 2)
+    return half + half[::-1]
+
+
+def symmetric_rate_loss(probabilities: object, n: int) -> float:
+    """Rate loss of the symmetric matcher against the target: H(p) - floor(log2 W)/n.
+
+    W is the type class size of quantize_symmetric_composition(p, n). The value is
+    the sum of the composition quantisation loss H(p) - H(counts/n) (can be negative)
+    and the finite-length loss H(counts/n) - k/n (never negative).
+    """
+    p = validate_probabilities(probabilities)
+    return ConstantCompositionMatcher.from_symmetric_probabilities(p, n).target_rate_loss(p)
 
 
 def multinomial(counts: Sequence[int]) -> int:
@@ -86,6 +120,17 @@ class ConstantCompositionMatcher:
     def from_probabilities(cls, probabilities: object, n: int) -> ConstantCompositionMatcher:
         """Build a matcher for the composition nearest to a target distribution."""
         return cls(quantize_composition(probabilities, n))
+
+    @classmethod
+    def from_symmetric_probabilities(
+        cls, probabilities: object, n: int
+    ) -> ConstantCompositionMatcher:
+        """Build a matcher whose composition is symmetric (pairs never split); n even."""
+        return cls(quantize_symmetric_composition(probabilities, n))
+
+    def target_rate_loss(self, probabilities: object) -> float:
+        """H(target) minus the matcher rate, in bits per symbol."""
+        return entropy_bits(probabilities) - self.rate
 
     @property
     def realised_probabilities(self) -> NDArray[np.float64]:
@@ -133,6 +178,10 @@ class ConstantCompositionMatcher:
         symbols = np.asarray(symbols)
         if symbols.size != self.n:
             raise ValueError(f"Expected {self.n} symbols, got {symbols.size}")
+        if symbols.ndim != 1 or symbols.dtype.kind not in "iu":
+            raise InvalidSymbolError("Symbols must be a one-dimensional integer array")
+        if symbols.size and (symbols.min() < 0 or symbols.max() >= self.alphabet_size):
+            raise InvalidSymbolError(f"Symbol outside 0..{self.alphabet_size - 1}")
         observed = tuple(np.bincount(symbols, minlength=self.alphabet_size).tolist())
         if observed != self.counts:
             raise CompositionError(f"Composition {observed} differs from {self.counts}")
