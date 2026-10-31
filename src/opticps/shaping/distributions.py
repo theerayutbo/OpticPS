@@ -105,8 +105,9 @@ def mb_for_entropy(entropy: float, order: int, sign: int = 1) -> Prob:
     """Return the Maxwell-Boltzmann PMF of the given entropy, by a root find on lambda.
 
     sign = +1 selects inner-heavy (lam > 0), sign = -1 outer-heavy (lam < 0), with the
-    repo convention P(x) proportional to exp(-lam x^2). MB(+lam) and MB(-lam) do not
-    have the same entropy for M > 4, so the entropy is matched on the chosen side.
+    repo convention P(x) proportional to exp(-lam x^2). MB(+lam) and MB(-lam) have the
+    same entropy only at M = 4 (M = 2 is trivially uniform), not for M >= 8, so the
+    entropy is matched on the chosen side.
     The reachable range is (1, log2 M] bits for M >= 4: lam -> +-infinity puts all mass
     on the two innermost or outermost levels (1 bit, never attained). M = 2 admits only
     1 bit. Raises ValueError when the target is outside that range.
@@ -133,9 +134,7 @@ def mb_for_entropy(entropy: float, order: int, sign: int = 1) -> Prob:
 
     hi = 1.0
     while gap(hi) > 0:
-        hi *= 2.0
-        if hi > 1e9:
-            raise ValueError(f"Entropy {entropy} is too close to 1 bit to resolve at M={order}")
+        hi *= 2.0  # ends: for large mu the PMF is exactly (1/2, 1/2) on two levels, H = 1 < target
     mu = brentq(gap, 0.0, hi, xtol=1e-15, rtol=1e-14)
     return _mb_stable(sign * mu, order)
 

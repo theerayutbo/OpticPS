@@ -12,6 +12,7 @@ import numpy as np
 import pytest
 
 from opticps.distribution_matching.ccdm import (
+    BlockShapeError,
     CompositionError,
     ConstantCompositionMatcher,
     DistributionMatcherError,
@@ -427,11 +428,108 @@ def test_decode_wrong_length_and_encode_wrong_bits_raise_value_error():
         matcher.encode(np.array([0, 2, 1]))
 
 
-def test_corrupted_symmetric_block_is_never_silently_decoded():
+def test_single_symbol_error_changes_composition_and_is_reported():
     matcher = ConstantCompositionMatcher.from_symmetric_probabilities(PS70, 256)
     rng = np.random.default_rng(3)
     bits = rng.integers(0, 2, matcher.k).astype(np.int8)
     block = matcher.encode(bits)
-    block[0] = (block[0] + 1) % 4  # one symbol error changes the composition
+    block[0] = (block[0] + 1) % 4
     result = matcher.try_decode(block)
     assert result.bits is None and result.error == "CompositionError"
+
+
+def test_composition_preserving_errors_decode_silently_to_wrong_bits():
+    # Limit, not a feature: swapping two unequal symbols keeps the composition, so the
+    # matcher returns wrong bits with error=None. C6 block erasure must report this.
+    matcher = ConstantCompositionMatcher.from_symmetric_probabilities(PS70, 256)
+    rng = np.random.default_rng(3)
+    silent = wrong_bits = 0
+    for _ in range(100):
+        bits = rng.integers(0, 2, matcher.k).astype(np.int8)
+        block = matcher.encode(bits)
+        i, j = rng.choice(256, 2, replace=False)
+        if block[i] == block[j]:
+            continue
+        block[i], block[j] = block[j], block[i]
+        result = matcher.try_decode(block)
+        if result.error is None:
+            silent += 1
+            wrong_bits += int(np.sum(result.bits != bits))
+    # the other swaps land on a rank >= 2^k and are reported as RankOverflowError
+    assert silent > 50
+    assert wrong_bits / silent > 10
+
+
+@pytest.mark.parametrize(
+    "block",
+    [
+        [0, 1, 1],  # wrong length
+        [],
+        5,  # scalar
+        None,
+        [[0, 1], [1, 2]],  # 2-D with the right size
+        [[0, 1], [1]],  # ragged
+        [True, False, False, True],  # bool dtype
+        "abcd",
+    ],
+)
+def test_try_decode_returns_typed_failure_for_any_bad_input(block):
+    matcher = small_matcher()
+    result = matcher.try_decode(block)
+    assert result.bits is None
+    assert result.error in {"BlockShapeError", "InvalidSymbolError"}
+
+
+def test_decode_shape_errors_are_value_errors():
+    matcher = small_matcher()
+    for block in ([0, 1, 1], [[0, 1], [1, 2]]):
+        with pytest.raises(BlockShapeError):
+            matcher.decode(np.array(block))
+    assert issubclass(BlockShapeError, ValueError)
+
+
+def test_bool_blocks_are_rejected_at_m2():
+    matcher = ConstantCompositionMatcher((2, 2))
+    with pytest.raises(InvalidSymbolError):
+        matcher.decode(np.array([True, False, True, False]))
+    assert matcher.decode(np.array([0, 0, 1, 1])).size == matcher.k
+
+
+def test_mb_for_entropy_extreme_roots():
+    for order in (4, 8, 16):
+        for sign in (1, -1):
+            for target in (1 + 1e-12, 1 + 1e-6):
+                p = mb_for_entropy(target, order, sign)
+                assert np.all(np.isfinite(p)) and p.sum() == pytest.approx(1.0, abs=1e-12)
+                assert entropy_bits(p) == pytest.approx(target, abs=1e-12)
+                mid = order // 2
+                heavy = (p[mid - 1], p[mid]) if sign == 1 else (p[0], p[-1])
+                assert sum(heavy) > 0.999999
+
+
+def test_pairs_of_symmetry_tolerance_edge():
+    base = np.array([0.1, 0.4, 0.4, 0.1])
+    ok = base + np.array([0, 0, 5e-10, -5e-10])  # asymmetry 5e-10 < 1e-9
+    assert pairs_of(ok).shape == (2,)
+    bad = base + np.array([0, 0, 2e-9, -2e-9])
+    with pytest.raises(ValueError):
+        pairs_of(bad)
+
+
+def test_symmetric_quantiser_is_l1_closest_not_kl_optimal():
+    # Documented property: the half composition is the largest-remainder (L1) rounding of
+    # n p, which here is not the KL-minimising composition.
+    half = np.array([0.0256, 0.2324, 0.0532, 0.1888])
+    p = np.concatenate([half, half[::-1]])
+    counts = quantize_symmetric_composition(p, 28)
+    assert counts[:4] == (1, 7, 1, 5)
+    assert sum(counts) == 28
+
+    def kl(c):
+        return sum((x / 14) * math.log((x / 14) / (h / 0.5)) for x, h in zip(c, half, strict=True))
+
+    assert kl((1, 6, 2, 5)) < kl(counts[:4])
+    scaled = p * 28
+    assert sum(abs(np.array(counts[:4]) - scaled[:4])) <= sum(
+        abs(np.array((1, 6, 2, 5)) - scaled[:4])
+    )

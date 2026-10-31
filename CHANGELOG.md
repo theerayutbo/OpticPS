@@ -1,6 +1,7 @@
 # Changelog
 
 ## Unreleased
+v1.3-mpam C3: `shaping.distributions` gains `symmetric_from_pairs`, `pairs_of`, `mb_for_entropy`; `distribution_matching.ccdm` gains `quantize_symmetric_composition`, `symmetric_rate_loss`, `ConstantCompositionMatcher.from_symmetric_probabilities`. `decode` exception names changed: a symbol outside the alphabet, negative, or of non-integer dtype (including a bool array, which worked before at M=2) now raises `InvalidSymbolError` (still a `CompositionError`), and a wrong-length or multi-dimensional block raises `BlockShapeError` (still a `ValueError`). `try_decode` returns a typed failure for any invalid input but cannot detect composition-preserving symbol errors. Legacy `quantize_composition` is unchanged.
 Hardware status updated from the M8199B data sheet (p9): granularity, memory, AC coupling, impedance, DAC, sample rate.
 
 ## 1.2.0 (2026-10-30)

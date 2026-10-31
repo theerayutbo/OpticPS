@@ -19,3 +19,10 @@ Base 2522755, branch v1.3-mpam. One local commit. Nothing pushed, merged, tagged
 
 ## Counts
 Before 493 passed; after 557 passed in 250.05 s (anchor green). ruff check, ruff format --check, mypy clean.
+
+## Review fix commit (after Loki FAIL), base e3502e5
+- try_decode: typed failure for any bad input (BlockShapeError added; wrong length, [], scalar, None, ragged, 2-D, bool). It cannot catch composition-preserving errors: swaps decode silently to wrong bits (test asserts this; C6 must report the limit). Docs and docstring corrected.
+- quantize_symmetric_composition docstring: ties differ (PS70 n=10), L1-closest not KL-optimal, raises on zero count; tested.
+- mb_for_entropy: unreachable cap removed; extreme-root tests (H = 1+1e-12, both signs, M=4,8,16); "equal entropy only at M=4" now says non-trivial orders.
+- CHANGELOG Unreleased: exception-name change, bool at M=2 now raises.
+- Tests 78 in test_mpam_shaping.py (was 64). Full run 600 passed (437.94 s); ruff, format, mypy clean.

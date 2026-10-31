@@ -32,6 +32,10 @@ class InvalidSymbolError(CompositionError):
     """The block holds a value that is not an integer symbol index of the alphabet."""
 
 
+class BlockShapeError(DistributionMatcherError):
+    """The block is not a one-dimensional array of the matcher's block length."""
+
+
 class RankOverflowError(DistributionMatcherError):
     """The block has the right composition but no bit sequence maps to it."""
 
@@ -64,8 +68,11 @@ def quantize_symmetric_composition(probabilities: object, n: int) -> tuple[int, 
     The lower half of the alphabet (outermost level first) is quantised to n/2 symbols
     by the largest-remainder rule and mirrored, so counts[i] == counts[M-1-i] and the
     total is exactly n. n must be even and the PMF symmetric with an even alphabet.
-    quantize_composition is untouched; for M = 4 the two agree on the legacy PMFs
-    (tests/test_mpam_shaping.py).
+    quantize_composition is untouched. For M = 4 the two agree at n = 32..16384 on the
+    PS70, PS80, Outer70, uniform and p_outer-grid PMFs, but not at ties: the legacy rule can
+    split a pair (PS70, n = 10: legacy (2, 4, 3, 1), this rule (2, 3, 3, 2)). The result is
+    closest to n p in L1 over symmetric compositions, not KL-optimal, and it raises when a
+    positive probability gets a zero count.
     """
     if n <= 0 or n % 2:
         raise ValueError(f"Block length must be positive and even, got {n}")
@@ -176,9 +183,11 @@ class ConstantCompositionMatcher:
     def decode(self, symbols: NDArray[np.integer]) -> NDArray[np.int8]:
         """Invert encode for one block; raises on a block that cannot be valid."""
         symbols = np.asarray(symbols)
-        if symbols.size != self.n:
-            raise ValueError(f"Expected {self.n} symbols, got {symbols.size}")
-        if symbols.ndim != 1 or symbols.dtype.kind not in "iu":
+        if symbols.ndim != 1 or symbols.size != self.n:
+            raise BlockShapeError(
+                f"Expected {self.n} symbols in one dimension, got {symbols.shape}"
+            )
+        if symbols.dtype.kind not in "iu":
             raise InvalidSymbolError("Symbols must be a one-dimensional integer array")
         if symbols.size and (symbols.min() < 0 or symbols.max() >= self.alphabet_size):
             raise InvalidSymbolError(f"Symbol outside 0..{self.alphabet_size - 1}")
@@ -201,8 +210,17 @@ class ConstantCompositionMatcher:
         return np.frombuffer(text.encode(), dtype=np.uint8).astype(np.int8) - ord("0")
 
     def try_decode(self, symbols: NDArray[np.integer]) -> CcdmBlockResult:
-        """Decode a block from a noisy channel, reporting failures instead of raising."""
+        """Decode a block, returning a typed failure for any invalid input.
+
+        Failures are detected only when the block is malformed (wrong shape, non-integer or
+        out-of-range symbol, wrong composition, rank >= 2^k). Symbol errors that preserve
+        the composition (a swap of two unequal symbols, an adjacent +1/-1 pair) decode
+        without error to wrong bits, so error=None does not mean the bits are right. The
+        outer FEC or a CRC must catch those.
+        """
         try:
             return CcdmBlockResult(self.decode(symbols), None)
         except DistributionMatcherError as error:
             return CcdmBlockResult(None, type(error).__name__)
+        except (ValueError, TypeError):  # ragged or unconvertible input to np.asarray
+            return CcdmBlockResult(None, BlockShapeError.__name__)
