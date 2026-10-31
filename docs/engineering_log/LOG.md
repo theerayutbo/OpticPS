@@ -143,3 +143,12 @@ Accepted limitation: sample loss below about 1 symbol, synchronous with the fram
 ## 2026-10-31 | M8199B data sheet read
 
 Obtained from a direct Keysight link supplied by the user. Page 9 confirms 512-sample granularity, 1024 kSa per channel, AC coupling, 50 ohm nominal, 8-bit DAC, 200 to 256 GSa/s. Page 12 Figure 8 is a typical ENOB curve; its axis spans 4 to 6.5 bits, curve values were not extracted from text. "1024 kSa" does not say whether k is 1000 or 1024; exported files are safe under both.
+
+## 2026-10-31 | v1.3-mpam C1 (Gate 0)
+
+Dev: Sonnet. Baseline a2eb969: 368 tests passed (counted from the progress dots, the summary line is hidden by addopts), ruff check and format clean, mypy clean, Python 3.11.15, numpy 2.4.6.
+
+Added `tests/test_pam4_anchor.py` (slow marker, runs in default pytest, writes to a temp dir): regenerates both M8199B profiles from the untouched config at full training size. All checksummed files, manifests and metadata (without `generator`) matched the committed output; adaptive_selection.json matched at rel 1e-12. 9 tests, about 5.4 s. Full run after C1: 377 passed in 232.75 s.
+
+Docs: ROADMAP_STATUS, FEATURE_GAP_MATRIX, DEPENDENCY_EXCEPTIONS; CLEAN_ROOM_DECLARATION rewritten to separate the original process from later comparison-discussion exposure and to state what cannot be claimed. License audit: 34 packages, 0 flagged, SBOM unchanged. No code under `src/` changed. Not yet reviewed by Loki.
+
