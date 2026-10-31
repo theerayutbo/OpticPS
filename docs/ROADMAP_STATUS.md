@@ -130,6 +130,18 @@ Points to carry, none a gate failure:
 | Baseline and final test counts | `853 passed` at 8129eca (`-o addopts="-q -rN"`, 23 min under load); `905 passed` with E0 (+52, all in `tests/test_benchmark_provenance.py`); anchor 15 passed; ruff check, ruff format --check, mypy clean; `scripts/license_audit.py` 34 packages, 0 flagged (no dependency change) |
 | Downloads, push, merge, tag, hardware | none by E0 |
 
+### Gate N0 record (NANF workstream, 2026-10-31)
+
+| Item | Value |
+|---|---|
+| Base HEAD at N0 start | `94a3ec9` (`v1.3-mpam`) |
+| N0 deliverables | `docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md`, `docs/NANF_SOURCES_AND_PROVENANCE.md`, `tests/test_nanf_benchmark.py`, handoff `docs/orchestration/opticps-v2/handoff/N0_dev.md`, entries in this file, `ALGORITHM_PROVENANCE.md`, `engineering_log/LOG.md` |
+| Plan hash | `c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22`, committed (9a891c9) before any workbook value was read; pinned in `tests/test_nanf_benchmark.py` |
+| Label | `LITERATURE BENCHMARK / CALIBRATION ONLY` (one NANF spool, one SSMF spool, one session) |
+| Licence | dataset CC BY 4.0 at the DataCite record only (readme blank, landing page unread); paper under IEEE terms. No third-party data, PDF or figure in Git. |
+| Tests | `912 passed` (905 at E0 plus 7 in `tests/test_nanf_benchmark.py`); anchor 15 passed; `ruff check`, `ruff format --check`, `mypy` clean; no dependency change |
+| Fit, simulation, push, merge, tag, hardware | none |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
