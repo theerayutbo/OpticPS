@@ -4,9 +4,9 @@ Status values: verified = read in the primary source; summary = read through a s
 
 | Fact | Source | How read | Status |
 |---|---|---|---|
-| Continuous sample rate 200 to 256 GSa/s | M8199B data sheet asset page | WebFetch summary | summary |
-| 1 MSa waveform memory per channel | M8199B data sheet asset page | WebFetch summary | summary |
-| 8-bit DAC | M8199B product page | WebSearch summary | summary |
+| Sample rate 200 to 256 GSa/s | M8199B data sheet, p9, read directly | Text extraction | verified |
+| 1024 kSa waveform memory per channel | M8199B data sheet, p9, read directly | Text extraction | verified; decimal or binary k not stated |
+| 8-bit DAC | M8199B data sheet, p9, read directly | Text extraction | verified |
 | Up to 2 Vpp differential at 160 GBaud | M8199B data sheet asset page | WebFetch summary | summary |
 | Nominal 3 dB bandwidth 75 GHz incl. sinc roll-off | M8100 Getting Started Guide | Text extraction | verified |
 | Data outputs: 1.0 mm, Data Out and complement | Getting Started Guide, Table 18 | Text extraction | verified |
@@ -15,10 +15,10 @@ Status values: verified = read in the primary source; summary = read through a s
 | ESD caution; toggling sample rate mitigates alignment issues | Getting Started Guide | Text extraction | verified |
 | Unused output disabled in M8070B or terminated with 50 ohm | Getting Started Guide (M8100 series section) | Text extraction | verified |
 | CSV header `DataOut1`, one column, range ±1 | M8100 Programming Guide pp129-133 | Text extraction | verified (1 to 7 columns allowed; mandatory header row; normalized floats -1.0 to +1.0) |
-| Sample count multiple of 512 | Not found in the M8100 Programming Guide | Text extraction | user-supplied, kept as a safe rule |
-| Max 1,048,576 samples | Not found in the M8100 Programming Guide | Text extraction | user-supplied |
+| Sample count multiple of 512 | M8199B data sheet, p9, read directly; absent from the Programming Guide | Text extraction | verified |
+| Max 1,048,576 samples | M8199B data sheet, p9, read directly, as 1024 kSa | Text extraction | verified if k is 1024 |
 | `:TRACe:IMPort 'identifier', <segment_id>, <file_name>, <file_format>` | M8100 Programming Guide pp129-130 | Text extraction | verified (BIN8, TXT, CSV; segment id 1 only; M8199A and M8199B) |
-| AC-coupled, nominally 50 ohm output | User; `:OUTPut:COUPling` lists M8198A and M8199A only (p97) | Text extraction | user-supplied, not confirmed for M8199B |
+| AC-coupled, 50 ohm nominal | M8199B data sheet, p9, read directly | Text extraction | verified |
 | Min/max query `:SOURce:VOLTage:AMPLitude? 'identifier', <MIN/MAX>` | M8100 Programming Guide p57 | Text extraction | verified syntax; identifier form in the example is 'M2.DataOut' |
 | `:DISK:SAVE:WAVeform <source>,"<file_name>"[,<format>[,<header>]]`, formats BIN CSV INTernal TSV TXT H5 H5INt MATlab | UXR Programmer's Guide p598 | Text extraction | verified |
 | H5 stores floats (actual vertical values); H5INt stores integers (value * Y increment + Y origin) | UXR Programmer's Guide p598 | Text extraction | verified |

@@ -139,3 +139,7 @@ Orchestrator errors: the UXR brief omitted the required receiver-analysis report
 Crew deviations: the final text-only fixes at 2b8eaad were made by the orchestrator, checked by machine gates, not by a Loki, to save tokens. Grok could not be used: auto-approve launch was denied by the harness, and a read-only run returned no findings. A Dev spawn repeated its report on a timer and was stopped.
 
 Accepted limitation: sample loss below about 1 symbol, synchronous with the frame period on one waveform in every run, may not be detected.
+
+## 2026-10-31 | M8199B data sheet read
+
+Obtained from a direct Keysight link supplied by the user. Page 9 confirms 512-sample granularity, 1024 kSa per channel, AC coupling, 50 ohm nominal, 8-bit DAC, 200 to 256 GSa/s. Page 12 Figure 8 is a typical ENOB curve; its axis spans 4 to 6.5 bits, curve values were not extracted from text. "1024 kSa" does not say whether k is 1000 or 1024; exported files are safe under both.

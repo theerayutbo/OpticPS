@@ -117,7 +117,7 @@ MIT, copyright Theerayut Boonkird. Algorithms were written independently from pu
 
 - Simulation with generic parameters, not the Southampton link
 - No FEC; no measured data
-- M8199B 512-sample and memory rules not in the Programming Guide; playback unverified; UXR model suffix unconfirmed; no real UXR export has been imported
+- M8199B playback unverified; UXR model suffix unconfirmed; no real UXR export has been imported
 - Driver compression, AC coupling and baseline wander are not modelled
 - Fiber: single polarization, no PMD, no Kerr effect; G.652.D values are standard limits or representative models, not measurements
 - Conclusions from one channel do not generalize

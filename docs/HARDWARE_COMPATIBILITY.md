@@ -8,17 +8,17 @@ Statuses use the M8100 Series Programming Guide (M8100-91B50, March 2026), read 
 
 | Item | Value used | Status |
 |---|---|---|
-| Sample rate | 200 to 256 GSa/s | Keysight data sheet page, through a fetch summary |
-| Waveform memory | 1 MSa per channel; 1,048,576 enforced | Summary; exact figure per owner's notes. Not found in the Programming Guide |
-| DAC | 8 bit | Keysight product page, through a search summary |
+| Sample rate | 200 to 256 GSa/s | M8199B data sheet, p9, read directly |
+| Waveform memory | "1024 kSa per channel"; 1,048,576 enforced | M8199B data sheet, p9, read directly. 1,048,576 assumes binary k; a strict decimal reading gives 1,024,000. The largest exported file is 917,504 samples, safe under both |
+| DAC | 8 bit | M8199B data sheet, p9, read directly |
 | Connectors | 1.0 mm, differential Data Out | Getting Started Guide, read |
 | Software | M8070B 9.5 or later plus driver | Getting Started Guide, read |
 | CSV first row `DataOut1` | Enforced | **Confirmed**, Programming Guide pp129-133: the first row is a mandatory header whose names are combinations of DataOut1 to DataOut4, SyncMrkA, SyncMrkB, SampleMrk; a file has 1 to 7 columns |
 | Range -1 to +1 | Enforced | **Confirmed**, pp131 and 133: normalized floats -1.0 to +1.0; scientific notation accepted |
 | `:TRAC:IMP` command | Documented, never sent | **Confirmed**, p129-130: `:TRACe:IMPort 'identifier', <segment_id>, <file_name>, <file_format>`; formats BIN8, TXT, CSV; only segment id 1 is supported; applies to M8199A and M8199B |
-| Multiple of 512 samples | Enforced | Not found in the Programming Guide (the granularity query on p125 applies to M8198A only). Remains from the owner's notes; kept as a safe rule |
-| Maximum 1,048,576 samples | Enforced | Not found in the guide. Remains from the owner's notes |
-| AC-coupled, 50 ohm | Documented | Not confirmed. `:OUTPut:COUPling` lists M8198A and M8199A only (p97). Remains from the owner's notes |
+| Multiple of 512 samples | Enforced | M8199B data sheet, p9, read directly: "length of waveform segments must be a multiple of the granularity" |
+| Maximum 1,048,576 samples | Enforced | M8199B data sheet, p9, read directly, as "1024 kSa", see Waveform memory |
+| AC-coupled, 50 ohm nominal | Documented | M8199B data sheet, p9, read directly. Output is single-ended or differential; terminate the unused output with 50 ohm in single-ended mode. Amplitude 300 mVpp to 2.5 Vpp single-ended, 600 mVpp to 5.0 Vpp differential, at 400 MHz |
 
 Operator check for output limits (guide p57): `:SOURce:VOLTage:AMPLitude? 'identifier', MAX` returns the maximum, and `MIN` the minimum. The guide's own example uses the identifier `'M2.DataOut'`; its command pages write `'M1.DataOut1'` (p37), where M1 or M2 is the module slot. Check which identifier your unit accepts, and read the limits before loading any waveform. OpticPS sends no SCPI.
 

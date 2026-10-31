@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+Hardware status updated from the M8199B data sheet (p9): granularity, memory, AC coupling, impedance, DAC, sample rate.
+
 ## 1.2.0 (2026-10-30)
 Scope export import (HDF5, CSV, BIN, layouts from the UXR Programmer's Guide), a linear non-periodic capture analysis with preamble-based frame finding, symbol-clock estimation and decision-directed timing tracking across a frame, lost-frame accounting, `opticps ingest-uxr` and `opticps compare-uxr` (paired comparison, fairness audit, report), a content-hash leakage registry, `optical_received_power_dBm` may be null (not measured), and the Southampton UXR protocol. `analyze` refuses measured captures. Tested on synthetic files only; no real UXR export has been seen. Transmitter waveforms are unchanged.
 
