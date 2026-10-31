@@ -15,13 +15,24 @@ the field, never inferred from the centred PAM level energy.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from enum import StrEnum
 from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
 
-from opticps.optical_channel.fiber import FiberParameters, ValueSource
+from opticps.optical_channel.fiber import (
+    FiberParameters,
+    FiberProfile,
+    FiberProfileError,
+    MissingFiberPropertyError,
+    ResolvedFiber,
+    SensitivityScenario,
+    UnsupportedEffectError,
+    ValueSource,
+    resolve_profile,
+)
 
 FloatArray = NDArray[np.float64]
 ELEMENTARY_CHARGE = 1.602176634e-19
@@ -331,3 +342,174 @@ def transmit(
         ),
         fiber=fiber_metadata(config),
     )
+
+
+# ---------------------------------------------------------------------------------------------
+# Profile-driven propagation (NANF workstream, Gate N1)
+#
+# The validated functions above are unchanged and are the ones that run. A resolved profile is
+# turned into an ordinary LinkConfig, so the coherent field, the all-pass dispersion and the
+# square-law detection are the same code as for G.652.D.
+#
+# Governing equations (derived here from the wave equation, not taken from a simulator):
+#   envelope A(z, t) with E = A exp(-i omega0 t); a component at optical offset omega obeys
+#   dA/dz = -(alpha/2) A + i (beta2/2 omega^2 + beta3/6 omega^3) A, alpha the power
+#   attenuation coefficient. Over a length L: amplitude factor 10^(-alpha_dB L / 20) and phase
+#   exp(i (beta2/2 omega^2 + beta3/6 omega^3) L). Power falls as 10^(-alpha_dB L / 10).
+#   D = d(1/v_g)/d(lambda) = -(2 pi c / lambda^2) beta2  =>  beta2 = -D lambda^2 / (2 pi c).
+#   S = dD/d(lambda). With beta2(omega) = -D(lambda) lambda^2 / (2 pi c), lambda = 2 pi c / omega,
+#   d lambda / d omega = -lambda^2 / (2 pi c), beta3 = d beta2 / d omega gives
+#   beta3 = (lambda^4 S + 2 lambda^3 D) / (4 pi^2 c^2).
+#   Group delay of the carrier: tau = n_g L / c.
+# Lumped losses (connector, pigtail, splice) are summed once and applied as a power loss.
+# ---------------------------------------------------------------------------------------------
+
+
+def beta2_s2_per_m(wavelength_m: float, dispersion_s_per_m2: float) -> float:
+    """Return beta2 = -D lambda^2 / (2 pi c) in s^2/m, D in s/m^2 (1 ps/(nm km) = 1e-6 s/m^2)."""
+    return -dispersion_s_per_m2 * wavelength_m**2 / (2 * np.pi * SPEED_OF_LIGHT)
+
+
+class PowerProtocol(StrEnum):
+    """How the optical power is set when a link is simulated."""
+
+    FIXED_LAUNCH = "fixed-launch-power"
+    MATCHED_RECEIVED = "matched-received-power"
+
+
+def profile_link_config(resolved: ResolvedFiber, base: LinkConfig | None = None) -> LinkConfig:
+    """Return a LinkConfig carrying a resolved profile; lumped losses are added exactly once.
+
+    The base config must not carry a G.652.D fiber description or fiber fields of its own, so
+    nothing of the profile is overridden or doubled. Its extra_attenuation_db (for example a
+    deliberate attenuator) is kept and the profile's lumped losses are added to it.
+    """
+    base = LinkConfig() if base is None else base
+    if (
+        base.fiber is not None
+        or base.fiber_length_km != 0.0
+        or any(
+            v is not None
+            for v in (
+                base.attenuation_db_per_km,
+                base.dispersion_ps_per_nm_km,
+                base.dispersion_slope_ps_per_nm2_km,
+                base.wavelength_m,
+            )
+        )
+    ):
+        raise FiberProfileError(
+            "the base LinkConfig already describes a fiber; leave fiber, length and fiber "
+            "fields unset"
+        )
+    return replace(
+        base,
+        fiber_length_km=resolved.length_km,
+        attenuation_db_per_km=resolved.attenuation_db_per_km,
+        dispersion_ps_per_nm_km=resolved.dispersion_ps_per_nm_km,
+        dispersion_slope_ps_per_nm2_km=resolved.dispersion_slope_ps_per_nm2_km,
+        wavelength_m=resolved.wavelength_nm * 1e-9,
+        extra_attenuation_db=base.extra_attenuation_db + resolved.lumped_loss_db,
+    )
+
+
+def span_loss_db(config: LinkConfig) -> float:
+    """Return the optical loss of the span in dB: distributed attenuation plus lumped extra."""
+    return (
+        config.fiber_length_km * config.effective_attenuation_db_per_km
+        + config.extra_attenuation_db
+    )
+
+
+def propagate_profile_field(
+    field: NDArray[np.complex128], sample_rate: float, resolved: ResolvedFiber
+) -> NDArray[np.complex128]:
+    """Propagate a complex optical envelope through a resolved profile.
+
+    Power is attenuated by 10^(-total/10), that is the amplitude by 10^(-total/20), then the
+    all-pass dispersion of `dispersive_field` is applied. Square-law detection is the caller's
+    step, so the coherent field is kept until then.
+    """
+    config = profile_link_config(resolved)
+    out = field * 10 ** (-span_loss_db(config) / 20)
+    if config.fiber_length_km > 0:
+        out = dispersive_field(out, sample_rate, config)
+    return np.asarray(out, dtype=np.complex128)
+
+
+def group_delay_s(resolved: ResolvedFiber) -> float:
+    """Return the carrier group delay n_g L / c in seconds; the group index must be known."""
+    if resolved.group_index is None:
+        raise MissingFiberPropertyError(
+            f"profile {resolved.profile_id!r} has no group index; none is assumed"
+        )
+    return resolved.group_index * resolved.length_km * 1e3 / SPEED_OF_LIGHT
+
+
+def launch_mean_per_watt(normalized: FloatArray, sample_rate: float, config: LinkConfig) -> float:
+    """Return mean launched optical power for 1 W laser power (modulator and filters only).
+
+    Same drive path as `transmit`: optional predistortion, optional transmitter filter, then
+    the modulator law.
+    """
+    if config.predistort:
+        drive = predistort(normalized, config)
+    else:
+        drive = normalized * config.drive_vpp / 2
+    if config.transmitter_bandwidth_hz is not None:
+        drive = lowpass(drive, sample_rate, config.transmitter_bandwidth_hz)
+    return float(mzm_intensity(drive, config).mean())
+
+
+@dataclass(frozen=True)
+class ProfileLinkResult:
+    """A link result with the resolved profile, protocol and the config that produced it."""
+
+    link: LinkResult
+    resolved: ResolvedFiber
+    protocol: PowerProtocol
+    config: LinkConfig
+
+
+def transmit_profile(
+    normalized: FloatArray,
+    sample_rate: float,
+    profile: FiberProfile,
+    wavelength_nm: float,
+    rng: np.random.Generator,
+    *,
+    base: LinkConfig | None = None,
+    protocol: PowerProtocol = PowerProtocol.FIXED_LAUNCH,
+    received_power_dbm: float | None = None,
+    scenario: SensitivityScenario | None = None,
+    allow_extrapolation: bool = False,
+    effects: tuple[str, ...] = (),
+) -> ProfileLinkResult:
+    """Send a waveform through a profiled fiber with one of two power protocols.
+
+    fixed-launch-power: the base config's laser power is used; the received power follows from
+    the loss. matched-received-power: the laser power is set so the mean received optical power
+    equals `received_power_dbm` whatever the loss (the compensation is a pure gain, so the
+    waveform and noise statistics match a variable attenuator at the receiver). Effects the model
+    does not implement raise, as do unknown profile values (unless a labelled scenario fills them).
+    """
+    if effects:
+        raise UnsupportedEffectError(f"effects {tuple(effects)} are not implemented")
+    resolved = resolve_profile(
+        profile, wavelength_nm, scenario=scenario, allow_extrapolation=allow_extrapolation
+    )
+    config = profile_link_config(resolved, base)
+    protocol = PowerProtocol(protocol)
+    if protocol is PowerProtocol.MATCHED_RECEIVED:
+        if received_power_dbm is None:
+            raise ValueError("matched-received-power needs received_power_dbm")
+        mean_unit = launch_mean_per_watt(normalized, sample_rate, config)
+        target_w = dbm_to_watt(received_power_dbm)
+        laser_w = target_w / (mean_unit * 10 ** (-span_loss_db(config) / 10))
+        config = replace(config, laser_power_w=laser_w)
+    elif received_power_dbm is not None:
+        raise ValueError("received_power_dbm is only used by matched-received-power")
+    result = transmit(normalized, sample_rate, config, rng)
+    record = resolved.to_record()
+    record["power_protocol"] = protocol.value
+    return ProfileLinkResult(replace(result, fiber=record), resolved, protocol, config)

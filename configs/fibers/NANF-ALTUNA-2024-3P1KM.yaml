@@ -1,0 +1,71 @@
+# Altuna et al., Laser & Photonics Reviews 18(8) 2400157 (2024), DOI 10.1002/lpor.202400157.
+# Only the Crossref identity and abstract metadata were read. Every number below was stated in the
+# owner brief given to Gate N1 and was NOT read from the paper: tag user-assumed until read.
+fiber_profile_version: 1
+kind: profile
+profile_id: NANF-ALTUNA-2024-3P1KM
+fiber_type: "hollow-core fibre (the Crossref abstract says hollow-core; NANF per the owner brief)"
+sample_id: null
+length_km:
+  value: 3.1
+  unit: km
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1; Altuna et al. 2024 (DOI 10.1002/lpor.202400157)"
+    note: "stated in owner brief, not read from paper"
+reference_wavelength_nm:
+  value: 1550
+  unit: nm
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1"
+    note: "Nominal operating wavelength only; no 1550 nm property of this fibre is known."
+attenuation_db_per_km:
+  value: null
+  unit: dB/km
+  provenance: {category: unknown, citation: none, note: "1550 nm attenuation not known"}
+connector_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+pigtail_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+splice_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+dispersion_ps_per_nm_km:
+  value: null
+  unit: ps/(nm km)
+  provenance: {category: unknown, citation: none}
+dispersion_slope_ps_per_nm2_km:
+  value: null
+  unit: ps/(nm^2 km)
+  provenance: {category: unknown, citation: none}
+group_index:
+  value: null
+  unit: "1"
+  provenance: {category: unknown, citation: none}
+gamma_per_w_km:
+  value: null
+  unit: 1/(W km)
+  provenance: {category: unknown, citation: none}
+effects:
+  kerr: "off"
+  intermodal_coupling: "off"
+  gas_absorption: "off"
+  amplifier_noise: "off"
+measurements:
+  - name: pof_transmission_fraction
+    value: 0.372
+    unit: fraction
+    wavelength_nm: 1480
+    context: "power-over-fibre laser at 1480 nm through this span, end to end including unknown connectors and launch; not a fibre attenuation and not valid at 1550 nm"
+    provenance:
+      category: user-assumed
+      citation: "Owner brief for Gate N1; Altuna et al. 2024 (DOI 10.1002/lpor.202400157)"
+      measurement_wavelength_nm: 1480
+      note: "stated in owner brief, not read from paper"
+notes: "Geometry values were not part of the brief given to this gate and are not stored. May share a spool with the 11.1 km record of the same paper and the CLEO 2025 abstract; never pooled."

@@ -270,3 +270,24 @@ workbook structure and the paper were read before the plan; no numeric cell was 
 Fig.1 numerical curves and the Fig.11 formula text were read afterwards, for the cross-checks in this
 document). The licence of the dataset rests on the DOI-registry record; the readme is blank and the
 landing page was not read.
+
+## 10. Fibre profiles used by the propagation model (Gate N1)
+
+Machine-readable form: `configs/fibers/*.yaml` (strict loader in `optical_channel/fiber.py`); model scope and validity
+in `docs/NANF_MODEL_VALIDITY.md`. Every profile value carries a category from the closed vocabulary above, an exact
+citation, a measurement wavelength, an uncertainty and a validity range where known. Unknown is a value of its own and
+raises when needed. Altuna and Wang numbers came from the owner brief and were not read from the papers (only
+Crossref identities were); they stay `user-assumed` until read.
+
+| Profile | Parameter | Value | Tag |
+|---|---|---|---|
+| NANF-HONG-2021-4P76KM | D at 1550 nm | 2.04 ps/(nm km), stated for 1550 nm only | `[prov: published-numerical-assumption]` |
+| NANF-HONG-2021-4P76KM | S at 1550 nm | 0.004 ps/(nm^2 km) | `[prov: derived]` |
+| NANF-HONG-2021-4P76KM | pigtail loss | ~2 dB, included in the link-loss envelope | `[prov: published-experimental]` |
+| NANF-HONG-2021-4P76KM | distributed attenuation at 1550 nm | not known; pending N2 | `[prov: unknown]` |
+| NANF-ALTUNA-2024-3P1KM, -11P1KM | length 3.1, 11.1 km; PoF transmission at 1480 nm 37.2% and 3.6% (context only) | owner brief | `[prov: user-assumed]` |
+| NANF-ALTUNA-2024-3P1KM, -11P1KM | attenuation at 1550 nm, D, S | not known | `[prov: unknown]` |
+| NANF-WANG-2025-2P032KM | length 2.032 km, D 4.42 ps/(nm km), gamma 0.007 1/(W km) at 1550 nm | owner brief | `[prov: user-assumed]` |
+
+The 1480 nm transmission is a power-over-fibre measurement through unknown connectors and launch and is not an
+attenuation at 1550 nm; it is not converted to dB/km.

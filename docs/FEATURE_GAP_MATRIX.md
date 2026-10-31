@@ -112,7 +112,7 @@ Rows changed by C5 (frame, export, validator, profiles) carry `(C5)`; the other 
 | Units and injection points documented | PARTIAL | `LinkConfig` fields in `link.py`; nothing for absent impairments |
 | Sine-law MZM, extinction, insertion loss | EXISTS | `optical_channel/link.py` |
 | Linear fibre dispersion and loss, G.652.D options | EXISTS | `optical_channel/fiber.py`, v1.1 gate in `engineering_log/LOG.md` |
-| Custom Hollow-Core/NANF parameters | MISSING | no documented values in the repo; not to be invented |
+| Custom Hollow-Core/NANF parameters | PARTIAL | N1: `configs/fibers/NANF-*.yaml` with per-parameter provenance, `FiberProfile` and `profile_link_config` in `optical_channel/fiber.py`, `link.py`; Hong D 2.04, n 1.003, pigtail ~2 dB known; no NANF attenuation known (N2); Altuna and Wang values are `user-assumed`; Kerr, inter-modal, gas absorption, amplifier noise unsupported |
 | Kerr/SSFM (conditional backlog) | MISSING | documented as backlog only |
 
 ### 2.2 Receiver and soft metrics

@@ -1,0 +1,7 @@
+# The existing ITU-T G.652.D implementation (optical_channel/fiber.py g652d_preset), unchanged.
+# This file only names it; no value is stored here.
+fiber_profile_version: 1
+kind: g652d-reference
+wavelength_nm: 1550
+variant: representative
+notes: "Rec. ITU-T G.652 (08/2024), Table I.1 link values. Not a NANF and never a source of defaults for one."

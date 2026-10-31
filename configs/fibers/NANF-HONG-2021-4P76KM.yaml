@@ -1,0 +1,118 @@
+# Hong et al., JLT 39(19) 6167-6174 (2021), DOI 10.1109/JLT.2021.3097278, author manuscript
+# (see docs/NANF_SOURCES_AND_PROVENANCE.md sections 1.1 and 6). Values are small parameter facts.
+# Distributed attenuation at 1550 nm is NOT known: it waits for the N2 gate. Nothing is assumed.
+fiber_profile_version: 1
+kind: profile
+profile_id: NANF-HONG-2021-4P76KM
+fiber_type: "hollow-core nested antiresonant nodeless fibre (NANF), two pieces arc-fusion spliced"
+sample_id: "Hong 2021 spliced NANF #1 (~3.4 km) + #2 (~1.4 km), paper Sec. III-A"
+length_km:
+  value: 4.76
+  unit: km
+  provenance:
+    category: published-experimental
+    citation: "Hong et al. 2021, DOI 10.1109/JLT.2021.3097278, Sec. III-A, '~4.76 km'"
+    note: "Pieces ~3.4 + ~1.4 km sum to 4.8 km; the paper's total is used, not the sum."
+reference_wavelength_nm:
+  value: 1550
+  unit: nm
+  provenance:
+    category: published-numerical-assumption
+    citation: "Hong et al. 2021, Sec. II, dispersion and latency simulation at 1550 nm"
+attenuation_db_per_km:
+  value: null
+  unit: dB/km
+  provenance:
+    category: unknown
+    citation: none
+    note: "Not stated. Pending the N2 gate. The link-loss envelope below is a total, not this."
+connector_loss_db:
+  value: null
+  unit: dB
+  provenance:
+    category: unknown
+    citation: none
+    note: "Not stated separately; the ~2 dB pigtail figure covers the connectorisation."
+pigtail_loss_db:
+  value: 2.0
+  unit: dB
+  provenance:
+    category: published-experimental
+    citation: "Hong et al. 2021, Sec. III-A, multiple splices to SSMF pigtails, 'around 2 dB' total"
+    note: "Included in the total link-loss envelope; do not add the envelope to it."
+splice_loss_db:
+  value: 0.1
+  unit: dB
+  provenance:
+    category: published-experimental
+    citation: "Hong et al. 2021, Sec. III-A, NANF-NANF splice, 'around 0.1 dB'"
+dispersion_ps_per_nm_km:
+  value: 2.04
+  unit: ps/(nm km)
+  provenance:
+    category: published-numerical-assumption
+    citation: "Hong et al. 2021, Sec. II, assumed D of the NANF at 1550 nm (5 km simulation)"
+    measurement_wavelength_nm: 1550
+    validity_range_nm: [1550, 1550]
+    note: "An assumed value, not a measurement of this spool. A wavelength sweep needs a table (N2)."
+dispersion_slope_ps_per_nm2_km:
+  value: 0.004
+  unit: ps/(nm^2 km)
+  provenance:
+    category: derived
+    citation: "OpticPS: 10 nm finite difference of the paper's own Fig.1(a) NANF curve, Sources section 6"
+    measurement_wavelength_nm: 1550
+    validity_range_nm: [1550, 1550]
+    note: "Rounded. Not read from a stated slope."
+group_index:
+  value: 1.003
+  unit: "1"
+  provenance:
+    category: published-numerical-assumption
+    citation: "Hong et al. 2021, Sec. II, NANF index 1.003 (their ref. [2])"
+    note: "The paper calls it an (effective) refractive index; its latency arithmetic uses n L / c."
+gamma_per_w_km:
+  value: null
+  unit: 1/(W km)
+  provenance:
+    category: unknown
+    citation: none
+effects:
+  kerr: "off"
+  intermodal_coupling: "off"
+  gas_absorption: "off"
+  amplifier_noise: "off"
+geometry:
+  core_diameter_um_piece_1:
+    value: 36.4
+    unit: um
+    provenance:
+      category: published-experimental
+      citation: "Hong et al. 2021, Sec. III-A (their ref. [32]); average"
+  core_diameter_um_piece_2:
+    value: 34.6
+    unit: um
+    provenance:
+      category: published-experimental
+      citation: "Hong et al. 2021, Sec. III-A (their ref. [32]); average"
+  membrane_thickness_um_piece_1:
+    value: 0.55
+    unit: um
+    provenance:
+      category: published-experimental
+      citation: "Hong et al. 2021, Sec. III-A (their ref. [32]); average"
+  membrane_thickness_um_piece_2:
+    value: 0.50
+    unit: um
+    provenance:
+      category: published-experimental
+      citation: "Hong et al. 2021, Sec. III-A (their ref. [32]); average"
+link_loss_envelope:
+  low_db: 6.45
+  high_db: 8.33
+  band_nm: [1460, 1640]
+  provenance:
+    category: measured
+    citation: "Hong et al. 2021, Sec. IV and Fig. 5, NANF link loss over S+C+L"
+  note: "Envelope of the total link loss (includes the ~2 dB pigtails). Not assigned to 1550 nm and never used in a calculation."
+notes: "Single sample. The sample identity relation to other NANF records is not asserted."

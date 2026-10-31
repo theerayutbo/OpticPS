@@ -1,0 +1,70 @@
+# Wang et al., Chinese Optics Letters 23(2) 020604 (2025), DOI 10.3788/COL202523.020604.
+# Only Crossref identity metadata was read. Values come from the owner brief and are NOT read from
+# the paper: user-assumed. A separate sample from the Hong spool; no coherent workflow in this project.
+fiber_profile_version: 1
+kind: profile
+profile_id: NANF-WANG-2025-2P032KM
+fiber_type: "hollow-core NANF (per the owner brief)"
+sample_id: "Wang 2025 sample; a separate record, not pooled with any other"
+length_km:
+  value: 2.032
+  unit: km
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1; Wang et al. 2025 (DOI 10.3788/COL202523.020604)"
+    note: "stated in owner brief, not read from paper"
+reference_wavelength_nm:
+  value: 1550
+  unit: nm
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1"
+    note: "stated in owner brief, not read from paper"
+attenuation_db_per_km:
+  value: null
+  unit: dB/km
+  provenance: {category: unknown, citation: none}
+connector_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+pigtail_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+splice_loss_db:
+  value: null
+  unit: dB
+  provenance: {category: unknown, citation: none}
+dispersion_ps_per_nm_km:
+  value: 4.42
+  unit: ps/(nm km)
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1; Wang et al. 2025 (DOI 10.3788/COL202523.020604)"
+    measurement_wavelength_nm: 1550
+    validity_range_nm: [1550, 1550]
+    note: "stated in owner brief, not read from paper"
+dispersion_slope_ps_per_nm2_km:
+  value: null
+  unit: ps/(nm^2 km)
+  provenance: {category: unknown, citation: none}
+group_index:
+  value: null
+  unit: "1"
+  provenance: {category: unknown, citation: none}
+gamma_per_w_km:
+  value: 0.007
+  unit: 1/(W km)
+  provenance:
+    category: user-assumed
+    citation: "Owner brief for Gate N1; Wang et al. 2025 (DOI 10.3788/COL202523.020604)"
+    measurement_wavelength_nm: 1550
+    validity_range_nm: [1550, 1550]
+    note: "stated in owner brief, not read from paper. Stored only: Kerr is unsupported and never automatically active."
+effects:
+  kerr: "off"
+  intermodal_coupling: "off"
+  gas_absorption: "off"
+  amplifier_noise: "off"
+notes: "No coherent workflow exists in this project for this sample."

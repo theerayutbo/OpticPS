@@ -144,6 +144,18 @@ Points to carry, none a gate failure:
 | N0 fix round tests | `1107 passed` in the shared checkout (includes the parallel E0 fix work; `tests/test_nanf_benchmark.py` 10 tests, was 7); anchor green (in the default run); ruff check, ruff format --check, mypy clean |
 | N0 fix round | review FAIL (4 MAJOR) addressed by plan Amendment 1 (previous pin `c4771dc1...bef22` recorded; current pin in `tests/test_nanf_benchmark.py`), corrected sources doc, content-based third-party guard; see handoff `N0_dev.md` |
 
+### Gate N1 record (NANF workstream, 2026-10-31)
+
+| Item | Value |
+|---|---|
+| Step 1 | plan Amendment 2 (commit 8f8fc7a): previous pin `92b20966...ce5c0`, new pin `ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5` in `tests/test_nanf_benchmark.py`; closes N0 review items 1 to 8 and 13; guard survivors of item 9 closed (all four digests pinned and cross-checked against the Sources table, size bound, `.tsv`, `tests/` and `configs/` guarded, prefix match against appended copies, original-section prefix hash) |
+| Step 2 deliverables | `FiberProfile` and loader in `optical_channel/fiber.py`; profile propagation in `optical_channel/link.py`; `configs/fibers/*.yaml` (5 files); `tests/test_nanf_profiles.py`, `tests/test_nanf_propagation.py`, `tests/nanf_profile_helpers.py`; `docs/NANF_MODEL_VALIDITY.md`; handoff `handoff/N1_dev.md` |
+| Physics check | first null from the propagation model with square-law detection of a small-signal tone: 29.386 GHz (SSMF, 4.53 km, D 15.95), 27.970 GHz (5 km), 80.158 GHz (NANF, 4.76 km, D 2.04), against the pre-registered 29.39, 27.97, 80.2 |
+| Unknowns | no NANF attenuation known (N2); Altuna and Wang values are `user-assumed` (owner brief, not read from the papers); the Hong D is one assumed value at 1550 nm |
+| G.652.D | unchanged (existing tests and golden values untouched; anchor green) |
+| Tests, anchor, lint | see `handoff/N1_dev.md` for the final counts |
+| Fit, scoring, simulation of paper curves, push, merge, tag, hardware | none |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
