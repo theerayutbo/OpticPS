@@ -69,7 +69,12 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "if not math.isclose(value, tab, rel_tol=_AGREEMENT_REL_TOL, abs_tol=1e-12):",
         "if not math.isclose(pv.value, tab, rel_tol=_AGREEMENT_REL_TOL, abs_tol=1e-12):",
     ),
-    ("sentinel: slope None skip removed", F, "        or slope is None\n", ""),
+    (
+        "sentinel: slope None skip removed",
+        F,
+        "if table is None or slope is None or scalar_d_declared_over_table:",
+        "if table is None or scalar_d_declared_over_table:",
+    ),
     (
         "laser cap applied to fixed launch",
         L,
