@@ -35,7 +35,7 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 | `fixed_peak`, `fixed_average_optical_power`, `fixed_OMA`, `equal_realized_user_rate` as separate protocols | MISSING | no `optimization/constraints.py`; equal-rate search for PAM4 in `measurement/compare.py:112` |
 | Feasibility and physical normalisation; `INFEASIBLE` with reasons | PARTIAL | M8199B `Profile.check()` raises (`instruments/m8199b.py`); optimiser has no INFEASIBLE |
 | Training-selected adaptive vs best-fixed predeclared before test; held-out test | PARTIAL | `optimization/adaptive.py` selects from training; `assert_disjoint`/`DataLeakageError` (`:27`) is id-only; best-fixed is the manual PS70/PS80/Outer70 set |
-| Store all candidates, constraints, matcher overhead, seeds, objective values | PARTIAL | `Selection.to_dict` and `adaptive_selection.json`; no candidate table, no constraints |
+| Store all candidates, constraints, matcher overhead, seeds, objective values | PARTIAL | `Selection.to_dict` and `adaptive_selection.json` (the `candidates` list holds all 90 candidates); no constraints, no matcher overhead |
 | Optimiser multistart logs, local/global statement | MISSING | |
 
 ### 1.3 Export and metrics
@@ -146,17 +146,17 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 | Randomised, seeded run orders, blocking, run sheet, checklist, manifest | MISSING | |
 | Deduplicate impossible combinations; `INFEASIBLE` equipment combinations | PARTIAL | `Profile.check()` only |
 | Sample-size estimate or `POWER ANALYSIS NOT POSSIBLE` | MISSING | |
-| Five-paired-runs floor per condition | MISSING | no campaign engine |
+| Five-paired-runs floor per condition | PARTIAL | the comparator enforces it (`measurement/compare.py:52,211`, `MIN_PAIRED_RUNS = 5`); no campaign engine plans or schedules the runs |
 | HDF5/CSV/BIN UXR import, strict parsing, units | PARTIAL | `measurement/uxr_import.py`: HDF5 and CSV; no BIN; `UNVERIFIED AGAINST REAL FILES` |
 | Actual sample rate and non-integer samples/symbol in intake | EXISTS | `capture_dsp.py:166`, see 2.2 |
 | Immutable intake, SHA-256, source/condition id, timestamps, split, instrument identity | PARTIAL | `measurement/uxr_ingest.py:398-449` stores source and sample hashes; registry keeps split and `recorded_utc`; instrument identity and operator log not complete |
 | Reject cross-split reuse of an acquisition | PARTIAL | content-hash and id rejection in the ingest registry (`uxr_ingest.py:141-153`); `adaptive.assert_disjoint` is id-only |
-| Re-export detection | PARTIAL | same content under a new name is caught by `samples_sha256`; a re-export with different samples is not detected, and the limit is not disclosed in code |
+| Re-export detection | PARTIAL | same content under a new name is caught by `samples_sha256`; a re-export with different samples is not detected, and the limit is disclosed in the error text (`uxr_ingest.py:147-149`) |
 | Frame/preamble timing, coverage and count validation | EXISTS | `capture_dsp.py` frame gates |
 | Capture quality `PASS`/`WARN`/`REJECT` with reasons | PARTIAL | rejection with reasons (`capture.py:79`); no WARN level |
 | Comparator by true condition, missing set-point caveats, paired uncertainty | EXISTS | `measurement/compare.py:64`, `uxr_compare.py` |
 | Calibration/systematic uncertainty labels | MISSING | |
-| Zero-error confidence upper bounds | EXISTS | `statistics/intervals.py:13` (Clopper-Pearson); used in `uxr_ingest.py:307` region |
+| Zero-error confidence upper bounds | EXISTS | `statistics/intervals.py:13` (Clopper-Pearson); used at `measurement/uxr_ingest.py:299` |
 | New results location, never overwrite, never relabel mock as measured | PARTIAL | mock banner `reporting/uxr_report.py:36`; `visualization/figures.py:30` `STAMP = "SIMULATED"`; no single evidence-label type, no `analytical` |
 | Real UXR import validation | BLOCKED | `BLOCKED: REAL UXR EXPORT REQUIRED` |
 

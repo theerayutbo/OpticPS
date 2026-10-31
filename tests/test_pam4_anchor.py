@@ -43,6 +43,14 @@ def _committed_checksums(profile: str) -> dict[str, str]:
     return entries
 
 
+def _read_checksums(path: Path) -> dict[str, str]:
+    entries = {}
+    for line in path.read_text().splitlines():
+        digest, name = line.split("  ", 1)
+        entries[name] = digest
+    return entries
+
+
 def _hashed(name: str) -> bool:
     return name.startswith("waveforms/") or name.endswith(HASHED_SUFFIXES)
 
@@ -87,6 +95,9 @@ def test_committed_files_match_committed_checksums(profile):
     names = [name for name in committed if _hashed(name) and name not in EXCLUDED]
     assert len(names) >= 14
     names.append("experiment_manifest.csv")
+    metadata = [name for name in committed if name.endswith("_metadata.json")]
+    assert len(metadata) == 5
+    names.extend(metadata)  # committed metadata bytes are pinned too
     mismatched = [
         name for name in names if sha256_file(COMMITTED / profile / name) != committed[name]
     ]
@@ -95,15 +106,25 @@ def test_committed_files_match_committed_checksums(profile):
 
 @pytest.mark.parametrize("profile", PROFILES)
 def test_checksum_listing_matches_excluding_metadata(regenerated, profile):
-    """Same entries and digests, minus metadata lines (those embed the version)."""
+    """Same entry names, and same digests except metadata (those embed the version)."""
+    new = _read_checksums(regenerated / profile / "checksums.sha256")
+    old = _read_checksums(COMMITTED / profile / "checksums.sha256")
+    assert len(old) == 21  # 5 waveforms, 10 reference files, 5 metadata, manifest
+    assert list(new) == list(old)  # names are compared without any metadata filter
+    differing = [name for name in old if new[name] != old[name]]
+    assert all(name.endswith("_metadata.json") for name in differing)
+    assert [name for name in differing if not name.endswith("_metadata.json")] == []
 
-    def lines(path: Path) -> list[str]:
-        return [line for line in path.read_text().splitlines() if "_metadata.json" not in line]
 
-    new = lines(regenerated / profile / "checksums.sha256")
-    old = lines(COMMITTED / profile / "checksums.sha256")
-    assert len(old) == 16  # 5 waveforms, 10 reference files, manifest
-    assert new == old
+@pytest.mark.parametrize("profile", PROFILES)
+def test_regenerated_metadata_digests_match_regenerated_files(regenerated, profile):
+    listed = _read_checksums(regenerated / profile / "checksums.sha256")
+    metadata = [name for name in listed if name.endswith("_metadata.json")]
+    assert len(metadata) == 5
+    mismatched = [
+        name for name in metadata if sha256_file(regenerated / profile / name) != listed[name]
+    ]
+    assert mismatched == []
 
 
 @pytest.mark.parametrize("profile", PROFILES)
