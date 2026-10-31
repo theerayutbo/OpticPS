@@ -129,6 +129,7 @@ numbers. Performance cells were tested only for presence, type and a coarse rang
 - Presence and type: apart from the Fig.11 error cells below, no text cell sits in a numeric position.
   Axis columns are numeric and strictly monotonic in every block. A series cell is numeric only where
   its axis cell is present.
+- Disclosure (plan Amendment 2, B0.2): the counts in this section (points per curve, zero-BER cells, Fig.11 error cells) summarise locked holdout structure and were made before any freeze hash. They are kept as structure, disclosed, and not used to choose a number.
 - Fig.4 NANF has 6 ROP points per curve (axis from -12 dBm to -6.67 dBm, including fractional
   -8.34 and -6.67), against 11 for B2B and SSMF (axis -12 to -2 dBm). Three B2B and SSMF points
   (-4, -3, -2 dBm) lie beyond the paper's -5 dBm receiver limit and are excluded from scoring by the plan.

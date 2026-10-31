@@ -291,3 +291,154 @@ The label stays **`LITERATURE BENCHMARK / CALIBRATION ONLY`**. Fibre parameters 
 per-fibre retuning; at most 6 free Tx/Rx parameters; holdout read only by the scoring step after the
 freeze hash. Tolerances are judgement, not noise-derived. No criterion is dropped, relaxed or added after
 a number is seen except by a further dated amendment with a new pin.
+
+## Amendment 2 (2026-10-31, N1 gate, closing items 1 to 8 and 13 of the second N0 review)
+
+Previous SHA-256 of this file, pinned until now (Amendment 1, commit 843d223):
+`92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; the original text before
+"## Amendment 1" still hashes to the original pin, and a test checks that). Where this amendment and anything
+above differ, this amendment governs. It is written before any scoring run. No fit, simulation of the paper's
+curves or model comparison has run. Fig.4, Fig.6 and Fig.8 values and every holdout series stayed unread.
+
+### B0. Corrections to what the earlier sections say
+
+1. Sessions. Section 1, row "Session | 1 stated (May 2020)", is superseded. The dataset readme gives a data
+   collection date (May 2020; DataCite says 2021-05). The number of sessions is not stated by any source, so it
+   is unknown, not 1. The label `LITERATURE BENCHMARK / CALIBRATION ONLY` does not depend on it: it is fixed
+   by the count of independent fibre samples (1 NANF, 1 SSMF), which is below 3.
+2. What was seen, extended (completes A0). Besides the items in A0, the Gate N0 value checks produced these
+   summaries of locked holdout structure before any freeze hash: the number of ROP points per Fig.4 curve
+   (NANF 6, B2B and SSMF 11); the numbers of Fig.9 and Fig.12 points (NANF 6, SSMF 8); the numbers of BER cells
+   equal to zero in Fig.4 (NANF 1, B2B 3), Fig.6 (NANF 12 and B2B 12 of 19) and Fig.10 (one per fibre); the
+   positions of the 24 error cells in the Fig.11 SSMF column (22.15 to 25.43 GHz). These are counts of presence
+   and of a coarse value class, not model comparisons, and no tolerance depends on them except that the C1
+   censoring rules below were written knowing that zero BERs exist at 80 Gb/s. They are treated like the Fig.8
+   count of A0: disclosed, kept in the Sources document (all are structure), and not used to choose any
+   number. This replaces the earlier uneven handling (Fig.8 count withdrawn, Fig.4 and Fig.6 counts kept).
+3. The C6 window. The window 20.0 to 32.8125 GHz (A5) was set knowing three things: the paper's "around 24 GHz",
+   the zero-chirp expectation of 29.39 GHz, and the Fig.11 unloaded band 22.15 to 25.43 GHz (Sources section 5).
+   The Fig.11 band was not in A0. It is disclosed now. Both sides of the comparison use the same estimator,
+   29.39 GHz is inside the window, and A5(c) forbids moving it, so the expected bias is small, but the window
+   is not blind to the answer.
+4. Pre-registration is blind for the simulator only. The expected nulls of A1.3 are arithmetic on the paper's
+   assumed D and L, written before any simulation. They are not blind predictions of the measurement: the
+   measured null near 24 GHz was already known. A consequence that is stated now: a chirp factor alpha of about
+   0.58 would put the zero-chirp-corrected null near 24 GHz at 4.53 km, and the sweep of A1.5 includes
+   alpha = 0.5 (about 24.7 GHz). That sweep value matching the measurement is not evidence for chirp, no alpha is
+   chosen from it, and the alpha that would reach 24 GHz is not to be used as an input anywhere (primary run,
+   any other sheet, any other fibre). C3 and C5 for SSMF are scored at zero chirp (A1.2) and are likely
+   to carry the same gap.
+
+### B1. C1, remaining cases (extends A3, C1)
+
+Let the scored published NANF BER points of one rate be ordered by ROP. A point is above, below or
+censored (zero or below 1e-5, which is known to lie below 3.8e-3 but is not an interpolation node).
+
+1. Selection among brackets. A bracket is a pair of adjacent uncensored scored points whose log10 BER values
+   straddle log10(3.8e-3) going from above to below with rising ROP. If there are several, the crossing is
+   the last one (highest ROP): the ROP from which BER stays below the limit at every later uncensored point.
+   If the curve ends above the threshold, there is no downward bracket after the last upward one and the
+   result is right-censored. The same rule is applied to the simulated curve.
+2. Zeros after a falling curve. If no uncensored bracket exists but an uncensored point above the threshold
+   is followed by a censored point, the crossing is an interval [ROP of the last uncensored point above,
+   ROP of the first censored point]. Example: BER 1e-2, 5e-3, 0, 0 gives the interval from the second to the
+   third ROP. A censored point before any uncensored point above the threshold gives a left-censored bound at
+   that ROP as in A3.
+3. Tolerance on a bound or interval. The tolerance of 1.0 dB widens the accepted region on the wrong side only
+   for a bound, and on both ends for an interval. Left-censored bound "at or below r0": pass if the simulated
+   crossing x satisfies x <= r0 + 1.0 (any x far below r0 also passes: the bound is one-sided). Right-censored
+   bound "above r0": pass if x >= r0 - 1.0. Interval [lo, hi]: pass if lo - 1.0 <= x <= hi + 1.0. A wrong-side
+   miss of up to 1.0 dB therefore passes; a larger one fails. A simulated curve with no crossing in the scored
+   ROP range fails for a rate with a bracket, and for a bound it passes or fails by the same inequalities
+   applied to its first or last scored ROP. Any rate scored on a bound or interval is not discriminating (A2).
+4. This section was written without testing whether Fig.4 contains the zero-after-falling case.
+
+### B2. C5 at 1630 and 1640 nm
+
+The Fig.5 and Fig.6 wavelength grid has 19 points from 1460 to 1640 nm in 10 nm steps. The only dispersion
+curves of the paper (Fig.1(a)) end at 1625 nm, and the ITU-T G.652 bounds also end at 1625 nm. The dispersion at
+1630 and 1640 nm is therefore unsupported for both the NANF and the SSMF. Rule: those two points are excluded
+from C5 for all three links, with no extrapolation of D, S, loss or any other property. C5 is scored on the 17
+points from 1460 to 1620 nm. The B2B SNR at all 19 points may be reported as an unscored extra. The exclusion
+is declared before the run and counts as part of the criterion, not as a relaxation. The propagation model
+refuses (N1) a wavelength outside the validity range of any property it needs, unless an extrapolation is
+requested explicitly, and a scored run does not request it.
+
+### B3. A2, d, redefined, and a B2B fit-quality gate
+
+1. d compares the model's NANF prediction with the model's own no-fibre output: same frozen Tx/Rx vector, same
+   ROP points, no fibre and no link loss other than the ROP setting. The published B2B series stays a reported
+   comparator (B2B-copy, as in A2) but d is no longer computed against it. Metrics as in A2.
+2. B2B fit-quality gate. Per rate, on the calibration points (A4), after the fit: mean absolute error of the
+   model's B2B SNR against the published B2B SNR at most 1.0 dB, no point beyond 2.0 dB, and the model's B2B
+   ROP at BER 3.8e-3, found by the C1 rule, within 0.5 dB of the published one (a bound is judged by B1.3
+   with 0.5 dB). The numbers are the plan author's judgement, fixed now. A rate that fails the gate is labelled
+   `B2B CALIBRATION POOR`; its NANF criteria C1, C2 and C5 (NANF) are then reported but cannot read
+   "discriminating" or "consistent".
+3. All-rate requirement. C1 and C2 must be discriminating at every one of the three rates (80, 100,
+   112 Gb/s) for the verdict "consistent with this one experiment". Otherwise the verdict is the A2 wording
+   "primary criteria pass; NANF criteria NOT DISCRIMINATING", naming the rates. A pass on C1 or C2 at a rate
+   where d is within tolerance is `PASS, NOT DISCRIMINATING` as before. A fail stays a fail.
+
+### B4. A1.7, identifiability check, made executable
+
+1. Parameter vector. The free Tx/Rx parameters are these six, and no others (fewer may be used, never more):
+
+   | Name | Meaning | Allowed range | Prior if flagged (midpoint) |
+   |---|---|---|---|
+   | tx_bandwidth_ghz | analogue bandwidth of AWG, driver and modulator chain (4th-order Butterworth) | 10 to 60 | 35 |
+   | rx_bandwidth_ghz | analogue bandwidth of photodiode, TIA and scope chain (4th-order Butterworth) | 10 to 60 | 35 |
+   | thermal_noise_pa_per_rthz | input-referred thermal noise density | 5 to 60 | 32.5 |
+   | modulation_depth | drive swing divided by V_pi | 0.2 to 1.0 | 0.6 |
+   | bias_fraction | modulator bias as a fraction of V_pi | 0.4 to 0.6 | 0.5 |
+   | electrical_snr_ceiling_db | additive white noise ahead of the equaliser, as an SNR cap | 15 to 35 | 25 |
+
+   Chirp is not in this list (A1.1). The ranges are the plan author's judgement and were chosen before any fit.
+   A fit that reaches a range edge is reported as such, and the range is not widened.
+2. Scaling and information matrix. Each parameter is scaled to u = (value - low)/(high - low). The residual
+   vector holds the SNR residuals in dB and the log10 BER residuals divided by 0.5, over the calibration
+   points of A4. J is the Jacobian at the optimum with respect to u (finite differences, step 1e-3 in u), and
+   the information matrix is J^T J.
+3. Mapping to a flagged parameter. Eigenvalues are sorted ascending. For each eigenvalue below 1e-3 of the
+   largest, in ascending order, the parameter with the largest absolute component in that eigenvector among
+   those not yet flagged is flagged (ties: the lowest in the table above). One parameter is flagged per such
+   eigenvalue, so the number of flags equals the number of low eigenvalues.
+4. No refit after a flag. A flagged parameter is set to its prior in the table, and no other parameter is
+   refitted. The vector so formed is the one that is hashed. The calibration residuals at that vector are
+   reported, and the B2B fit-quality gate of B3.2 is evaluated at that vector; a harmful flag therefore shows
+   as a gate failure and is not repaired. The check runs once, before the freeze hash, on calibration data only.
+5. If the information matrix is singular to machine precision, every direction below the threshold is flagged
+   by rule 3 and the report says so.
+
+### B5. A5, null estimator, repaired
+
+1. The reported statement "estimator ambiguous" could not fire as written (an interior value in the window
+   is at least 2.19 GHz from 17.5 and 35 GHz). It is removed and replaced by the check in rule 3.
+2. The spike assumptions are assumptions, not paper-stated facts. The paper gives the AWG rate 70 GSa/s and
+   mentions clock leakage; it gives no spike frequency. Assumed: a clock-related tone sits at 70/k GHz for
+   an integer k from 2 to 8 (35, 23.33, 17.5, 14, 11.67, 10, 8.75 GHz), and it occupies at most 2 subcarriers
+   (0.27 GHz). Neither is known. A spike elsewhere would not be recognised by this rule.
+3. Check that can fire: if the published null estimate, or the simulated one, lies within 0.5 GHz of a value
+   70/k inside the window (here only 23.33 GHz), the report says `POSSIBLE CLOCK-SPIKE COINCIDENCE`. The
+   rule, the window and the pass criterion are not changed by it; it only qualifies how the C6 number is read.
+4. Median at the profile ends. For subcarrier i (1 to 240) the median is over indices max(1, i-2) to
+   min(240, i+2), so it uses 3 values at the first and last subcarrier and 4 at the second and second last.
+   The window edge at 32.8125 GHz is the last subcarrier, so a minimum there is "no interior null in window"
+   as in A5(iii).
+
+### B6. Simulator SNR definition (fixed before the freeze hash)
+
+For C2, C3, C5 and the PAM4 SNR of Fig.4 and Fig.6: after the equaliser, SNR (dB) = 10 log10( mean |s|^2 /
+mean |s_hat - s|^2 ), both means over all scored symbols of the capture, s the transmitted PAM4 symbol (levels
+-3, -1, 1, 3 scaled alike), s_hat the equaliser output before the decision. For OFDM (C6 profile, C8, C7): the
+per-subcarrier SNR_k (dB) = 10 log10( E|X_k|^2 / E|X_hat_k - X_k|^2 ) over the symbols of the capture, and the
+"average SNR" of C8 is the arithmetic mean of the SNR_k in dB over the loaded subcarriers. The mean of linear
+SNR is reported beside it as an unscored extra. The source's own definition is not stated; any difference is a
+mismatch and is not tuned away. These definitions are committed with the freeze hash.
+
+### B7. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the 6-parameter cap, the criteria
+thresholds of section 4 and A3 (apart from the cases defined above), and the rule that no criterion is dropped,
+relaxed or added after a number is seen except by a dated amendment with a new pin.
