@@ -27,3 +27,8 @@ Base de1fc73, branch v1.3-mpam. Two local commits (C1 minors, then C2). Nothing 
 - Embedding tests fix nodes=240 on both sides, since M=4 default is 120 and rules differ by ~4e-8.
 - Mutation check: sigma factor changed to 3 for all M made 41 tests fail.
 - Not done by design: optimiser (C4), consumers still call legacy PAM4 signatures.
+
+## Review fix commit (after Loki FAIL)
+- Tests 110 (was 86); full run 493 passed in 238.89 s. Hand-written Gray tables at M=8,16; per-level sigma vs independent integrator; GMI identity (q = prod P(b_k|y)/P_X) and its non-equality for q = prod P(b_k|y); PAM4 fallback test; non-finite rate raises ValueError.
+- Unequal-sigma disagreement is Gauss-Hermite error that grows with sigma spread (ratio 0.7-1.4: 1e-7..2e-7 at 120, 2e-9 at 240; ratio 0.5-2: up to 1.5e-5 at 120). Likely cause: nodes centred per level with its own sigma. Docs say the 1e-9 claim is for equal sigma.
+- Wording and numbers fixed in rates.py docstring, ALGORITHM_PROVENANCE, LOG, ROADMAP_STATUS.

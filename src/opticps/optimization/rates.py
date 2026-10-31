@@ -2,11 +2,12 @@
 
 R_SMD = I(X;Y) is the symbol-metric rate. R_BMD = [H(X) - sum_k H(B_k|Y)]^+ is
 Boecherer's bit-metric decoding rate (Boecherer et al., 2015; Wiegart et al., 2020)
-for a Gray labelling with m = log2 M bit levels and the exact bit posteriors as
-decoding metric. Without the clip it equals the bit-metric GMI evaluated at s = 1
-for that metric; the GMI additionally optimises a scale s >= 0, which is not done
-here, so the name R_BMD is kept and "GMI" is not used for it. The unclipped value
-is returned as `bmd_raw`; it can be negative, and `bmd` is [bmd_raw]^+.
+for a Gray labelling with m = log2 M bit levels and the exact bit posteriors. Without
+the clip, H(X) - sum_k H(B_k|Y) is the GMI at s = 1 of the decoding metric
+q(x,y) = prod_k P(b_k|y) / P_X(x). It is NOT the GMI at s = 1 of q = prod_k P(b_k|y),
+which differs for shaped PMFs. The GMI also maximises over s >= 0, which is not done,
+so the name R_BMD is kept and "GMI" is not used for it. The unclipped value is
+returned as `bmd_raw`; it can be negative, and `bmd` is [bmd_raw]^+.
 
 PSNR is defined on the unipolar alphabet {0, ..., M-1} as (M-1)^2 / sigma^2. For
 M = 4 this is 3^2 / sigma^2, which keeps the numbers comparable with Wiegart et al.
@@ -19,7 +20,11 @@ defaults to 120 for M = 4 (the legacy value) and 240 otherwise, see `default_nod
 For M = 4 the original direct-likelihood kernel is kept operation for operation, so
 legacy results are bit-identical; it falls back to the log-domain kernel if it ever
 produces a non-finite value. Every other order uses the log-domain kernel
-(log-sum-exp), which cannot underflow. The result records the nodes used.
+(log-sum-exp), which cannot underflow. A non-finite rate raises ValueError. The
+result records the nodes used. The node-count convergence figures were measured with
+equal sigma on all levels; with unequal per-level sigma the rule converges more slowly
+(see docs/ALGORITHM_PROVENANCE.md). Comparisons finer than 1e-7 across orders must fix
+`nodes` on both sides.
 """
 
 # SPDX-License-Identifier: MIT
@@ -37,8 +42,8 @@ from opticps.modulation.pam import SUPPORTED_ORDERS, label_bits
 from opticps.shaping.distributions import entropy_bits, symmetric_pam4, validate_probabilities
 
 # Gauss-Hermite nodes per order. 120 is the legacy PAM4 value and must not change. For
-# the other orders 120 nodes are about 1e-8 from convergence at 8-30 dB (measured against
-# 320 nodes), so they default to 240, which is within 2e-10.
+# the other orders 120 nodes are 1.9e-8 to 4.1e-8 from convergence at 8-30 dB (equal
+# sigma, measured against 320 nodes), so they default to 240 (4.2e-10 vs 320 nodes).
 _DEFAULT_NODES = {2: 240, 4: 120, 8: 240, 16: 240}
 _LN2 = float(np.log(2.0))
 
@@ -167,9 +172,10 @@ def gaussian_rates(
     nodes_x, weights = _quadrature(n)
     labels = label_bits(m_order)
     if m_order == 4:
-        conditional_x, conditional_bits = _conditional_entropies_direct(
-            p, mu, sd, labels, weights, nodes_x
-        )
+        with np.errstate(all="ignore"):  # a non-finite result triggers the fallback below
+            conditional_x, conditional_bits = _conditional_entropies_direct(
+                p, mu, sd, labels, weights, nodes_x
+            )
         if not (np.isfinite(conditional_x) and np.isfinite(conditional_bits)):
             conditional_x, conditional_bits = _conditional_entropies_log(
                 p, mu, sd, labels, weights, nodes_x
@@ -178,6 +184,8 @@ def gaussian_rates(
         conditional_x, conditional_bits = _conditional_entropies_log(
             p, mu, sd, labels, weights, nodes_x
         )
+    if not (np.isfinite(conditional_x) and np.isfinite(conditional_bits)):
+        raise ValueError("Rate computation is not finite (extreme noise level or PMF)")
     h = entropy_bits(p)
     bmd_raw = h - conditional_bits
     return Rates(

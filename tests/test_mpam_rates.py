@@ -157,40 +157,67 @@ def test_pam4_on_pam16_indices_has_equal_smd_but_not_bmd(psnr_db):
 # --- integrator independence -----------------------------------------------------------
 
 
-def trapezoid_rates(pmf: np.ndarray, psnr_db: float, points: int = 2**15) -> tuple[float, float]:
-    """(SMD, unclipped BMD) by trapezoid integration over +-12 sigma, with own posteriors."""
+# Gray labels written out by hand (binary-reflected), not taken from the package.
+GRAY_TABLES = {
+    4: ["00", "01", "11", "10"],
+    8: ["000", "001", "011", "010", "110", "111", "101", "100"],
+    16: [
+        "0000", "0001", "0011", "0010", "0110", "0111", "0101", "0100",
+        "1100", "1101", "1111", "1110", "1010", "1011", "1001", "1000",
+    ],
+}  # fmt: skip
+
+
+def reference_rates(
+    pmf: np.ndarray, means: np.ndarray, sigmas: np.ndarray, points: int = 2**15
+) -> dict[str, float]:
+    """Trapezoid integration over the mixture with its own posteriors and Gray tables.
+
+    Returns smd, bmd_raw, and the GMI at s = 1 of two bit metrics: `gmi_over_px`
+    (q = prod_k P(b_k|y) / P_X(x)) and `gmi_plain` (q = prod_k P(b_k|y)).
+    """
+    order = len(pmf)
+    table = np.array([[int(c) for c in word] for word in GRAY_TABLES[order]])
+    y = np.linspace((means - 12 * sigmas).min(), (means + 12 * sigmas).max(), points)
+    log_q = np.full((points, order), -np.inf)
+    for i in np.flatnonzero(pmf > 0):
+        log_q[:, i] = (
+            math.log(pmf[i])
+            - (y - means[i]) ** 2 / (2 * sigmas[i] ** 2)
+            - math.log(sigmas[i] * math.sqrt(2 * math.pi))
+        )
+    peak = log_q.max(axis=1)
+    mass = np.exp(log_q - peak[:, None])
+    posterior = mass / mass.sum(axis=1, keepdims=True)
+    joint = np.exp(log_q)
+
+    def expect(f: np.ndarray) -> float:
+        """sum_x integral of p(x, y) f(x, y) dy, in bits."""
+        g = np.where(joint > 0, joint * f, 0.0).sum(axis=1)
+        return float(np.trapezoid(g, y)) / math.log(2)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_post = np.log(posterior)
+        log_bits = np.zeros((points, order))
+        for k in range(table.shape[1]):
+            for bit in (0, 1):
+                members = np.flatnonzero(table[:, k] == bit)
+                log_bits[:, members] += np.log(posterior[:, members].sum(axis=1))[:, None]
+        log_px = np.where(pmf > 0, np.log(np.where(pmf > 0, pmf, 1.0)), 0.0)
+        denominator = np.log((pmf * np.exp(log_bits)).sum(axis=1))
+        entropy = float(-(pmf[pmf > 0] * np.log2(pmf[pmf > 0])).sum())
+        return {
+            "smd": entropy + expect(log_post),
+            "bmd_raw": entropy + expect(log_bits),
+            "gmi_over_px": expect(log_bits - log_px),
+            "gmi_plain": expect(log_bits - denominator[:, None]),
+        }
+
+
+def equal_sigma_reference(pmf: np.ndarray, psnr_db: float) -> dict[str, float]:
     order = len(pmf)
     sigma = (order - 1) / 10 ** (psnr_db / 20)
-    levels = np.arange(order, dtype=float)
-    y = np.linspace(-12 * sigma, (order - 1) + 12 * sigma, points)
-    log_joint = np.full((points, order), -np.inf)
-    for i in np.flatnonzero(pmf > 0):
-        log_joint[:, i] = (
-            math.log(pmf[i])
-            - (y - levels[i]) ** 2 / (2 * sigma**2)
-            - math.log(sigma * 2.5066282746)
-        )
-    peak = log_joint.max(axis=1, keepdims=True)
-    mass = np.exp(log_joint - peak)
-    log_total = peak[:, 0] + np.log(mass.sum(axis=1))
-
-    def conditional_entropy(groups: list[np.ndarray]) -> float:
-        total = 0.0
-        for group in groups:
-            log_group = peak[:, 0] + np.log(mass[:, group].sum(axis=1))
-            joint = np.exp(log_group)
-            integrand = np.where(joint > 0, joint * (log_group - log_total), 0.0)
-            total -= float(np.trapezoid(integrand, y)) / math.log(2)
-        return total
-
-    entropy = float(-(pmf[pmf > 0] * np.log2(pmf[pmf > 0])).sum())
-    smd = entropy - conditional_entropy([np.array([i]) for i in range(order)])
-    labels = label_bits(order)
-    bits = sum(
-        conditional_entropy([np.flatnonzero(labels[:, k] == b) for b in (0, 1)])
-        for k in range(labels.shape[1])
-    )
-    return smd, entropy - bits
+    return reference_rates(pmf, np.arange(order, dtype=float), np.full(order, sigma))
 
 
 def sweep_pmfs() -> dict[str, np.ndarray]:
@@ -207,8 +234,8 @@ def sweep_pmfs() -> dict[str, np.ndarray]:
 def test_default_quadrature_matches_trapezoid_at_m16(name):
     pmf = sweep_pmfs()[name]
     for psnr_db in range(8, 31, 2):
-        with np.errstate(all="ignore"):  # 0 * -inf where a level has no mass
-            smd, bmd_raw = trapezoid_rates(pmf, psnr_db)
+        ref = equal_sigma_reference(pmf, psnr_db)
+        smd, bmd_raw = ref["smd"], ref["bmd_raw"]
         for nodes in (120, None):  # 120 as originally specified, and the M=16 default
             r = achievable_rates(pmf, psnr_db, nodes=nodes)
             assert abs(r.smd - smd) < 1e-6
@@ -225,7 +252,11 @@ def test_default_nodes_are_order_dependent_and_pam4_stays_120():
 
 @pytest.mark.parametrize("order", [2, 8, 16])
 def test_default_quadrature_has_converged(order):
-    """The default against a much larger rule. 120 nodes do not meet 1e-9 for M != 4."""
+    """Equal sigma: the default against a 320-node rule, plus the 120-node error.
+
+    120 nodes are 1.9e-8 to 4.1e-8 from converged (M = 4 is the worst, and keeps 120 on
+    purpose); the defaults for M != 4 are within 1e-9 (measured 4.2e-10).
+    """
     rng = np.random.default_rng(order)
     pmfs = [uniform(order), mb_pmf(order, 0.05), rng.dirichlet(np.ones(order))]
     worst_120 = 0.0
@@ -245,6 +276,96 @@ def test_oversized_quadrature_rule_is_rejected():
         achievable_rates(uniform(4), 10.0, nodes=1)
     with np.errstate(all="ignore"), pytest.raises(ValueError):
         achievable_rates(uniform(4), 10.0, nodes=1000)  # numpy's rule overflows
+
+
+@pytest.mark.parametrize("order", [8, 16])
+@pytest.mark.parametrize("psnr_db", [8.0, 14.0, 20.0, 28.0])
+def test_rates_match_independent_integrator_with_hand_written_gray_tables(order, psnr_db):
+    # A swap of two Gray labels at M = 8 changes bmd by 0.13 bit; the SMD does not see it.
+    for pmf in (uniform(order), mb_pmf(order, 0.05), mb_pmf(order, -0.02)):
+        ref = equal_sigma_reference(pmf, psnr_db)
+        r = achievable_rates(pmf, psnr_db)
+        assert abs(r.smd - ref["smd"]) < 1e-8
+        assert abs(r.bmd_raw - ref["bmd_raw"]) < 1e-8
+
+
+def test_package_gray_labels_equal_the_hand_written_tables():
+    for order, words in GRAY_TABLES.items():
+        assert ["".join(map(str, row)) for row in label_bits(order).tolist()] == words
+
+
+def unequal_sigmas(order: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    rng = np.random.default_rng(seed)
+    pmf = rng.dirichlet(np.ones(order) * 2)
+    sigma = noise_sigma_from_psnr_db(18.0, order) * rng.uniform(0.7, 1.4, order)
+    return pmf, np.arange(order, dtype=float), sigma
+
+
+@pytest.mark.parametrize("order", [4, 8, 16])
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_per_level_sigma_matches_independent_integrator(order, seed):
+    """Unequal sigma (ratio 0.7 to 1.4). The tolerance is looser than for equal sigma.
+
+    The quadrature converges more slowly here (measured, spread 0.7-1.4, M = 4/8/16):
+    120 nodes 1e-7 to 2e-7, 240 nodes 2e-9, 320 nodes 5e-10. The M = 4 default (120) is
+    therefore only good to about 1e-6 with unequal sigma.
+    """
+    pmf, means, sigmas = unequal_sigmas(order, seed)
+    ref = reference_rates(pmf, means, sigmas)
+    r = gaussian_rates(pmf, means, sigmas)
+    assert abs(r.smd - ref["smd"]) < 1e-6
+    assert abs(r.bmd_raw - ref["bmd_raw"]) < 1e-6
+    fine = gaussian_rates(pmf, means, sigmas, nodes=320)
+    assert abs(fine.smd - ref["smd"]) < 1e-8
+    assert abs(fine.bmd_raw - ref["bmd_raw"]) < 1e-8
+
+
+def test_direct_and_log_kernels_agree_with_unequal_sigma_on_pam4():
+    nodes_x, weights = rates_module._quadrature(120)
+    pmf, means, sigmas = unequal_sigmas(4, 9)
+    labels = label_bits(4)
+    direct = rates_module._conditional_entropies_direct(
+        pmf, means, sigmas, labels, weights, nodes_x
+    )
+    log = rates_module._conditional_entropies_log(pmf, means, sigmas, labels, weights, nodes_x)
+    assert direct == pytest.approx(log, abs=1e-12)
+
+
+@pytest.mark.parametrize("psnr_db", [6.0, 14.0, 20.0])
+def test_bmd_raw_is_the_gmi_of_the_px_normalised_bit_metric_only(psnr_db):
+    pmf = mb_pmf(8, 0.1)
+    ref = equal_sigma_reference(pmf, psnr_db)
+    r = achievable_rates(pmf, psnr_db, nodes=320)
+    # H(X) - sum_k H(B_k|Y) is the GMI at s = 1 of q = prod_k P(b_k|y) / P_X(x) ...
+    assert ref["gmi_over_px"] == pytest.approx(ref["bmd_raw"], abs=1e-9)
+    assert r.bmd_raw == pytest.approx(ref["gmi_over_px"], abs=1e-8)
+    # ... and not of q = prod_k P(b_k|y), which differs for a shaped PMF.
+    assert abs(ref["gmi_plain"] - r.bmd_raw) > 1e-3
+    uniform_ref = equal_sigma_reference(uniform(8), psnr_db)
+    assert uniform_ref["gmi_plain"] == pytest.approx(uniform_ref["bmd_raw"], abs=1e-9)
+
+
+def test_pam4_falls_back_to_the_log_domain_kernel_when_the_direct_one_underflows():
+    pmf = np.array([1e-320, 0.5, 0.25, 0.25 - 1e-320])
+    sigma = np.full(4, noise_sigma_from_psnr_db(20.0))
+    nodes_x, weights = rates_module._quadrature(120)
+    labels = label_bits(4)
+    with np.errstate(all="ignore"):
+        direct = rates_module._conditional_entropies_direct(
+            pmf, np.arange(4.0), sigma, labels, weights, nodes_x
+        )
+    assert not np.isfinite(direct[0])  # the legacy kernel returns inf here
+    r = achievable_rates(pmf, 20.0)
+    assert math.isfinite(r.smd) and math.isfinite(r.bmd_raw)
+    log = rates_module._conditional_entropies_log(
+        pmf, np.arange(4.0), sigma, labels, weights, nodes_x
+    )
+    assert r.smd == pytest.approx(r.entropy - log[0], abs=1e-15)
+
+
+def test_non_finite_rate_raises_instead_of_reporting_zero():
+    with np.errstate(all="ignore"), pytest.raises(ValueError):
+        gaussian_rates(uniform(8), np.arange(8.0), np.full(8, 1e-200))
 
 
 # --- bounds ----------------------------------------------------------------------------

@@ -38,8 +38,8 @@ Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts ab
 
 | Command | Result |
 |---|---|
-| `uv run pytest -o addopts="-q -rN"` | `469 passed in 223.75s` (383 after the C1 fix commit, plus 86 in `tests/test_mpam_rates.py`); anchor included and green |
-| Gauss-Hermite convergence | 120 nodes are 1e-8 to 4e-8 from the 320-node value at 8-30 dB for every order, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (within 2e-10) and 120 for M = 4 |
+| `uv run pytest -o addopts="-q -rN"` | `493 passed in 238.89s` after the C2 review fixes (383 after the C1 fix commit, plus 110 in `tests/test_mpam_rates.py`; 469 before the review fixes); anchor included and green |
+| Gauss-Hermite convergence | equal sigma: 120 nodes are 1.9e-8 to 4.1e-8 from the 320-node value at 8-30 dB, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (4.2e-10 vs 320 nodes, 6.7e-10 vs an independent integrator) and 120 for M = 4. Unequal per-level sigma converges more slowly (see ALGORITHM_PROVENANCE); the 1e-9 claim is for equal sigma only |
 | Lint, format, mypy | pass |
 
 ## Byte anchor
