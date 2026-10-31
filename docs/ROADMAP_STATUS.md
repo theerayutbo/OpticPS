@@ -129,6 +129,7 @@ Points to carry, none a gate failure:
 | Plan hash | `6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a`, committed before any other E0 file (commit 8900748) |
 | Baseline and final test counts | `853 passed` at 8129eca (`-o addopts="-q -rN"`, 23 min under load); `905 passed` with E0 (+52, all in `tests/test_benchmark_provenance.py`); anchor 15 passed; ruff check, ruff format --check, mypy clean; `scripts/license_audit.py` 34 packages, 0 flagged (no dependency change) |
 | Downloads, push, merge, tag, hardware | none by E0 |
+| E0 fix rounds 1 to 3 (PENDING REVIEW, the third fix round has not been reviewed) | Plan Revision 3 pin `dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535` (previous `45d9088c...`, Revision 1 `42a578f5...`, original `6bf4238a...`); the freeze guard promises only accidents and casual re-tuning, no tamper-proofing, no date proof (plan R3.1). Final counts at the round 3 commit: `1437 passed` in the shared checkout (includes N1 tests; `tests/test_benchmark_provenance.py` 355 tests), anchor 15 passed, ruff check, ruff format --check, mypy clean, `license_audit.py` 34 packages 0 flagged, `scripts/mutate_benchmarks.py` 60 applied, 60 killed. Earlier pins and the `905 passed` above are those of the first E0 commit. |
 
 ### Gate N0 record (NANF workstream, 2026-10-31)
 
