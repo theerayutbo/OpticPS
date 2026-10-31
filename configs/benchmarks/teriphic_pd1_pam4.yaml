@@ -11,7 +11,7 @@ source:
   url: "https://zenodo.org/records/7886498"
   version: "record 7886498 (API: Revision 2; HTML page label: v1)"
   retrieved: "2026-10-31"
-  plan_sha256: "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
+  plan_sha256: "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
   licenses:
     - scope: data
       status: VERIFIED

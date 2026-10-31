@@ -37,7 +37,7 @@ TERIPHIC = CONFIGS / "teriphic_pd1_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 # Pinned when the plan was declared (2026-10-31, before any sample was read). A deliberate
 # amendment must change this line, the plan_sha256 in the TERIPHIC config and add a dated section.
-PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
+PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
 MD5_B2B = "d7bd6d48bc020a138f4f129bc2ba7312"
 
 
