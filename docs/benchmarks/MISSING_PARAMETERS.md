@@ -2,7 +2,7 @@
 
 Legend: K = known (provenance in `SOURCE_REGISTER.md` and the configs), U = unknown (null with
 provenance UNKNOWN), I = inferred by us (not stated by the source), n/a = not applicable.
-All read-status labels are `summary` (fetch tool) unless noted; nothing was read from a raw capture.
+Read status of each external fact is in `SOURCE_REGISTER.md` (`verified` = raw record text read, `summary` = fetch-tool summary); this matrix gives only K, U and I. Nothing was read from a raw capture.
 
 ## 1. Missing-data matrix
 
@@ -11,16 +11,16 @@ All read-status labels are `summary` (fetch tool) unless noted; nothing was read
 | Raw file format (dtype, endianness, header, scaling) | **U** (`.bin`, nothing documented) | **U** | n/a (Source Data XLSX schema U, file not fetched) | n/a |
 | Transmitted reference sequence | **U** (none documented) | **U** | U (publication: BER only) | n/a (analytic) |
 | Wavelength | **U** (O-band only) | U (O-band) | K 1271 nm | n/a |
-| Fibre type | **U** | U | K G.652.D (as stated) | n/a |
+| Fibre type | **U** | U | K "G652.D" (spelling as printed) | n/a |
 | Fibre length | K 0, 2, 10 km (file names) | K 0, 2, 10 km | K 5 km, 10 km | n/a |
 | Fibre dispersion, loss | U | U | K dispersion -3.99 ps/(nm km); loss U | n/a |
 | Baud | K 50 GBd | K 50 GBd | U per lane in the text read (rates only) | n/a |
 | Sample rate and unit | I 256 GSa/s (record says "256 Gbaud sample rate") | I (same wording) | n/a | n/a |
 | Modulation order | K PAM4 (title, names) | K PAM4 | K PAM-4 | K 4-PAM |
 | Vertical calibration (volts, mV, dBm, normalised) | **U** | **U** | U | n/a |
-| Oscilloscope model, bandwidth, ENOB | U | U (detector "over 70 GHz", scope U) | U | n/a |
+| Oscilloscope model, bandwidth, ENOB | U | U (detector "more than 70 GHz 3-dB bandwidth", scope U) | U | n/a |
 | Transmitter model | U (COTS laser + COTS MZM, models unnamed; Vpi, bias, swing U) | n/a (EML: DFB + EAM + SOA, drive U) | K silicon MZM with controlled chirp; chirp parameters U | n/a |
-| Detector | K TERIPHIC InP PD1, Subassembly 1; responsivity, bandwidth U | K one commercial PD, "over 70 GHz" | U | n/a |
+| Detector | K TERIPHIC InP PD1, Subassembly 1; responsivity, bandwidth U | K one commercial PD, "more than 70 GHz 3-dB bandwidth" | U | n/a |
 | Launch and received optical power | U | U | U per figure | n/a |
 | Receiver DSP / filtering of shipped samples | U | partly K (50 GHz digital LPF applied; whether shipped samples are filtered U) | K 155-tap FFE (RLS), optional MLSD | n/a |
 | BER definition, FEC threshold | n/a | n/a | thresholds K (2.4e-2, 3.8e-3); BER definition U | n/a |

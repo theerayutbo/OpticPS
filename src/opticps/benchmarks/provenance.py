@@ -21,13 +21,14 @@ from __future__ import annotations
 import datetime
 import hashlib
 import math
+import os
 import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, overload
+from typing import Any, NoReturn, overload
 
 _CHUNK = 1 << 20
 
@@ -191,7 +192,19 @@ _TEXT_FIELDS = frozenset(
     }
 )
 # A known value that is really the word for "no value" is refused (e.g. the string "null").
-_PLACEHOLDERS = frozenset({"null", "none", "nan", "unknown", "n/a", "na", "~", "-"})
+# Compared after case folding and removal of all white space ("N / A" is "n/a").
+_PLACEHOLDERS = frozenset(
+    {"null", "none", "nan", "unknown", "n/a", "na", "~", "-", "tbd", "tba", "todo", "unspecified"}
+)
+# A numeric field also has a declared plausibility range: a value outside it is refused as a
+# probable unit or typing error, not as a physical impossibility. Ranges are for optical-link
+# captures and sources (an oscilloscope sampling at 256 Hz, or a rate of 10**400, is a mistake).
+PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
+    "sample_rate_hz": (1e6, 1e13),
+    "baud_bd": (1e6, 1e12),
+    "wavelength_nm": (200.0, 20000.0),
+    "fibre_length_km": (0.0, 1e5),
+}
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
 _FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,254}")
@@ -245,6 +258,12 @@ def _hex(value: object, length: int, where: str) -> str | None:
     return value
 
 
+def is_placeholder(text: str) -> bool:
+    """True for the words and marks that stand for "no value" (TBD, N / A, ?, ---, ...)."""
+    squeezed = "".join(text.split()).casefold()
+    return squeezed in _PLACEHOLDERS or (bool(squeezed) and set(squeezed) <= set("?-~.!"))
+
+
 def _enum_member(kind: type[StrEnum], value: object, where: str) -> None:
     if not isinstance(value, kind):
         raise BenchmarkError(f"{where}: must be a {kind.__name__}, got {value!r}")
@@ -294,7 +313,7 @@ class ParameterValue:
             raise BenchmarkError(f"a known value must be finite, got {value!r}")
         if isinstance(value, str):
             check_text(value, "parameter.value")
-            if value.strip().casefold() in _PLACEHOLDERS:
+            if is_placeholder(value):
                 raise BenchmarkError(f"the string {value!r} is not a known value; write null")
 
     @property
@@ -324,6 +343,13 @@ def _check_field(name: str, parameter: ParameterValue, where: str) -> None:
                 f"{where}: {name} is stored in {unit}; unit {parameter.unit!r} is inconsistent"
                 " (convert the value, keep the source wording in as_stated)"
             )
+        if name in PLAUSIBLE_RANGES:
+            low, high = PLAUSIBLE_RANGES[name]
+            if not low <= value <= high:
+                raise BenchmarkError(
+                    f"{where}: {name} {value!r} is outside the plausible range [{low:g},"
+                    f" {high:g}] {unit}: a unit or typing error is more likely than a value"
+                )
     elif name == "modulation_order":
         if isinstance(value, (str, float)) or value not in MODULATION_ORDERS:
             raise BenchmarkError(
@@ -397,6 +423,8 @@ class LicenseRecord:
             raise BenchmarkError(f"licence read_how {self.read_how!r} is not a ReadHow value")
         if self.status is LicenseStatus.RECORD_LEVEL and not self.license_id:
             raise BenchmarkError("a RECORD_LEVEL licence needs its identifier")
+        if self.license_id:
+            self._check_identifier_terms()
         if self.status is LicenseStatus.UNVERIFIED and any(
             p in _GRANTING for p in permissions.values()
         ):
@@ -410,8 +438,26 @@ class LicenseRecord:
         ):
             raise BenchmarkError("a RESTRICTED licence cannot grant redistribution or reuse")
 
+    def _check_identifier_terms(self) -> None:
+        """A licence identifier carrying NC or ND cannot be typed as granting what it excludes.
 
-@dataclass(frozen=True)
+        The tokens of the identifier (split at every non-alphanumeric character, so "CC BY-NC-ND
+        4.0" and the SPDX id "CC-BY-NC-ND-4.0" read alike) are checked: NC excludes commercial
+        use, ND excludes adapted material. This does not interpret a licence; it only refuses a
+        record that contradicts its own identifier.
+        """
+        tokens = {t for t in re.split(r"[^A-Za-z0-9]+", str(self.license_id).upper()) if t}
+        if "NC" in tokens and self.commercial_use in _GRANTING:
+            raise BenchmarkError(
+                f"licence {self.license_id}: a NonCommercial licence cannot grant commercial use"
+            )
+        if "ND" in tokens and self.derivatives in _GRANTING:
+            raise BenchmarkError(
+                f"licence {self.license_id}: a NoDerivatives licence cannot grant adapted material"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class Checksum:
     """MD5 as supplied by the record, plus the hashes of local bytes.
 
@@ -419,14 +465,28 @@ class Checksum:
     fields. Only `verify_local_asset`, which hashes the bytes of a real file, sets them, so the
     state `Md5State.VERIFIED` cannot be typed in. The state is derived: an MD5 never checked
     against local bytes is `supplied`.
+
+    Two further local facts, `size_local` and `mtime_ns_local`, are those of the file at the time
+    it was hashed. A `VERIFIED` state describes those bytes only: if the file changes afterwards
+    the state is stale, which `still_current` detects by size and modification time. Any code
+    that decodes the file after hashing it (E1) calls `still_current` first, or hashes again.
+
+    Limits: `__slots__` and `__reduce__` close `__dict__` writes and unpickling (a pickle could
+    otherwise carry a VERIFIED state that never saw any bytes). `object.__setattr__` in the same
+    process cannot be prevented in Python; that is a deliberate act, not a typing mistake.
     """
 
     md5_supplied: str | None = None
     md5_local: str | None = field(default=None, init=False)
     sha256_local: str | None = field(default=None, init=False)
+    size_local: int | None = field(default=None, init=False)
+    mtime_ns_local: int | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
         _hex(self.md5_supplied, 32, "md5_supplied")
+
+    def __reduce__(self) -> NoReturn:
+        raise TypeError("a Checksum is not pickled or copied: rebuild it with verify_local_asset")
 
     @property
     def md5_state(self) -> Md5State:
@@ -436,25 +496,48 @@ class Checksum:
             return Md5State.SUPPLIED
         return Md5State.VERIFIED if self.md5_local == self.md5_supplied else Md5State.MISMATCH
 
+    def still_current(self, path: Path) -> bool:
+        """True when `path` still has the size and modification time seen when it was hashed.
+
+        False for a checksum that was never computed locally or a file that cannot be examined.
+        It is a cheap staleness test, not a proof: only hashing again proves the bytes.
+        """
+        if self.size_local is None or self.mtime_ns_local is None:
+            return False
+        try:
+            status = path.stat()
+        except OSError:
+            return False
+        return status.st_size == self.size_local and status.st_mtime_ns == self.mtime_ns_local
+
 
 def verify_local_asset(path: Path, md5_supplied: str | None = None) -> Checksum:
     """Stream one local file through MD5 and SHA-256 and return the resulting checksum.
 
     The only producer of local hashes, hence of `Md5State.VERIFIED`: the state is reached only
     when the digest of the bytes read here equals `md5_supplied`. A missing file is
-    SOURCE_MISSING. Reads only; never creates, moves or modifies the file. Nothing in E0 calls
-    this on a capture: E1 runs it on the three downloaded TERIPHIC files.
+    SOURCE_MISSING; any other failure to read it is a `BenchmarkError`. The file is opened
+    read-only and read in chunks; it is never created, moved or modified. The result carries the
+    size and modification time seen after reading, so a later change is detectable
+    (`Checksum.still_current`). Nothing in E0 calls this on a capture: E1 runs it on the three
+    downloaded TERIPHIC files.
     """
     if not path.is_file():
         raise BenchmarkError(f"{path.name} is not present locally", ErrorCode.SOURCE_MISSING)
     checksum = Checksum(md5_supplied=md5_supplied)
     md5, sha = hashlib.md5(), hashlib.sha256()
-    with path.open("rb") as handle:
-        while chunk := handle.read(_CHUNK):
-            md5.update(chunk)
-            sha.update(chunk)
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(_CHUNK):
+                md5.update(chunk)
+                sha.update(chunk)
+            status = os.fstat(handle.fileno())
+    except OSError as error:
+        raise BenchmarkError(f"{path.name} cannot be read: {error}") from error
     object.__setattr__(checksum, "md5_local", md5.hexdigest())
     object.__setattr__(checksum, "sha256_local", sha.hexdigest())
+    object.__setattr__(checksum, "size_local", status.st_size)
+    object.__setattr__(checksum, "mtime_ns_local", status.st_mtime_ns)
     return checksum
 
 
@@ -637,7 +720,10 @@ def assert_no_split_overlap(assets: Iterable[AssetRecord]) -> None:
         for kind, value in identities.items():
             if value is None:
                 continue
-            other = seen.setdefault((kind, value), (group, asset.split))
+            # A supplied and a locally computed MD5 are the same kind of identity: one asset's
+            # supplied value equals another's local value when they are the same file.
+            family = "MD5" if kind.endswith("MD5") else kind
+            other = seen.setdefault((family, value), (group, asset.split))
             if other[0] != group:  # the same group always has the same role (checked above)
                 raise BenchmarkError(
                     f"{asset.group} and {other[0]} share the {kind} {value[:12]} but sit in"

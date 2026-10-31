@@ -18,7 +18,7 @@ source:
       public_redistribution: ALLOWED_WITH_CONDITIONS
       derivatives: NOT_ALLOWED
       commercial_use: NOT_ALLOWED
-      note: "CC BY-NC-ND 4.0. Non-commercial use only, and the text states: [article text removed: CC BY-NC-ND]. Public redistribution is therefore verbatim and non-commercial; the MIT repository grants commercial use, so no article material is published here (docs/benchmarks/SOURCE_REGISTER.md, section Licence conflict). Read in the raw Europe PMC XML and Crossref JSON."
+      note: "CC BY-NC-ND 4.0. Non-commercial use only, and adapted material derived from the article may not be shared. Public redistribution is therefore verbatim and non-commercial; the MIT repository grants commercial use, so no article material is published here (docs/benchmarks/SOURCE_REGISTER.md, section Licence conflict). Read in the raw Europe PMC XML and Crossref JSON."
       read_how: verified
     - scope: data
       status: UNVERIFIED
@@ -30,12 +30,12 @@ source:
       note: "Source Data (41467_2025_61408_MOESM3_ESM.xlsx) is stated as provided with the paper; no licence for it was read. File not fetched; schema, size and hash unknown. The Europe PMC XML lists the file name and a sentence that source data are provided with the paper, nothing about its licence."
       read_how: unconfirmed
   parameters:
-    wavelength_nm: {value: 1271, provenance: PUBLISHED_MEASUREMENT, unit: nm, source_ref: "abstract: [article text removed: CC BY-NC-ND])", read_how: verified}
-    dispersion_ps_per_nm_km: {value: -3.99, provenance: PUBLISHED_MEASUREMENT, unit: "ps/(nm km)", as_stated: "-3.99 ps/nm/km; text: [article text removed: CC BY-NC-ND]", source_ref: "Experimental results section: [article text removed: CC BY-NC-ND]", read_how: verified}
-    fibre_type: {value: "G652.D", provenance: PUBLISHED_MEASUREMENT, as_stated: "standard G652.D type fiber", source_ref: "Experimental results section and eye-diagram caption: standard G652.D fiber", read_how: verified}
+    wavelength_nm: {value: 1271, provenance: PUBLISHED_MEASUREMENT, unit: nm, source_ref: "abstract: dispersion figure given at 1271 nm", read_how: verified}
+    dispersion_ps_per_nm_km: {value: -3.99, provenance: PUBLISHED_MEASUREMENT, unit: "ps/(nm km)", as_stated: "-3.99 ps/nm/km, reported as the measured fibre dispersion at 1271 nm", source_ref: "Experimental results section: dispersion measured at 1271 nm, further detail in the paper's Supplementary Information 6", read_how: verified}
+    fibre_type: {value: "G652.D", provenance: PUBLISHED_MEASUREMENT, as_stated: "printed G652.D (no dot after the G)", source_ref: "Experimental results section and an eye-diagram caption", read_how: verified}
     modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "text: PAM-4", read_how: verified}
-    equalizer: {value: "155-tap FFE (RLS), optionally with MLSD", provenance: PUBLISHED_MEASUREMENT, source_ref: "Experimental results section: [article text removed: CC BY-NC-ND] filter ... recursive least squares; abstract: FFE alone and FFE with maximum-likelihood sequence detection", read_how: verified}
-    fec_threshold: {value: "SD-FEC 20% 2.4e-2; HD-FEC 6.7% 3.8e-3", provenance: PUBLISHED_MEASUREMENT, source_ref: "Simulation results section (the only place the numbers appear in the XML): [article text removed: CC BY-NC-ND]", read_how: verified}
+    equalizer: {value: "155-tap FFE (RLS), optionally with MLSD", provenance: PUBLISHED_MEASUREMENT, source_ref: "Experimental results section: 155 taps, RLS update; abstract: FFE alone or with MLSD", read_how: verified}
+    fec_threshold: {value: "SD-FEC 20% 2.4e-2; HD-FEC 6.7% 3.8e-3", provenance: PUBLISHED_MEASUREMENT, source_ref: "Simulation results section (the only place the numbers appear in the XML): SD-FEC 20% overhead 2.4e-2, HD-FEC 6.7% overhead 3.8e-3", read_how: verified}
     rate_definition: {value: null, provenance: UNKNOWN, as_stated: "gross versus net not stated: no occurrence of gross, net or overhead in the raw Europe PMC full-text XML"}
     ber_definition: {value: null, provenance: UNKNOWN, as_stated: "no formal BER definition found by keyword search of the raw Europe PMC full-text XML"}
     chirp_model_status: {value: "MODEL_GAP", provenance: INFERRED, source_ref: "OpticPS MZM model is chirp-free; paper controls chirp in a silicon MZM"}

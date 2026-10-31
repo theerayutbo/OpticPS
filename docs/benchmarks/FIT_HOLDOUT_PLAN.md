@@ -4,8 +4,11 @@ Declared 2026-10-31 at Gate E0 (Stage 3A, roadmap v2.1 section L2, step 4). The 
 file is pinned in `tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`, so
 an edit after the fact is visible as a failing test. Amendments are new dated sections at the
 end of this file together with a new pin; the earlier text stays in Git history. **Revision 1
-(2026-10-31, at the end of this file) amends this plan after review.** Every clause it
-supersedes is struck through in place (`~~like this~~`) and marked "Revision 1"; the numeric
+(2026-10-31, at the end of this file) amends this plan after review.** ~~Every clause it
+supersedes is struck through in place and marked "Revision 1"~~ [Revision 2: that sentence was
+not true, see R2.1; from Revision 2 on, every change to earlier text is struck through and
+marked, or listed in R2.1 with its diff reference]. **Revision 2 (2026-10-31, at the end of this
+file) amends the plan after the second review.** The numeric
 criterion is not an amendment but a required input file whose schema and freezing rule
 Revision 1 fixes (section R.4), which removes the earlier conflict between "amendments are
 sections here" and "a separate addendum" in section 3.
@@ -19,7 +22,9 @@ sections here" and "a separate addendum" in section 3.
 - At the time of writing, `data/external/teriphic/` (ignored by Git) holds a file of exactly
   the listed size for B2B and a partial 2 km file that an external `curl` process was still
   writing. Neither was created by E0, and E0 did not read them. They do not change this plan.
-  Checksums, format and content are therefore all still unknown to the plan author.
+  ~~Checksums, format and content are therefore all still unknown to the plan author.~~
+  [Revision 2: checksums are known since R.1, as hashes reported by the orchestrator; format and
+  content are still unknown.]
 - The raw format, wavelength, fibre type, transmitted reference sequence and calibration units
   are unknown (see MISSING_PARAMETERS.md). The plan has to hold under those unknowns.
 
@@ -121,7 +126,8 @@ convolution response or noise model is never called unique when several devices 
 
 ## 5. Outcomes
 
-Each length ends as one of: `VALIDATED` (against the later addendum criterion), `FAILED`,
+Each length ends as one of: `VALIDATED` (~~against the later addendum criterion~~ [Revision 2: against the frozen criterion
+file of R.4 and R2.3, and only under the conditions of R2.5]), `FAILED`,
 `INCONCLUSIVE`, `UNIDENTIFIABLE_PARAMETER`, `BLOCKED` (data, format or licence).
 [Revision 1, R.5: `VALIDATED` is available for 10 km only; 2 km cannot end VALIDATED.] Negative and
 inconclusive results are reported with the same prominence. The result concerns signal statistics
@@ -147,8 +153,9 @@ sample is interpreted.
 - By the orchestrator's report, the three target files were downloaded with the owner's approval
   and hashed (MD5 and SHA-256, whole file streamed) on 2026-10-31; the values are in
   `docs/benchmarks/SOURCE_REGISTER.md`. Hashing passes every byte through a digest; **no
-  sample of any TERIPHIC capture has been read, decoded, plotted or summarised by anyone: the
-  files have only been hashed.** The Dev who wrote this revision did not open `data/external/`.
+  sample of any TERIPHIC capture has been read, decoded, plotted or summarised ~~by anyone~~
+  [Revision 2: according to the orchestrator's record and the Dev logs; the plan cannot know
+  what else a person did]: the files have only been hashed.** The Dev who wrote this revision did not open `data/external/`.
 - Section 0 above said no sample had been hashed; that statement is superseded by this one. It
   changes nothing else: format, wavelength, fibre type, reference sequence and calibration remain
   unknown.
@@ -183,8 +190,9 @@ length and dtype checks that touch no sample value).
 Metrics (each computed on normalised amplitude, using the single B2B-frozen normalisation;
 none is optical power, dBm or volts):
 
-- M1 level spacing: the three gaps between adjacent PAM4 level centroids, divided by the B2B
-  mean gap, and the change per length of that vector.
+- ~~M1 level spacing: the three gaps between adjacent PAM4 level centroids, divided by the B2B
+  mean gap, and the change per length of that vector.~~ [Revision 2: M1 was a vector with no
+  norm, no measured-versus-predicted form and no pass rule; it is defined in R2.2.]
 - M2 amplitude histogram distance: Wasserstein-1 distance between measured and predicted
   distributions of normalised sample amplitude.
 - M3 quantile error: largest absolute difference of normalised amplitude at the 1, 5, 25, 50,
@@ -197,13 +205,16 @@ numeric limit of each metric is a number computed from **B2B data only** (for ex
 spread between the two B2B halves, or the width of the B2B parameter-uncertainty envelope) with
 a stated multiplier. All limits go into `docs/benchmarks/TERIPHIC_CRITERION.yaml`, which carries
 the hash of this plan in a `plan_sha256` key. That file must be **committed before any 2 km
-statistic is computed**; the commit date is the freeze date.
+statistic is computed**; ~~the commit date is the freeze date~~ [Revision 2: a commit date is
+whatever its author set and can be forged; see R2.3 for what the freeze proves and what it does
+not].
 
 Enforcement: `src/opticps/benchmarks/holdout.py::require_frozen_criterion(asset, criterion_path)`
 refuses (raises `BenchmarkError`) any evaluation of a `VALIDATION` or `LOCKED_TEST` asset when the
 criterion file is absent, incomplete (a metric missing, not finite or not positive), refers to
-another plan hash, or is not committed and unmodified in Git. It returns the commit that froze
-it, which a report must carry. Every holdout evaluation entry point added in E2 must call it
+another plan hash, or is not committed and unmodified in Git. ~~It returns the commit that froze
+it, which a report must carry.~~ [Revision 2: it returns the first commit that held the limits,
+as the history of the local repository states it; see R2.3.] Every holdout evaluation entry point added in E2 must call it
 before computing anything; E2 adds a test that its entry point does. At the time of this
 revision no holdout evaluation code exists, and the criterion file does not exist, so every
 holdout evaluation is refused. The tool cannot see statistics computed outside it; that part is
@@ -230,3 +241,130 @@ procedure, which is why this plan bars the operations in R.2 and R.3.
 The loader now calls `assert_no_split_overlap`. It compares acquisition group, file name,
 supplied MD5 and locally computed hashes, after normalising case. The same value of any of
 them in two roles, or under two groups, is `LEAKAGE_DETECTED`.
+
+## Revision 2 (2026-10-31): amendment after the second E0 independent review
+
+Previous version: SHA-256 `42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a`
+(Revision 1, commit 8f57af9; the first version, `6bf4238a...`, is commit 8900748). New version: the
+pin in `tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`
+(a file cannot contain its own hash; the same value is in the commit message).
+
+Reason: the second E0 review (`docs/orchestration/opticps-v2/handoff/E0_qa2.md`, findings 1 to 3)
+showed that the freeze check of Revision 1 passed a re-committed or amended criterion and a
+backdated commit, that a claim of this plan about struck-through text was false, that metric M1
+had no norm or pass rule, that estimators were not frozen and that the criterion schema had no
+field for the stated multiplier. `handoff/E0_qa.md`, cited in Revision 1, was not tracked at
+that revision; it was committed later (ba367cc). Still before E1: no sample of any capture has
+been read.
+
+### R2.1 What was edited in place, and what happened to the struck-through claim
+
+The header of Revision 1 said every superseded clause was struck through. That was false.
+Revision 1 struck through two clauses (the re-tuning sentence of section 1 rule 2, and the numeric-tolerance bullet of section 3). It
+changed other earlier text in place, without strike-through: it added sentences to the header,
+a pointer line to section 0, a bracket to section 1 rule 3 and to the B2B paragraph and to
+section 5, and it **rewrote** two sentences of section 2. The original wording of those two was:
+"Not opened for amplitude statistics until the B2B model and the list of fibre scenarios are
+frozen in a committed file" (2 km) and "Its amplitude statistics are not computed until a commit
+contains the frozen parameters, the selected scenario and the evaluation script" (10 km). The full
+change is `git diff 8900748 8f57af9 -- docs/benchmarks/FIT_HOLDOUT_PLAN.md`.
+Revision 2 edits earlier text in these places, each struck through and marked in the text: the
+header sentence above, the "Checksums, format and content" sentence of section 0, the addendum
+wording in section 5, the claim in R.1 about who read samples, the M1 bullet, the sentence that
+made the commit date the freeze date and the description of what the tool returns in R.4. The diff of this
+revision is `git log -p --follow -- docs/benchmarks/FIT_HOLDOUT_PLAN.md` (the commit that
+adds this section).
+
+### R2.2 Metrics defined, estimators frozen
+
+All estimators below are frozen by this revision. A change needs a new revision that is
+committed before the criterion file is.
+
+- Normalisation: one affine map, fixed on B2B and applied unchanged to every length: x_norm =
+  (x - c0) / g0, where c0 is the mean of the four B2B level centroids and g0 the mean of the
+  three adjacent B2B gaps. B2B therefore has mean gap 1 by construction.
+- Level centroids (inferred, no transmitted reference exists): one-dimensional k-means with k = 4,
+  Lloyd iterations, initial centroids at the 12.5, 37.5, 62.5 and 87.5 % quantiles, stop when the
+  largest centroid move is below 1e-9 times the sample standard deviation or after 200 iterations,
+  centroids sorted ascending.
+- Quantiles: linear interpolation between order statistics (Hyndman-Fan type 7, the NumPy default).
+- M1 level spacing: let g(m) be the vector of the three adjacent gaps between the centroids of the
+  measured normalised samples of one length, and g(p) the same for the predicted normalised
+  samples, each from the estimator above. M1 = max over i of |g(m)_i - g(p)_i|, the L-infinity
+  norm, dimensionless (units of the B2B mean gap). The measured change of g per length against
+  B2B is reported as information and does not enter the pass rule.
+- M2: Wasserstein-1 distance between the measured and predicted amplitude distributions, computed
+  as the mean over N = 65536 equally spaced probabilities u = (j - 0.5)/N of |Q_m(u) - Q_p(u)|,
+  with Q the quantile function above.
+- M3: the maximum over p in {0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99} of |Q_m(p) - Q_p(p)|.
+- M4: Welch power spectral density of the normalised samples: Hann window (periodic), segments of
+  4096 samples, 50 % overlap, constant detrend, density scaling, one-sided; the log-spectral
+  distance is the square root of the mean over the bins with frequency up to the baud rate of
+  (10 log10(P_m/P_p))^2, in dB. It needs the sample rate; if that stays unknown the metric is not
+  computed and the length is BLOCKED.
+- Pass rule: a length is within the criterion if and only if **all four** metrics are less than or
+  equal to their frozen limits (non-strict). One metric above its limit is a failure against the
+  criterion.
+
+### R2.3 The criterion file, and what its freeze proves
+
+Schema (`criterion_version: 2`), exactly these keys: `plan_sha256`, `limits`, `b2b_basis` and
+`multipliers`. For each metric `b2b_basis` is the number computed from B2B data only, `multipliers`
+is the stated multiplier, and the limit must equal their product (relative tolerance 1e-9), so a
+limit cannot hide an unstated factor.
+
+`holdout.require_frozen_criterion` refuses an evaluation of 2 km or 10 km unless all of these hold:
+
+1. the plan, the criterion and the other inputs the plan names are committed, and their bytes in
+   the working tree equal their bytes at `HEAD` (bytes are compared, not `git status`, so
+   `--assume-unchanged` and `--skip-worktree` cannot hide a change; an uncommitted plan is
+   refused); the limits returned are read from the `HEAD` bytes, never from a working file;
+2. the criterion has the schema above, and its `plan_sha256` is the hash of the committed plan;
+3. the first commit of the followed history of the file that holds non-null `limits` is the
+   freeze commit, and **no later commit changed the limits**: a re-commit with other limits is
+   refused;
+4. the inputs for 2 km are `b2b_model` and `scenario_list`; for 10 km `frozen_parameters`,
+   `selected_scenario` and `evaluation_script`, and the 2 km stage must be done;
+5. `RESERVED` and `UNASSIGNED` assets (PD2 and PD3, section 1 rule 5) are refused;
+6. a shallow clone is refused, because its first commit is not visible.
+
+What this does **not** prove, stated plainly:
+
+- Git history can be rewritten locally. The tool proves consistency with the history present in
+  this local repository, and nothing about how that history came to be. A re-commit that changes
+  the limits is refused. An amended or rewritten first commit leaves no trace in the repository
+  and is **undetectable**.
+- The commit date is reported as Git states it (author date and committer date, both returned).
+  Both can be set to any value by whoever commits; a backdated freeze commit passes. The date is
+  not evidence.
+- Only a timestamp the author does not control proves when the criterion existed, for example the
+  freeze commit pushed to a remote that the owner does not control. Pushing is an owner action;
+  this revision did not push and the tool cannot check it.
+- The tool cannot see statistics computed outside it (procedure, R.2 and R.3).
+- A first commit that holds wrong limits cannot be corrected; that needs a new plan revision and
+  a new criterion file name.
+- `FrozenCriterion` can be built only by the checker as far as Python allows (the constructor,
+  `replace`, `copy` and `pickle` refuse); code that calls `object.__new__` can still forge one.
+
+### R2.4 Sequences driving a prediction, and the shared-sequence check
+
+R.2 covers the data. It also covers **predictions**: a prediction for 2 km or 10 km must not be
+driven by a sequence recovered from B2B, or from any capture. Allowed drivers are a sequence a
+source states, a synthetic sequence whose seed is in the committed frozen parameters, or the
+level probabilities alone. A prediction driven by a B2B-recovered sequence is a replay of that
+sequence; it may be reported only as `EXPLORATORY` for that statistic and does not count towards
+`VALIDATED`.
+
+Before `VALIDATED` can be written for 10 km, a **shared-sequence check** must be run and
+recorded: after the evaluation commit exists, test whether a sequence recovered from B2B occurs in
+the 2 km or 10 km data, by a method committed in the evaluation script. Its result is
+`NOT_SHARED`, `SHARED` or `NOT_RUN` (`holdout.SequenceCheck`). Only `NOT_SHARED` allows
+`VALIDATED`; `SHARED` marks the affected statistics `EXPLORATORY`.
+
+### R2.5 Verdicts (extends R.5)
+
+`EXPLORATORY` is a label, not a confirmatory verdict. `holdout.allowed_verdicts` has no permissive
+default: for 10 km it offers `VALIDATED` only when the file is intact, 2 km was done and did not
+end `FAILED`, and the shared-sequence check found `NOT_SHARED`; a missing state offers none. A
+10 km file that was burned (anything changed after its result was seen, section 2) can end only
+`EXPLORATORY` or `BLOCKED`. 2 km still cannot end `VALIDATED`.

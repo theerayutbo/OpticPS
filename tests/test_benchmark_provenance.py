@@ -5,8 +5,13 @@ names, statuses and metrics are written out literally in the tests, on purpose: 
 loops over the implementation's own constant cannot notice that the constant lost an entry.
 """
 
+import copy
 import dataclasses
 import hashlib
+import math
+import os
+import pickle
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -18,6 +23,9 @@ import yaml
 from opticps.benchmarks import catalog, holdout, provenance
 from opticps.benchmarks.catalog import load_source_config, parse_source, require_local_asset
 from opticps.benchmarks.holdout import (
+    HoldoutState,
+    SequenceCheck,
+    ValidationStage,
     Verdict,
     allowed_verdicts,
     require_frozen_criterion,
@@ -50,11 +58,13 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 1 of the plan (2026-10-31, before any sample was read). The text of the
-# previous version (commit 8900748) hashed to PREVIOUS_PLAN_SHA256. A deliberate amendment must
-# change this line, the plan_sha256 in the TERIPHIC config and add a dated section.
-PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
-PREVIOUS_PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
+# Pinned for Revision 2 of the plan (2026-10-31, before any sample was read). Revision 1 hashed to
+# PREVIOUS_PLAN_SHA256 (commit 8f57af9) and the first version to ORIGINAL_PLAN_SHA256 (commit
+# 8900748). A deliberate amendment must change this line, the plan_sha256 in the TERIPHIC config
+# and add a dated section.
+PLAN_SHA256 = "45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11"
+PREVIOUS_PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
+ORIGINAL_PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
 MD5_B2B = "d7bd6d48bc020a138f4f129bc2ba7312"
 MD5_2KM = "d9e3c533394c53c3575491558ffc35b1"
 MD5_10KM = "3d8774b068deaf50f37892b38953dfd6"
@@ -167,7 +177,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
         "FIT_HOLDOUT_PLAN.md changed: amend with a dated section and a new pin"
     )
     assert load_source_config(TERIPHIC).plan_sha256 == PLAN_SHA256
-    assert PLAN_SHA256 != PREVIOUS_PLAN_SHA256
+    assert len({PLAN_SHA256, PREVIOUS_PLAN_SHA256, ORIGINAL_PLAN_SHA256}) == 3
 
 
 def test_plan_roles_match_config_splits():
@@ -188,16 +198,44 @@ def test_plan_roles_match_config_splits():
         assert needle in text
 
 
-def test_plan_revision_is_visible_and_truthful():
+def test_plan_revisions_are_visible_and_truthful():
     text = " ".join(PLAN.read_text().split())
-    assert "## Revision 1 (2026-10-31)" in text
-    assert PREVIOUS_PLAN_SHA256 in text  # previous version recorded
+    assert "## Revision 1 (2026-10-31)" in text and "## Revision 2 (2026-10-31)" in text
+    for previous in (PREVIOUS_PLAN_SHA256, ORIGINAL_PLAN_SHA256):
+        assert previous in text  # earlier versions recorded
     assert "no sample of any TERIPHIC capture has been read, decoded, plotted or summarised" in text
     assert "the files have only been hashed" in text
-    # the superseded clauses stay visible, struck through, and are marked
+    assert text.count("Revision 2") >= 10
+    # the superseded clauses stay visible, struck through, and each strike carries a note
     assert "~~If they were re-tuned between lengths" in text
     assert "~~Numeric pass/fail tolerances" in text
-    assert text.count("Revision 1") >= 8
+    spans = list(re.finditer(r"~~(.+?)~~\s*(\[[^\]]*\])?", text))
+    assert len(spans) >= 9
+    for match in spans:
+        assert match.group(2) and "Revision" in match.group(2), match.group(0)[:80]
+    for struck in (
+        "Every clause it supersedes is struck through in place",  # the false claim of Revision 1
+        "Checksums, format and content are therefore all still unknown",
+        "against the later addendum criterion",
+        "by anyone",
+        "M1 level spacing: the three gaps",
+        "the commit date is the freeze date",
+        "It returns the commit that froze it",
+    ):
+        assert f"~~{struck}" in text or f"~~ {struck}" in text, struck
+    # the false claim is not left standing outside a strike
+    unstruck = re.sub(r"~~.+?~~", "", text)
+    assert "Every clause it supersedes" not in unstruck
+    assert "by anyone" not in unstruck and "later addendum" not in unstruck
+    assert "the commit date is the freeze date" not in unstruck
+    # what really happened to section 2 is disclosed with a diff reference
+    for needle in (
+        "git diff 8900748 8f57af9 -- docs/benchmarks/FIT_HOLDOUT_PLAN.md",
+        "rewrote** two sentences of section 2",
+        "Not opened for amplitude statistics",
+        "Its amplitude statistics are not computed",
+    ):
+        assert needle in text, needle
     # shared-sequence and lock wording (R.2, R.3), validation limit (R.5), named metrics (R.4)
     for needle in (
         "one repeating sequence may be used for all three",
@@ -206,26 +244,46 @@ def test_plan_revision_is_visible_and_truthful():
         "covers **every** statistic",
         "2 km cannot by itself be VALIDATED",
         "Only the single 10 km evaluation",
-        "`FAILED`",
-        "`INCONCLUSIVE`",
-        "M1 level spacing",
         "M2 amplitude histogram distance",
         "M3 quantile error",
         "M4 spectrum shape",
         "require_frozen_criterion",
         "committed before any 2 km statistic is computed",
-        "commit SHA",
     ):
-        if needle != "commit SHA":
-            assert needle in text, needle
+        assert needle in text, needle
 
 
-def test_plan_has_no_open_contradiction_between_header_and_section_3():
-    text = PLAN.read_text()
-    header = text.split("## 0.")[0]
-    assert "Revision 1" in header and "required input file" in header
-    assert "separate dated addendum with its own SHA-256 before any 2 km" in text  # struck text
-    assert "~~Numeric pass/fail tolerances depend on the B2B noise floor" in text
+def test_plan_revision_2_defines_the_metrics_the_schema_and_the_residual_limits():
+    text = " ".join(PLAN.read_text().split())
+    for needle in (
+        # M1 fully defined: norm, form, pass rule
+        "M1 = max over i of |g(m)_i - g(p)_i|, the L-infinity norm",
+        "all four** metrics are less than or equal to their frozen limits",
+        # estimators frozen
+        "Hann window (periodic), segments of 4096 samples, 50 % overlap",
+        "Hyndman-Fan type 7",
+        "one-dimensional k-means with k = 4",
+        "N = 65536",
+        # schema field for the stated multiplier
+        "`plan_sha256`, `limits`, `b2b_basis` and `multipliers`",
+        "the limit must equal their product",
+        # predictions driven by a B2B-inferred sequence, shared-sequence check
+        "must not be driven by a sequence recovered from B2B",
+        "shared-sequence check",
+        "Only `NOT_SHARED` allows `VALIDATED`",
+        # the residual, plainly
+        "Git history can be rewritten locally",
+        "consistency with the history present in this local repository",
+        "An amended or rewritten first commit leaves no trace in the repository and is "
+        "**undetectable**",
+        "a backdated freeze commit passes",
+        "Only a timestamp the author does not control proves when the criterion existed",
+        "Pushing is an owner action",
+        "according to the orchestrator's record and the Dev logs",
+    ):
+        assert needle in text, needle
+    schema = holdout.CRITERION_KEYS - {"criterion_version"}
+    assert schema == {"plan_sha256", "limits", "b2b_basis", "multipliers"}
 
 
 # ------------------------------------------------------------------ configs
@@ -347,8 +405,8 @@ def test_register_quotes_the_record_and_states_the_corrections():
     for needle in (
         'commercially available off-the-shelf (COTS) laser source',
         'more than 70 GHz 3-dB bandwidth',
-        'A low-pass filter with a 50 GHz 3-dB cut-off frequency was digitally applied',
-        'The data sets are actually the samples extracted from the oscilloscope.',
+        'a digitally applied low-pass filter of 50 GHz 3-dB cut-off',
+        'actually the samples extracted from the oscilloscope',
         "0 NRZ",
         "hashed locally by orchestrator on owner-approved download, 2026-10-31",
         MD5_B2B, MD5_2KM, MD5_10KM,
@@ -362,6 +420,73 @@ def test_register_quotes_the_record_and_states_the_corrections():
         assert needle in text, needle
     assert "`transmitter_type` omits CW" not in text
     assert "Revision 2; HTML page says v1" not in text  # discrepancy 1 was an artefact
+
+
+# ------------------------------------------------------------------ article text stays out
+# SHA-256 (first 12 hex digits) of every window of 7 consecutive words of the sentences of the
+# CC BY-NC-ND article that an earlier version of the register and the Ran config quoted. Only
+# hashes are kept here, so this file does not carry the sentences either. Words are lower-cased
+# runs of letters and digits.
+REMOVED_ARTICLE_WINDOWS = frozenset("""
+    020940db6355 022f7b4cb4c0 0547d2162f77 06f139fd5b79 0b41849dfda8 15ed1ecba5a6 1ccb0230c0a4
+    1dcf5d2bd87c 284194c41a80 28924389f13e 29f4ceb46517 2a2ca551e020 2b00fd814e32 2fdf08eec4a3
+    30f573f8571e 3279ef036fd3 33d951821067 3476635e3cbd 34bc24438e01 3d6afbe2fe61 3dc65ddecdfd
+    42bbc2f0566d 43786314ad2f 4489ecf0fdb0 45806aa1d6f9 4699e741022d 480a91aeb12d 48e2b31ac6cf
+    4b34cab3a7e4 4d8fa8e1da25 511063be6b01 521673a244b2 5299c3bf220f 54f5c9cb676f 57b78dc0b09c
+    583e450a94df 58a8a10d17a2 5e618d1d93e0 5f9a9ff85c39 60970ce0c0d4 67082c82bbfe 734370e02b25
+    73a60a4199ee 78f6a933d9d9 79219ed2b62f 79d7f5496818 7baa326a8b50 7c225cf3ffa2 81aba89deebd
+    82b6ad0ad674 8360225d54bb 83da8aaa9aa7 8b3213a45e16 8b40ee96cb9c 8c6c9bf26212 8f6da28c4219
+    8f9f5d9964f1 9154928248ba 941a46757171 94e7c70771ca 964cc9a749ee 968b9bc93eab 97ff2ba58463
+    9ba3f15a3b27 9c703ac8ff36 a0adbe41e189 a10897e121c4 a151cbd11399 a25bfdfc10b4 a36591dcaa46
+    a87f411444c2 a89faec604e9 af2f47c4bcfe b13ab07d4c1b b1a9793274f2 b1fa23a3a807 b385bbdce4f2
+    b49aaa337053 b94f9f6c9843 bf7cc1c355aa c4726720d252 c57d529de8b0 c7d0a150c149 c89a93e4b982
+    cb358f533de5 cc080d79bd0e cc182a3f973c d114272dc2ae d2013ed898a6 d7d78b0544a3 d85cc97a4d9d
+    d90692a5ba9a decc87d2bb38 df50c3f10002 e19d42e4e6ec e3cb1176bb13 e5399b87fa88 e7eda9b7a056
+    e8bb8c930545 e8ed240585f4 ea2b039ae990 eb833ac943e4 ecf831067ebe f325ef0a0e2e f48e0c1f2a34
+    f698c96d1888 f7fda8e2b1c8 fd362d12cbdd fd8bbb9f1ee3 ffa3c60b51e7
+""".split())  # fmt: skip
+WORD_WINDOW = 7
+
+
+def word_windows(text: str):
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    for i in range(len(words) - WORD_WINDOW + 1):
+        yield hashlib.sha256(" ".join(words[i : i + WORD_WINDOW]).encode()).hexdigest()[:12]
+
+
+def committed_text_files():
+    if not git_available():
+        pytest.skip("git is not installed")
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, check=True, text=True
+    ).stdout
+    suffixes = {".md", ".yaml", ".yml", ".py", ".txt", ".toml", ".json", ".rst", ".cff"}
+    return [Path(n) for n in listing.split("\0") if n and Path(n).suffix in suffixes]
+
+
+def test_the_removal_detector_detects_a_quoted_sentence():
+    sentence = "[article text removed: CC BY-NC-ND]"
+    assert any(h in REMOVED_ARTICLE_WINDOWS for h in word_windows(sentence + " derived from"))
+    assert not any(
+        h in REMOVED_ARTICLE_WINDOWS for h in word_windows("dispersion -3.99 ps/(nm km)")
+    )
+    assert len(REMOVED_ARTICLE_WINDOWS) >= 100
+
+
+def test_no_removed_article_sentence_remains_in_committed_text():
+    own = Path(__file__).resolve()
+    for path in committed_text_files():
+        if path.resolve() == own or not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            continue
+        hits = [h for h in word_windows(text) if h in REMOVED_ARTICLE_WINDOWS]
+        assert not hits, f"{path} still carries {len(hits)} windows of a removed article sentence"
+    # the carve-out of the register is true: it names what is kept
+    register = " ".join(REGISTER.read_text().split())
+    assert "limited to bibliographic strings" in register
 
 
 # ------------------------------------------------------------------ parameter provenance
@@ -662,7 +787,8 @@ def test_register_states_the_nc_mit_conflict():
         "incompatible",
         "Ran article material, figures even verbatim, and any adapted content stay out of the repository",
         "independently computed results from cleared numeric data",
-        "[article text removed: CC BY-NC-ND].",
+        "the licence text in the Europe PMC XML denies permission to share adapted material",
+        "It carries no sentence of the article",
     ):  # fmt: skip
         assert needle in text, needle
 
@@ -991,23 +1117,69 @@ def test_records_do_not_alias_the_callers_containers():
 
 
 # ------------------------------------------------------------------ holdout guards
-def test_only_the_locked_test_can_be_validated():
-    everything = {
-        "VALIDATED", "FAILED", "INCONCLUSIVE", "UNIDENTIFIABLE_PARAMETER", "BLOCKED",
-    }  # fmt: skip
-    assert {v.value for v in Verdict} == everything
-    assert {v.value for v in allowed_verdicts(Split.LOCKED_TEST)} == everything
-    assert {v.value for v in allowed_verdicts(Split.LOCKED_TEST, validation_failed=True)} == (
-        everything - {"VALIDATED"}
-    )
-    assert {v.value for v in allowed_verdicts(Split.VALIDATION)} == everything - {"VALIDATED"}
-    assert {v.value for v in allowed_verdicts(Split.VALIDATION)} >= {"FAILED", "INCONCLUSIVE"}
-    assert {v.value for v in allowed_verdicts(Split.CHARACTERISATION)} == {
-        "INCONCLUSIVE",
-        "BLOCKED",
+EVERYTHING = {
+    "VALIDATED", "FAILED", "INCONCLUSIVE", "UNIDENTIFIABLE_PARAMETER", "BLOCKED", "EXPLORATORY",
+}  # fmt: skip
+OPEN = {"FAILED", "INCONCLUSIVE", "UNIDENTIFIABLE_PARAMETER", "BLOCKED"}
+
+
+def verdicts(split, **state):
+    return {v.value for v in allowed_verdicts(split, **state)}
+
+
+def test_verdict_names_are_the_documented_ones():
+    assert {v.value for v in Verdict} == EVERYTHING
+    assert {s.value for s in ValidationStage} == {"NOT_DONE", "FAILED", "NOT_FAILED"}
+    assert {s.value for s in SequenceCheck} == {"NOT_RUN", "SHARED", "NOT_SHARED"}
+    assert {s.value for s in HoldoutState} == {"INTACT", "BURNED"}
+
+
+def test_only_the_locked_test_can_be_validated_and_only_with_every_state_established():
+    good = {
+        "validation_stage": ValidationStage.NOT_FAILED,
+        "sequence_check": SequenceCheck.NOT_SHARED,
+        "state": HoldoutState.INTACT,
     }
-    assert {v.value for v in allowed_verdicts(Split.RESERVED)} == {"BLOCKED"}
-    assert {v.value for v in allowed_verdicts(Split.UNASSIGNED)} == {"BLOCKED"}
+    assert verdicts(Split.LOCKED_TEST, **good) == OPEN | {"VALIDATED"}
+    # no permissive default: nothing given, nothing granted
+    assert verdicts(Split.LOCKED_TEST) == OPEN
+    # each missing or bad state alone removes VALIDATED
+    for name, bad in (
+        ("validation_stage", None),
+        ("validation_stage", ValidationStage.NOT_DONE),
+        ("validation_stage", ValidationStage.FAILED),
+        ("sequence_check", None),
+        ("sequence_check", SequenceCheck.NOT_RUN),
+        ("sequence_check", SequenceCheck.SHARED),
+        ("state", None),
+    ):
+        assert "VALIDATED" not in verdicts(Split.LOCKED_TEST, **(good | {name: bad})), (name, bad)
+    # a shared sequence may be labelled EXPLORATORY, a failure cannot be softened
+    shared = verdicts(Split.LOCKED_TEST, **(good | {"sequence_check": SequenceCheck.SHARED}))
+    assert shared == OPEN | {"EXPLORATORY"}
+    # a burned file can only be EXPLORATORY or BLOCKED, whatever else is true
+    burned = verdicts(Split.LOCKED_TEST, **(good | {"state": HoldoutState.BURNED}))
+    assert burned == {"EXPLORATORY", "BLOCKED"}
+    for wrong in ("NOT_FAILED", 1, True):
+        with pytest.raises(BenchmarkError, match="must be a ValidationStage"):
+            allowed_verdicts(Split.LOCKED_TEST, validation_stage=wrong)  # type: ignore[arg-type]
+    with pytest.raises(BenchmarkError, match="must be a SequenceCheck"):
+        allowed_verdicts(Split.LOCKED_TEST, sequence_check="NOT_SHARED")  # type: ignore[arg-type]
+    with pytest.raises(BenchmarkError, match="must be a HoldoutState"):
+        allowed_verdicts(Split.LOCKED_TEST, state="INTACT")  # type: ignore[arg-type]
+
+
+def test_other_roles_never_validate_whatever_state_is_given():
+    good = {
+        "validation_stage": ValidationStage.NOT_FAILED,
+        "sequence_check": SequenceCheck.NOT_SHARED,
+        "state": HoldoutState.INTACT,
+    }
+    assert verdicts(Split.VALIDATION, **good) == OPEN
+    assert verdicts(Split.VALIDATION) == OPEN
+    assert verdicts(Split.CHARACTERISATION, **good) == {"INCONCLUSIVE", "BLOCKED"}
+    assert verdicts(Split.RESERVED, **good) == {"BLOCKED"}
+    assert verdicts(Split.UNASSIGNED, **good) == {"BLOCKED"}
 
 
 def test_ber_needs_a_reference_stated_by_a_source():
@@ -1027,26 +1199,38 @@ def test_ber_needs_a_reference_stated_by_a_source():
 METRIC_NAMES = (
     "M1_level_spacing", "M2_wasserstein1_amplitude", "M3_quantile_error", "M4_log_spectral_distance",
 )  # fmt: skip
+INPUT_FILES = {
+    Split.VALIDATION: ("b2b_model", "scenario_list"),
+    Split.LOCKED_TEST: ("frozen_parameters", "selected_scenario", "evaluation_script"),
+}
 
 
 def git_available() -> bool:
     return shutil.which("git") is not None
 
 
-def git(root: Path, *args: str) -> None:
-    subprocess.run(
+def git(root: Path, *args: str, env: dict | None = None) -> str:
+    done = subprocess.run(
         ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t.invalid",
          "-c", "commit.gpgsign=false", *args],
-        check=True, capture_output=True,
+        check=True, capture_output=True, text=True, env=None if env is None else os.environ | env,
     )  # fmt: skip
+    return done.stdout.strip()
 
 
 def criterion_document(plan: Path, **limits) -> dict:
     values = dict.fromkeys(METRIC_NAMES, 0.1) | limits
+    basis = dict.fromkeys(METRIC_NAMES, 0.05)
+    multipliers = {
+        m: (v / basis[m] if isinstance(v, float) and math.isfinite(v) and v > 0 else 2.0)
+        for m, v in values.items()
+    }
     return {
-        "criterion_version": 1,
+        "criterion_version": 2,
         "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
         "limits": values,
+        "b2b_basis": basis,
+        "multipliers": multipliers,
     }
 
 
@@ -1058,17 +1242,20 @@ def repo(tmp_path):
     root.mkdir()
     git(root, "init", "-q")
     (root / "plan.md").write_text("plan text")
-    git(root, "add", "plan.md")
+    for names in INPUT_FILES.values():
+        for name in names:
+            (root / f"{name}.txt").write_text(f"content of {name}")
+    git(root, "add", ".")
     git(root, "commit", "-q", "-m", "plan")
     return root
 
 
-def freeze(root: Path, document: dict, commit: bool = True) -> Path:
+def freeze(root: Path, document: dict, commit: bool = True, env: dict | None = None) -> Path:
     path = root / "criterion.yaml"
     path.write_text(yaml.safe_dump(document))
     if commit:
         git(root, "add", "criterion.yaml")
-        git(root, "commit", "-q", "-m", "freeze")
+        git(root, "commit", "-q", "-m", "freeze", env=env)
     return path
 
 
@@ -1076,45 +1263,106 @@ def holdout_assets():
     return {a.split: a for a in load_source_config(TERIPHIC).assets}
 
 
+def call(repo, path, split=Split.VALIDATION, **extra):
+    arguments = {
+        "plan_path": repo / "plan.md",
+        "repo_root": repo,
+        "inputs": {name: repo / f"{name}.txt" for name in INPUT_FILES[split]},
+    }
+    if split is Split.LOCKED_TEST:
+        arguments["validation_stage"] = ValidationStage.NOT_FAILED
+    return require_frozen_criterion(holdout_assets()[split], path, **(arguments | extra))
+
+
+def refuse(repo, path, message, split=Split.VALIDATION, **extra):
+    with pytest.raises(BenchmarkError, match=message):
+        call(repo, path, split, **extra)
+
+
+def head(repo) -> str:
+    return git(repo, "rev-parse", "HEAD")
+
+
 def test_holdout_without_a_frozen_criterion_is_refused(tmp_path):
     assets = holdout_assets()
     for split in (Split.VALIDATION, Split.LOCKED_TEST):
+        inputs = {name: tmp_path / name for name in INPUT_FILES[split]}
         with pytest.raises(BenchmarkError, match="no frozen criterion"):
-            require_frozen_criterion(assets[split], tmp_path / "absent.yaml")
+            require_frozen_criterion(
+                assets[split],
+                tmp_path / "absent.yaml",
+                inputs=inputs,
+                validation_stage=ValidationStage.NOT_FAILED,
+            )
     # the characterisation file needs none
     assert (
         require_frozen_criterion(assets[Split.CHARACTERISATION], tmp_path / "absent.yaml") is None
     )
     assert holdout.HOLDOUT_SPLITS == {Split.VALIDATION, Split.LOCKED_TEST}
     assert holdout.METRICS == METRIC_NAMES
+    assert holdout.CRITERION_VERSION == 2
+    assert holdout.REQUIRED_INPUTS[Split.VALIDATION] == INPUT_FILES[Split.VALIDATION]
+    assert holdout.REQUIRED_INPUTS[Split.LOCKED_TEST] == INPUT_FILES[Split.LOCKED_TEST]
+
+
+def test_reserved_and_unassigned_roles_are_refused_not_allowed(repo):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    for role in (Split.RESERVED, Split.UNASSIGNED):
+        asset = dataclasses.replace(holdout_assets()[Split.VALIDATION], split=role)
+        with pytest.raises(BenchmarkError, match="is not open"):
+            require_frozen_criterion(
+                asset, path, plan_path=repo / "plan.md", repo_root=repo, inputs={}
+            )
 
 
 def test_a_committed_complete_criterion_is_returned_with_its_commit(repo):
     path = freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=0.25))
     for split in (Split.VALIDATION, Split.LOCKED_TEST):
-        frozen = require_frozen_criterion(
-            holdout_assets()[split], path, plan_path=repo / "plan.md", repo_root=repo
-        )
+        frozen = call(repo, path, split)
         assert frozen is not None
-        head = subprocess.run(
-            ["git", "-C", str(repo), "rev-parse", "HEAD"],
-            capture_output=True,
-            text=True,
-            check=True,
-        ).stdout.strip()
-        assert frozen.commit == head and len(frozen.committed_at) >= 20
-        assert frozen.file_sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
+        assert frozen.commit == head(repo) == frozen.head_commit
+        assert len(frozen.committed_at) >= 20 and len(frozen.authored_at) >= 20
+        committed = subprocess.run(
+            ["git", "-C", str(repo), "show", "HEAD:criterion.yaml"],
+            capture_output=True, check=True,
+        ).stdout  # fmt: skip
+        assert frozen.file_sha256 == hashlib.sha256(committed).hexdigest()
         assert frozen.limits["M1_level_spacing"] == 0.25
         assert set(frozen.limits) == set(METRIC_NAMES)
+        assert set(frozen.inputs) == set(INPUT_FILES[split])
+        assert (
+            frozen.inputs[INPUT_FILES[split][0]]
+            == hashlib.sha256(f"content of {INPUT_FILES[split][0]}".encode()).hexdigest()
+        )
         with pytest.raises(TypeError):
             frozen.limits["M1_level_spacing"] = 9.0
+        with pytest.raises(TypeError):
+            frozen.inputs["x"] = "y"
+        with pytest.raises(dataclasses.FrozenInstanceError):
+            frozen.commit = "0" * 40  # type: ignore[misc]
 
 
-def refuse(repo, path, message):
-    with pytest.raises(BenchmarkError, match=message):
-        require_frozen_criterion(
-            holdout_assets()[Split.VALIDATION], path, plan_path=repo / "plan.md", repo_root=repo
-        )
+def test_a_frozen_criterion_cannot_be_constructed_replaced_copied_or_pickled(repo):
+    frozen = call(repo, freeze(repo, criterion_document(repo / "plan.md")))
+    assert frozen is not None
+    fields = {f.name: getattr(frozen, f.name) for f in dataclasses.fields(frozen)}
+    with pytest.raises(TypeError, match="issued by require_frozen_criterion"):
+        holdout.FrozenCriterion(**fields)
+    with pytest.raises(TypeError):
+        holdout.FrozenCriterion("x", "y", "z", {})  # type: ignore[call-arg]
+    with pytest.raises(TypeError):
+        dataclasses.replace(frozen, limits={"M1_level_spacing": 99.0})
+    for forge in (copy.copy, copy.deepcopy, pickle.dumps):
+        with pytest.raises(TypeError, match="cannot be copied or pickled"):
+            forge(frozen)
+    with pytest.raises(TypeError, match="issued by require_frozen_criterion"):
+        holdout.FrozenCriterion._issue(object(), **fields)
+    # the limit of what Python allows, stated: deliberate in-process code can still build one
+    forged = object.__new__(holdout.FrozenCriterion)
+    assert isinstance(forged, holdout.FrozenCriterion)
+    assert "Python cannot make a class unforgeable" in " ".join(
+        holdout.FrozenCriterion.__doc__.split()
+    )
 
 
 def test_an_uncommitted_or_modified_criterion_is_refused(repo):
@@ -1123,27 +1371,199 @@ def test_an_uncommitted_or_modified_criterion_is_refused(repo):
     git(repo, "add", "criterion.yaml")
     refuse(repo, path, "not committed")  # staged, not committed
     git(repo, "commit", "-q", "-m", "freeze")
-    require_frozen_criterion(
-        holdout_assets()[Split.VALIDATION], path, plan_path=repo / "plan.md", repo_root=repo
-    )
+    assert call(repo, path) is not None
     path.write_text(path.read_text().replace("0.1", "0.9"))
     refuse(repo, path, "not committed or modified")
+
+
+def test_a_later_commit_that_changes_the_limits_is_refused(repo):
+    # Repro 1a of the second review: edit after the freeze and plain `git commit -am`.
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    first = head(repo)
+    assert call(repo, path).commit == first
+    freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    assert head(repo) != first
+    refuse(repo, path, "limits changed after the first commit")
+    for split in (Split.VALIDATION, Split.LOCKED_TEST):
+        refuse(repo, path, first[:12], split)  # names the freeze commit
+
+
+def test_a_comment_only_later_commit_keeps_the_first_commit_as_the_freeze(repo):
+    # The freeze commit is the first, not the last, and non-limit changes are not a change.
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    first = head(repo)
+    path.write_text("# a comment\n" + path.read_text())
+    git(repo, "commit", "-q", "-am", "comment")
+    git(repo, "commit", "-q", "--allow-empty", "-m", "empty")
+    assert head(repo) != first
+    frozen = call(repo, path)
+    assert frozen.commit == first and frozen.head_commit == head(repo)
+
+
+def test_the_freeze_commit_is_the_first_that_holds_non_null_limits(repo):
+    document = criterion_document(repo / "plan.md")
+    path = freeze(repo, dict(document, limits=None))
+    refuse(repo, path, "limits must be exactly")  # null limits are not a criterion
+    placeholder = head(repo)
+    freeze(repo, document)
+    frozen = call(repo, path)
+    assert frozen.commit == head(repo) != placeholder
+
+
+def test_limits_removed_and_restored_are_a_change(repo):
+    document = criterion_document(repo / "plan.md")
+    path = freeze(repo, document)
+    freeze(repo, dict(document, limits=None))
+    freeze(repo, document)
+    refuse(repo, path, "limits changed after the first commit")
+
+
+def test_the_history_follows_a_rename_and_still_refuses_a_change(repo):
+    freeze(repo, criterion_document(repo / "plan.md"))
+    first = head(repo)
+    git(repo, "mv", "criterion.yaml", "renamed.yaml")
+    git(repo, "commit", "-q", "-m", "rename")
+    moved = repo / "renamed.yaml"
+    assert call(repo, moved).commit == first
+    changed = criterion_document(repo / "plan.md", M1_level_spacing=3.0)
+    moved.write_text(yaml.safe_dump(changed))
+    git(repo, "commit", "-q", "-am", "retune after rename")
+    refuse(repo, moved, "limits changed after the first commit")
+
+
+def test_an_amended_first_commit_is_the_undetectable_case_and_says_so(repo):
+    # Repro 1a, amend: the tool cannot see it. The test pins the behaviour so that the
+    # disclosure in the plan and the docstring stays true; it is not a claim of protection.
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    original = head(repo)
+    path.write_text(yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=3.0)))
+    git(repo, "commit", "-q", "--amend", "-a", "--no-edit")
+    assert head(repo) != original
+    frozen = call(repo, path)
+    assert frozen.limits["M1_level_spacing"] == 3.0 and frozen.commit == head(repo)
+    text = " ".join(holdout.__doc__.split())
+    assert "amended or rewritten first commit leaves no trace" in text and "undetectable" in text
+    plan = " ".join(PLAN.read_text().split())
+    assert "An amended or rewritten first commit leaves no trace in the repository" in plan
+
+
+def test_a_backdated_commit_passes_and_its_date_is_reported_as_stated_and_forgeable(repo):
+    forged = {
+        "GIT_COMMITTER_DATE": "2020-01-01T00:00:00+00:00",
+        "GIT_AUTHOR_DATE": "2019-06-01T12:00:00+00:00",
+    }
+    path = freeze(repo, criterion_document(repo / "plan.md"), env=forged)
+    frozen = call(repo, path)
+    assert frozen.committed_at.startswith("2020-01-01T00:00:00")  # committer date, not author
+    assert frozen.authored_at.startswith("2019-06-01T12:00:00")
+    assert "forged" in " ".join(holdout.__doc__.split()) or "typed" in holdout.__doc__
+    assert "backdat" in holdout.FrozenCriterion.__doc__
+    plan = " ".join(PLAN.read_text().split())
+    assert "a backdated freeze commit passes" in plan and "not evidence" in plan
+
+
+@pytest.mark.parametrize("flag", ["--assume-unchanged", "--skip-worktree"])
+def test_a_hidden_working_change_is_seen_through_the_index_flags(repo, flag):
+    # Repro 1b of the second review: the index flags hide the edit from `git status`.
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    git(repo, "update-index", flag, "criterion.yaml")
+    path.write_text(yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=9.0)))
+    assert git(repo, "status", "--porcelain", "--", "criterion.yaml") == ""  # hidden from status
+    refuse(repo, path, "modified since HEAD")
+    # the returned limits are the committed ones once the working file is back to HEAD
+    path.write_text(
+        subprocess.run(
+            ["git", "-C", str(repo), "show", "HEAD:criterion.yaml"],
+            capture_output=True,
+            check=True,
+            text=True,
+        ).stdout  # fmt: skip
+    )
+    frozen = call(repo, path)
+    assert frozen.limits["M1_level_spacing"] == 0.1
+
+
+def test_an_uncommitted_plan_is_refused_even_when_the_criterion_is_retied(repo):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    assert call(repo, path) is not None
+    (repo / "plan.md").write_text("plan text, edited after the freeze")
+    refuse(repo, path, "plan.md: not committed or modified since HEAD")
+    # a new criterion tied to the edited plan, committed, still sees the uncommitted plan
+    freeze(repo, criterion_document(repo / "plan.md"))
+    refuse(repo, path, "limits changed after the first commit|plan.md")
+    git(repo, "add", "plan.md")  # staged is not committed either
+    refuse(repo, path, "plan.md: not committed or modified since HEAD")
+    # plan outside the repository
+    with pytest.raises(BenchmarkError, match="outside the repository"):
+        call(repo, path, plan_path=repo.parent / "plan.md")
+
+
+def test_the_inputs_the_plan_names_must_be_exact_committed_and_unchanged(repo):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    inputs = {name: repo / f"{name}.txt" for name in INPUT_FILES[Split.VALIDATION]}
+    for bad in ({}, {"b2b_model": inputs["b2b_model"]}, inputs | {"extra": repo / "plan.md"}):
+        refuse(repo, path, "the inputs must be exactly", inputs=bad)
+    with pytest.raises(BenchmarkError, match="the inputs must be exactly"):
+        require_frozen_criterion(
+            holdout_assets()[Split.VALIDATION],
+            path,
+            plan_path=repo / "plan.md",
+            repo_root=repo,
+        )  # inputs omitted
+    inputs["b2b_model"].write_text("changed after the commit")
+    refuse(repo, path, "b2b_model.*modified since HEAD|b2b_model.txt: not committed or modified")
+    inputs["b2b_model"].write_text("content of b2b_model")
+    (repo / "late.txt").write_text("never committed")
+    refuse(repo, path, "not committed", inputs=inputs | {"scenario_list": repo / "late.txt"})
+    (repo / "scenarios_gone.txt").write_text("x")
+    git(repo, "add", "scenarios_gone.txt")
+    refuse(
+        repo, path, "not committed", inputs=inputs | {"scenario_list": repo / "scenarios_gone.txt"}
+    )
+    refuse(repo, path, "outside the repository", inputs=inputs | {"scenario_list": repo.parent})
+
+
+def test_the_ten_km_file_needs_the_two_km_stage_done(repo):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    for stage in (None, ValidationStage.NOT_DONE):
+        refuse(
+            repo, path, "before the 2 km stage is done", Split.LOCKED_TEST, validation_stage=stage
+        )
+    for stage in (ValidationStage.FAILED, ValidationStage.NOT_FAILED):
+        assert call(repo, path, Split.LOCKED_TEST, validation_stage=stage) is not None
+    refuse(repo, path, "before the 2 km stage", Split.LOCKED_TEST, validation_stage="NOT_FAILED")
+    # 2 km does not need a stage
+    assert call(repo, path, Split.VALIDATION) is not None
 
 
 def test_a_criterion_for_another_plan_or_with_bad_limits_is_refused(repo):
     other = criterion_document(repo / "plan.md") | {"plan_sha256": "0" * 64}
     refuse(repo, freeze(repo, other), "another version of the plan")
-    for bad, message in [
-        ({"M1_level_spacing": 0}, "finite and positive"),
-        ({"M2_wasserstein1_amplitude": -1.0}, "finite and positive"),
-        ({"M3_quantile_error": float("nan")}, "finite and positive"),
-        ({"M4_log_spectral_distance": float("inf")}, "finite and positive"),
-        ({"M1_level_spacing": True}, "finite and positive"),
-        ({"M1_level_spacing": "0.1"}, "finite and positive"),
-    ]:
-        refuse(
-            repo, freeze(repo, criterion_document(repo / "plan.md", **bad), commit=False), message
-        )
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [0, -1.0, float("nan"), float("inf"), True, "0.1", 10**400, None, [1]],
+)
+def test_bad_limits_are_refused_with_a_typed_error(repo, bad):
+    document = criterion_document(repo / "plan.md", M1_level_spacing=bad)
+    refuse(repo, freeze(repo, document), "finite and positive")
+
+
+def test_the_limit_must_equal_the_b2b_basis_times_the_stated_multiplier(repo):
+    document = criterion_document(repo / "plan.md")
+    broken = dict(document, multipliers=document["multipliers"] | {"M3_quantile_error": 3.0})
+    refuse(repo, freeze(repo, broken), "is not b2b_basis x multiplier")
+    for key in ("multipliers", "b2b_basis"):
+        path = freeze(repo, {k: v for k, v in document.items() if k != key})
+        refuse(repo, path, "must have exactly")
+    for name in ("b2b_basis", "multipliers"):
+        for bad in (0, -1.0, float("nan"), True, "2"):
+            wrong = dict(document, **{name: document[name] | {"M2_wasserstein1_amplitude": bad}})
+            refuse(repo, freeze(repo, wrong), "finite and positive")
+    assert holdout.CRITERION_KEYS == {
+        "criterion_version", "plan_sha256", "limits", "b2b_basis", "multipliers",
+    }  # fmt: skip
 
 
 def test_a_criterion_with_missing_extra_or_malformed_keys_is_refused(repo):
@@ -1151,21 +1571,27 @@ def test_a_criterion_with_missing_extra_or_malformed_keys_is_refused(repo):
     missing = dict(
         base, limits={k: v for k, v in base["limits"].items() if k != "M3_quantile_error"}
     )
-    refuse(repo, freeze(repo, missing, commit=False), "limits must be exactly")
+    refuse(repo, freeze(repo, missing), "limits must be exactly")
     refuse(
         repo,
-        freeze(repo, dict(base, limits=base["limits"] | {"M5": 1.0}), commit=False),
+        freeze(repo, dict(base, limits=base["limits"] | {"M5": 1.0})),
         "limits must be exactly",
     )
-    refuse(repo, freeze(repo, dict(base, extra=1), commit=False), "exactly criterion_version")
-    refuse(repo, freeze(repo, dict(base, criterion_version=2), commit=False), "criterion_version")
-    refuse(repo, freeze(repo, dict(base, criterion_version=1.0), commit=False), "criterion_version")
-    refuse(repo, freeze(repo, dict(base, limits=[1]), commit=False), "limits must be exactly")
+    refuse(repo, freeze(repo, dict(base, extra=1)), "must have exactly")
+    refuse(repo, freeze(repo, dict(base, criterion_version=1)), "criterion_version")
+    refuse(repo, freeze(repo, dict(base, criterion_version=2.0)), "criterion_version")
+    refuse(repo, freeze(repo, dict(base, limits=[1])), "limits must be exactly")
     path = repo / "criterion.yaml"
     path.write_text("- not\n- a mapping\n")
-    refuse(repo, path, "exactly criterion_version")
-    path.write_text("criterion_version: 1\ncriterion_version: 1\n")
+    git(repo, "add", "criterion.yaml")
+    git(repo, "commit", "-q", "-m", "bad")
+    refuse(repo, path, "must have exactly")
+    path.write_text("criterion_version: 2\ncriterion_version: 2\n")
+    git(repo, "commit", "-q", "-am", "dup")
     refuse(repo, path, "not valid YAML")
+    path.write_bytes(b"\xff\xfe\x00 not utf-8")
+    git(repo, "commit", "-q", "-am", "binary")
+    refuse(repo, path, "not valid UTF-8")
 
 
 def test_a_git_ignored_criterion_is_refused(repo):
@@ -1178,6 +1604,322 @@ def test_a_criterion_outside_the_repository_is_refused(repo, tmp_path):
     outside = tmp_path / "elsewhere.yaml"
     outside.write_text(yaml.safe_dump(criterion_document(repo / "plan.md")))
     refuse(repo, outside, "outside the repository")
+
+
+def test_git_problems_are_typed_errors(repo, tmp_path, monkeypatch):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    # no plan file at all
+    with pytest.raises(BenchmarkError, match="plan"):
+        call(repo, path, plan_path=repo / "no_such_plan.md")
+    # a directory that is not a repository
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    (plain / "plan.md").write_text("p")
+    (plain / "criterion.yaml").write_text("x")
+    with pytest.raises(BenchmarkError, match="not committed|cannot establish"):
+        call(plain, plain / "criterion.yaml", plan_path=plain / "plan.md")
+    # git not installed
+    monkeypatch.setenv("PATH", str(tmp_path / "empty"))
+    with pytest.raises(BenchmarkError, match="git failed"):
+        call(repo, path)
+
+
+def test_the_environment_cannot_point_git_at_another_repository(repo, tmp_path, monkeypatch):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    decoy = tmp_path / "decoy"
+    decoy.mkdir()
+    git(decoy, "init", "-q")
+    monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
+    assert call(repo, path) is not None
+    monkeypatch.delenv("GIT_DIR")
+    # a replace ref substitutes a commit locally; the guard reads the real objects
+    first = head(repo)
+    freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    git(repo, "replace", head(repo), first)
+    refuse(repo, path, "limits changed after the first commit")
+
+
+def test_a_shallow_clone_is_refused(repo, tmp_path):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"), commit=False)
+    (repo / "note.txt").write_text("n")
+    git(repo, "add", "note.txt")
+    git(repo, "commit", "-q", "-m", "later")
+    clone = tmp_path / "shallow"
+    subprocess.run(
+        ["git", "clone", "-q", "--depth", "1", f"file://{repo}", str(clone)],
+        check=True, capture_output=True,
+    )  # fmt: skip
+    assert path.exists()
+    refuse(clone, clone / "criterion.yaml", "shallow clone")
+
+
+# ------------------------------------------------------------------ second-review additions
+@pytest.mark.parametrize(
+    "license_id",
+    [
+        "CC-BY-NC-ND-4.0",
+        "CC-BY-NC-ND-3.0",
+        "CC-BY-NC-ND-3.0-DE",
+        "cc-by-nc-nd-4.0",
+        "CC BY-NC-ND 4.0",
+        "CC_BY_NC_ND_4.0",
+    ],
+)
+def test_an_nc_nd_identifier_cannot_be_typed_as_granting_commercial_use_or_derivatives(license_id):
+    nc_nd = {
+        "private_research_use": Permission.ALLOWED_WITH_CONDITIONS,
+        "public_redistribution": Permission.ALLOWED_WITH_CONDITIONS,
+        "derivatives": Permission.NOT_ALLOWED,
+        "commercial_use": Permission.NOT_ALLOWED,
+    }
+    record = make_licence(scope="article", license_id=license_id, **nc_nd)  # the honest record
+    assert record.commercial_use is Permission.NOT_ALLOWED
+    for grant in (Permission.ALLOWED, Permission.ALLOWED_WITH_CONDITIONS):
+        with pytest.raises(BenchmarkError, match="NonCommercial.*commercial use"):
+            make_licence(
+                scope="article", license_id=license_id, **(nc_nd | {"commercial_use": grant})
+            )
+        with pytest.raises(BenchmarkError, match="NoDerivatives.*adapted material"):
+            make_licence(scope="article", license_id=license_id, **(nc_nd | {"derivatives": grant}))
+
+
+def test_licence_identifier_terms_are_matched_as_tokens_not_substrings():
+    for license_id, field in (
+        ("CC-BY-NC-4.0", "commercial_use"),
+        ("CC-BY-NC-SA-4.0", "commercial_use"),
+        ("CC-BY-ND-4.0", "derivatives"),
+    ):
+        with pytest.raises(BenchmarkError):
+            make_licence(license_id=license_id, **{field: Permission.ALLOWED})
+    # CC-BY, MIT and an id that merely contains the letters grant what they say
+    for license_id in ("CC-BY-4.0", "CC-BY-SA-4.0", "MIT", "NCSA", "Apache-2.0", "CC0-1.0"):
+        record = make_licence(
+            license_id=license_id,
+            commercial_use=Permission.ALLOWED,
+            derivatives=Permission.ALLOWED,
+        )
+        assert record.commercial_use is Permission.ALLOWED
+
+
+def test_a_ran_config_edited_to_grant_what_nc_nd_excludes_does_not_load(tmp_path):
+    for field in ("derivatives", "commercial_use"):
+        document = raw(RAN)
+        document["source"]["licenses"][0][field] = "ALLOWED"
+        with pytest.raises(BenchmarkError, match="NonCommercial|NoDerivatives"):
+            parse_source(document["source"])
+        path = write(tmp_path, document, f"ran_{field}.yaml")
+        with pytest.raises(BenchmarkError):
+            load_source_config(path)
+
+
+@pytest.mark.parametrize(
+    "field, permission",
+    [
+        ("public_redistribution", Permission.UNVERIFIED),
+        ("commercial_use", Permission.UNVERIFIED),
+        ("derivatives", Permission.UNVERIFIED),
+    ],
+)
+def test_a_record_level_licence_with_an_unverified_permission_does_not_pass_the_gates(
+    field, permission
+):
+    source = make_source(make_licence(**{field: permission}))
+    messages = {
+        "public_redistribution": "public redistribution",
+        "commercial_use": "commercial use",
+        "derivatives": "adapted material",
+    }
+    with pytest.raises(BenchmarkError, match=messages[field]) as error:
+        source.require_derivatives("data")
+    assert error.value.code is ErrorCode.LICENSE_UNVERIFIED
+    if field != "derivatives":
+        with pytest.raises(BenchmarkError, match=messages[field]):
+            source.require_public_redistribution("data")
+    else:
+        source.require_public_redistribution("data")  # verbatim publication is not adapted
+
+
+def test_the_supplied_md5_of_one_asset_equals_the_local_md5_of_another(tmp_path):
+    # Review finding 4: keys were per kind, so a supplied and a local MD5 never met.
+    payload = b"one acquisition under two names"
+    path = tmp_path / "x.bin"
+    path.write_bytes(payload)
+    digest = hashlib.md5(payload).hexdigest()
+    supplied = make_asset(group="g/A", split=Split.CHARACTERISATION, name="a.bin", md5=digest)
+    local = with_local_hash(make_asset(group="g/B", split=Split.VALIDATION, name="b.bin"), path)
+    assert supplied.checksum.md5_local is None and local.checksum.md5_supplied is None
+    for pair in ((supplied, local), (local, supplied)):
+        with pytest.raises(BenchmarkError, match="MD5") as error:
+            assert_no_split_overlap(pair)
+        assert error.value.code is ErrorCode.LEAKAGE_DETECTED
+    # the same file in the same group and role is not leakage
+    same = with_local_hash(make_asset(group="g/A", name="c.bin", md5=digest), path)
+    assert_no_split_overlap((supplied, same))
+    # different digests never meet
+    other = make_asset(group="g/C", split=Split.LOCKED_TEST, name="c2.bin", md5="0" * 32)
+    assert_no_split_overlap((other, supplied))
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["TBD", "tbd", "TBA", "?", "??", "???", "n / a", "N/A", "  to do ", "todo", "unspecified",
+     "- - -", "~", "...", "?-"],
+)  # fmt: skip
+def test_placeholder_words_are_not_known_text(text):
+    with pytest.raises(BenchmarkError, match="not a known value"):
+        ParameterValue(text, Provenance.PUBLISHED_MEASUREMENT, source_ref="r")
+
+
+def test_real_text_that_resembles_a_placeholder_is_accepted():
+    for text in ("TBD-1 board", "what?", "a-b", "N/A type 2", "3.5"):
+        assert ParameterValue(text, Provenance.PUBLISHED_MEASUREMENT, source_ref="r").known
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("sample_rate_hz", 256),  # 256 Hz instead of 256 GSa/s
+        ("sample_rate_hz", 5e5),
+        ("sample_rate_hz", 1e14),
+        ("sample_rate_hz", 10**400),
+        ("baud_bd", 50),
+        ("baud_bd", 10**400),
+        ("baud_bd", 1e13),
+        ("wavelength_nm", 1.55),  # micrometres typed as nanometres
+        ("wavelength_nm", 1e6),
+        ("fibre_length_km", 1e6),
+    ],
+)
+def test_implausible_numbers_are_refused_by_a_declared_range(field, value):
+    unit = provenance._NUMERIC_FIELDS[field][0]
+    parameter = ParameterValue(value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r")
+    with pytest.raises(BenchmarkError, match="plausible range"):
+        make_asset(**{field: parameter})
+
+
+def test_plausible_ranges_are_declared_and_accept_the_documented_values():
+    assert provenance.PLAUSIBLE_RANGES == {
+        "sample_rate_hz": (1e6, 1e13),
+        "baud_bd": (1e6, 1e12),
+        "wavelength_nm": (200.0, 20000.0),
+        "fibre_length_km": (0.0, 1e5),
+    }
+    for field in provenance.PLAUSIBLE_RANGES:
+        low, high = provenance.PLAUSIBLE_RANGES[field]
+        unit = provenance._NUMERIC_FIELDS[field][0]
+        for value in (low, high):
+            ParameterValue(value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r")
+            make_asset(
+                **{
+                    field: ParameterValue(
+                        value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r"
+                    )
+                }
+            )
+    make_asset(sample_rate_hz=good("sample_rate_hz"), baud_bd=good("baud_bd"))
+
+
+def test_a_verified_state_cannot_travel_by_pickle_copy_or_dict_write(tmp_path):
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"abc")
+    verified = verify_local_asset(path, hashlib.md5(b"abc").hexdigest())
+    assert verified.md5_state is Md5State.VERIFIED
+    for forge in (pickle.dumps, copy.copy, copy.deepcopy):
+        with pytest.raises(TypeError, match="not pickled or copied"):
+            forge(verified)
+    for blank in (Checksum(), Checksum(md5_supplied=MD5_B2B)):
+        with pytest.raises(TypeError):
+            pickle.dumps(blank)
+    assert not hasattr(verified, "__dict__")
+    with pytest.raises((AttributeError, TypeError)):
+        verified.__dict__ = {"md5_local": MD5_B2B}  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        verified.__dict__["md5_local"] = MD5_B2B  # type: ignore[attr-defined]
+
+
+def test_the_verified_result_carries_size_and_mtime_and_goes_stale_when_the_file_changes(tmp_path):
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"abcdef")
+    checksum = verify_local_asset(path)
+    assert checksum.size_local == 6
+    assert checksum.mtime_ns_local == path.stat().st_mtime_ns
+    assert checksum.still_current(path)
+    path.write_bytes(b"abcdefg")  # size changes
+    assert not checksum.still_current(path)
+    fresh = verify_local_asset(path)
+    assert fresh.still_current(path)
+    os.utime(path, ns=(1, fresh.mtime_ns_local + 10_000_000_000))  # same size, newer mtime
+    assert not fresh.still_current(path)
+    assert not Checksum().still_current(path)  # never hashed
+    assert not fresh.still_current(tmp_path / "gone.bin")
+    # dataclasses.replace drops the local facts together with the hashes
+    assert dataclasses.replace(fresh, md5_supplied=MD5_B2B).size_local is None
+
+
+def test_verify_local_asset_reads_in_chunks_and_opens_read_only(tmp_path, monkeypatch):
+    payload = bytes(range(256)) * 40  # 10 240 bytes
+    path = tmp_path / "chunks.bin"
+    path.write_bytes(payload)
+    path.chmod(0o444)
+    monkeypatch.setattr(provenance, "_CHUNK", 1000)
+    reads: list[int] = []
+    modes: list[str] = []
+    real_open = Path.open
+
+    def spy_open(self, mode="r", *args, **kwargs):
+        modes.append(mode)
+        handle = real_open(self, mode, *args, **kwargs)
+        real_read = handle.read
+
+        def read(size=-1):
+            reads.append(size)
+            return real_read(size)
+
+        return _ReadSpy(handle, read)
+
+    monkeypatch.setattr(Path, "open", spy_open)
+    checksum = verify_local_asset(path)
+    assert modes == ["rb"]
+    assert reads and set(reads) == {1000}  # never a whole-file read
+    assert len(reads) == 12  # eleven chunks and the empty read that ends the loop
+    assert checksum.sha256_local == hashlib.sha256(payload).hexdigest()
+    assert path.read_bytes() == payload and (path.stat().st_mode & 0o777) == 0o444
+
+
+class _ReadSpy:
+    def __init__(self, handle, read):
+        self._handle, self.read = handle, read
+
+    def __enter__(self):
+        self._handle.__enter__()
+        return self
+
+    def __exit__(self, *exc):
+        return self._handle.__exit__(*exc)
+
+    def fileno(self):
+        return self._handle.fileno()
+
+
+def test_a_file_that_cannot_be_read_is_a_typed_error(tmp_path):
+    path = tmp_path / "locked.bin"
+    path.write_bytes(b"x")
+    path.chmod(0o000)
+    try:
+        if os.access(path, os.R_OK):
+            pytest.skip("permissions are not enforced for this user")
+        with pytest.raises(BenchmarkError, match="cannot be read"):
+            verify_local_asset(path)
+    finally:
+        path.chmod(0o644)
+
+
+def test_a_config_that_is_not_utf8_text_is_a_typed_error(tmp_path):
+    path = tmp_path / "bad.yaml"
+    path.write_bytes(b"\xff\xfe not utf-8")
+    with pytest.raises(BenchmarkError, match="cannot be read as UTF-8"):
+        load_source_config(path)
 
 
 # ------------------------------------------------------------------ strict loader

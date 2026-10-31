@@ -213,6 +213,8 @@ def load_source_config(path: Path) -> SourceRecord:
         document = load_strict_yaml(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as error:
         raise BenchmarkError(f"{path.name}: not valid YAML: {error}") from error
+    except (UnicodeDecodeError, OSError) as error:
+        raise BenchmarkError(f"{path.name}: cannot be read as UTF-8 text: {error}") from error
     body = _mapping(document, path.name, {"benchmark_config_version", "source"})
     version = body["benchmark_config_version"]
     if type(version) is not int or version != CONFIG_VERSION:
