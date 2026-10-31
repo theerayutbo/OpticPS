@@ -1,4 +1,4 @@
-# Benchmark source: Wiegart et al., JLT 39(2), 400-405 (2021). Bibliographic data from Crossref (fetch tool).
+# Benchmark source: Wiegart et al., JLT 39(2), 400-405 (2021). Bibliographic data re-read 2026-10-31 as raw Crossref JSON.
 # The IEEE page was not readable; the paper body was NOT read in gate E0, so every technical field is null.
 benchmark_config_version: 1
 source:
@@ -15,11 +15,13 @@ source:
       license_id: null
       private_research_use: UNVERIFIED
       public_redistribution: UNVERIFIED
+      derivatives: UNVERIFIED
+      commercial_use: UNVERIFIED
       note: "Publisher copyright (IEEE). Crossref lists only IEEE licence links, not an open licence. Author manuscript terms (arXiv 2005.12428v2 or institutional archive) not read. Digitised or re-plotted figures are not cleared."
       read_how: unconfirmed
   parameters:
-    modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "title: 4-PAM", read_how: summary}
-    constraint: {value: "peak power constraint", provenance: PUBLISHED_MEASUREMENT, source_ref: "title", read_how: summary}
+    modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "title: 4-PAM", read_how: verified}
+    constraint: {value: "peak power constraint", provenance: PUBLISHED_MEASUREMENT, source_ref: "title", read_how: verified}
     distribution_family: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
     noise_definition: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
     reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "not applicable until experimental data are identified"}

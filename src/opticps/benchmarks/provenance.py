@@ -4,7 +4,12 @@ Every parameter of an external source carries the way it became known. A value w
 provenance is refused, an unknown value stays `None` with provenance UNKNOWN, a simulated
 value can never fill a field that stands for a measurement, and an MD5 that was only copied
 from a record is "supplied", never "verified". Nothing here touches the network; the only file
-access is `verify_md5`, which reads one local file the caller names.
+access is `verify_local_asset`, which streams one local file the caller names.
+
+Validation lives in the constructors, so a record built in code is held to the same rules as a
+record loaded from YAML: known values are typed per field (finite, positive where physical,
+enumerated units), text is non-blank, identifiers use character allow-lists, and collections
+are copied into immutable containers.
 
 This module describes sources. It does not read any external capture format; that needs a
 verified format and belongs to a later gate.
@@ -13,13 +18,16 @@ verified format and belongs to a later gate.
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import datetime
 import hashlib
+import math
+import re
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, overload
 
 _CHUNK = 1 << 20
 
@@ -57,8 +65,21 @@ class Provenance(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class ReadHow(StrEnum):
+    """How we read a fact (vocabulary of docs/engineering_log/VERIFICATION.md)."""
+
+    VERIFIED = "verified"  # raw text of the primary record read by us (JSON or XML, not a summary)
+    SUMMARY = "summary"  # read through a fetch tool that returns a model-written summary
+    USER_SUPPLIED = "user-supplied"
+    UNCONFIRMED = "unconfirmed"
+
+
 class LicenseStatus(StrEnum):
-    VERIFIED = "VERIFIED"  # the licence identifier was read from the source's own record
+    """What was read about a licence. Neither value below means a lawyer's clearance."""
+
+    # The licence identifier or wording was read in the raw metadata or full text of the source's
+    # own record. No separate licence file or per-file terms were inspected.
+    RECORD_LEVEL = "RECORD_LEVEL"
     UNVERIFIED = "UNVERIFIED"
     RESTRICTED = "RESTRICTED"  # no reuse right granted beyond reading
 
@@ -75,10 +96,13 @@ class Permission(StrEnum):
     UNVERIFIED = "UNVERIFIED"
 
 
+_GRANTING = (Permission.ALLOWED, Permission.ALLOWED_WITH_CONDITIONS)
+
+
 class Md5State(StrEnum):
     ABSENT = "absent"  # no MD5 recorded
     SUPPLIED = "supplied"  # copied from a record, not checked against local bytes
-    VERIFIED = "verified"  # recomputed from local bytes and equal to the supplied value
+    VERIFIED = "verified"  # recomputed by `verify_local_asset` and equal to the supplied value
     MISMATCH = "mismatch"  # recomputed and different
 
 
@@ -90,19 +114,21 @@ class Split(StrEnum):
     UNASSIGNED = "UNASSIGNED"
 
 
-# Fields that stand for a physical setting or measurement of the experiment. A SIMULATED value
-# is refused in them.
+# Fields that stand for a physical setting, a measurement or a published constant of the
+# experiment. A SIMULATED value is refused in them.
 MEASURED_FIELDS = frozenset(
     {
         "sample_rate_hz",
         "baud_bd",
         "modulation_order",
         "wavelength_nm",
+        "wavelength_band",
         "fibre_type",
         "fibre_length_km",
         "transmitter_type",
         "detector",
         "dispersion_ps_per_nm_km",
+        "fec_threshold",
         "reference_sequence",
         "raw_format",
         "calibration",
@@ -136,14 +162,106 @@ SOURCE_FIELDS = frozenset(ASSET_FIELDS) | {
     "wavelength_band",
 }
 
+# Typed rules per known field. Numeric fields are stored in the unit named by the field.
+_NUMERIC_FIELDS: dict[str, tuple[str, str]] = {
+    "sample_rate_hz": ("Hz", "positive"),
+    "baud_bd": ("Bd", "positive"),
+    "wavelength_nm": ("nm", "positive"),
+    "fibre_length_km": ("km", "non-negative"),
+    "dispersion_ps_per_nm_km": ("ps/(nm km)", "finite"),
+}
+MODULATION_ORDERS = frozenset({2, 4, 8, 16})
+_TEXT_FIELDS = frozenset(
+    {
+        "fibre_type",
+        "transmitter_type",
+        "detector",
+        "reference_sequence",
+        "raw_format",
+        "calibration",
+        "fec_threshold",
+        "equalizer",
+        "rate_definition",
+        "ber_definition",
+        "chirp_model_status",
+        "constraint",
+        "distribution_family",
+        "noise_definition",
+        "wavelength_band",
+    }
+)
+# A known value that is really the word for "no value" is refused (e.g. the string "null").
+_PLACEHOLDERS = frozenset({"null", "none", "nan", "unknown", "n/a", "na", "~", "-"})
+
+_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
+_FILENAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.+-]{0,254}")
+_DOI = re.compile(r"10\.[0-9]{4,9}/[!-~]+")
+_URL = re.compile(r"https?://[!-~]+")
+
+
+@overload
+def check_text(value: object, where: str) -> str: ...
+
+
+@overload
+def check_text(value: object, where: str, *, nullable: bool) -> str | None: ...
+
+
+def check_text(value: object, where: str, *, nullable: bool = False) -> str | None:
+    """A non-blank string without control characters (NUL included), or None when allowed."""
+    if value is None and nullable:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise BenchmarkError(f"{where}: must be a non-empty string, got {value!r}")
+    if any(ord(c) < 32 or ord(c) == 127 for c in value):
+        raise BenchmarkError(f"{where}: contains a control character")
+    return value
+
+
+def _match(pattern: re.Pattern[str], value: object, where: str) -> str:
+    text = check_text(value, where)
+    if pattern.fullmatch(text) is None or ".." in text:
+        raise BenchmarkError(f"{where}: {text!r} contains characters that are not allowed")
+    return text
+
+
+def _group(value: object, where: str) -> str:
+    text = check_text(value, where)
+    parts = text.split("/")
+    if not all(_ID.fullmatch(part) and ".." not in part for part in parts):
+        raise BenchmarkError(f"{where}: {text!r} is not a '/'-separated list of safe names")
+    return text
+
+
+def _hex(value: object, length: int, where: str) -> str | None:
+    if value is None:
+        return None
+    if (
+        not isinstance(value, str)
+        or len(value) != length
+        or not all(c in "0123456789abcdef" for c in value)
+    ):
+        raise BenchmarkError(f"{where}: is not a {length}-digit lowercase hexadecimal string")
+    return value
+
+
+def _enum_member(kind: type[StrEnum], value: object, where: str) -> None:
+    if not isinstance(value, kind):
+        raise BenchmarkError(f"{where}: must be a {kind.__name__}, got {value!r}")
+
+
+def group_key(group: str) -> str:
+    """Normalised acquisition group used for leakage comparison."""
+    return group.casefold()
+
 
 @dataclass(frozen=True)
 class ParameterValue:
     """One parameter: value (None = not known), provenance, unit, wording and where it was read.
 
     `as_stated` keeps the source's own wording when it differs from the value stored (for
-    example a sample rate printed with a baud unit). `read_how` follows the vocabulary of
-    docs/engineering_log/VERIFICATION.md (verified, summary, user-supplied, unconfirmed).
+    example a sample rate printed with a baud unit). `read_how` follows `ReadHow`.
+    A known value is a finite number or a non-blank string; never a bool, list or mapping.
     """
 
     value: Any
@@ -154,14 +272,30 @@ class ParameterValue:
     read_how: str | None = None
 
     def __post_init__(self) -> None:
-        if not isinstance(self.provenance, Provenance):
-            raise BenchmarkError(f"a value needs a provenance, got {self.provenance!r}")
+        _enum_member(Provenance, self.provenance, "a value needs a provenance")
         if self.value is None and self.provenance is not Provenance.UNKNOWN:
             raise BenchmarkError(f"a missing value must carry UNKNOWN, not {self.provenance.value}")
         if self.value is not None and self.provenance is Provenance.UNKNOWN:
             raise BenchmarkError("a value cannot carry UNKNOWN provenance; give its source")
-        if self.value is not None and not self.source_ref:
+        for name in ("unit", "as_stated", "source_ref"):
+            check_text(getattr(self, name), f"parameter.{name}", nullable=True)
+        if self.read_how is not None and self.read_how not in {m.value for m in ReadHow}:
+            raise BenchmarkError(f"parameter.read_how: {self.read_how!r} is not a ReadHow value")
+        if self.value is None:
+            return
+        if not self.source_ref:
             raise BenchmarkError("a known value needs a source_ref saying where it was read")
+        value = self.value
+        if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+            raise BenchmarkError(
+                f"a value must be a number, a string or null, got {type(value).__name__}"
+            )
+        if isinstance(value, float) and not math.isfinite(value):
+            raise BenchmarkError(f"a known value must be finite, got {value!r}")
+        if isinstance(value, str):
+            check_text(value, "parameter.value")
+            if value.strip().casefold() in _PLACEHOLDERS:
+                raise BenchmarkError(f"the string {value!r} is not a known value; write null")
 
     @property
     def known(self) -> bool:
@@ -172,9 +306,44 @@ class ParameterValue:
         return cls(None, Provenance.UNKNOWN, as_stated=note)
 
 
+def _check_field(name: str, parameter: ParameterValue, where: str) -> None:
+    """Typed rule of one known field: kind, range, unit."""
+    if not parameter.known:
+        return
+    value = parameter.value
+    if name in _NUMERIC_FIELDS:
+        unit, rule = _NUMERIC_FIELDS[name]
+        if isinstance(value, str):
+            raise BenchmarkError(f"{where}: {name} must be a number, got {value!r}")
+        if rule == "positive" and not value > 0:
+            raise BenchmarkError(f"{where}: {name} must be positive, got {value!r}")
+        if rule == "non-negative" and value < 0:
+            raise BenchmarkError(f"{where}: {name} must not be negative, got {value!r}")
+        if parameter.unit != unit:
+            raise BenchmarkError(
+                f"{where}: {name} is stored in {unit}; unit {parameter.unit!r} is inconsistent"
+                " (convert the value, keep the source wording in as_stated)"
+            )
+    elif name == "modulation_order":
+        if isinstance(value, (str, float)) or value not in MODULATION_ORDERS:
+            raise BenchmarkError(
+                f"{where}: modulation_order must be an integer in {sorted(MODULATION_ORDERS)},"
+                f" got {value!r}"
+            )
+        if parameter.unit is not None:
+            raise BenchmarkError(f"{where}: modulation_order has no unit")
+    elif name in _TEXT_FIELDS:
+        if not isinstance(value, str):
+            raise BenchmarkError(f"{where}: {name} must be text, got {value!r}")
+        if parameter.unit is not None:
+            raise BenchmarkError(f"{where}: {name} has no unit")
+
+
 def _check_parameters(
     parameters: Mapping[str, ParameterValue], allowed: Iterable[str], where: str
 ) -> Mapping[str, ParameterValue]:
+    if not isinstance(parameters, Mapping):
+        raise BenchmarkError(f"{where}: parameters must be a mapping")
     allowed_set = set(allowed)
     for name, parameter in parameters.items():
         if name not in allowed_set:
@@ -186,52 +355,78 @@ def _check_parameters(
                 f"{where}: a SIMULATED value cannot occupy the measured field {name!r}",
                 ErrorCode.NOT_COMPARABLE,
             )
+        _check_field(name, parameter, where)
     return MappingProxyType(dict(parameters))
 
 
 @dataclass(frozen=True)
 class LicenseRecord:
-    """Rights of one thing (the article, or the attached data), stated separately."""
+    """Rights of one thing (the article, or the attached data), stated separately.
+
+    `derivatives` is the right to publish adapted material (re-plotted figures, digitised
+    points, translated or modified data). `commercial_use` is the right to use the material
+    commercially, which a public MIT repository grants onward to every user.
+    """
 
     scope: str  # "article" | "data"
     status: LicenseStatus
     license_id: str | None
     private_research_use: Permission
     public_redistribution: Permission
+    derivatives: Permission
+    commercial_use: Permission
     note: str = ""
     read_how: str | None = None
 
     def __post_init__(self) -> None:
         if self.scope not in ("article", "data"):
             raise BenchmarkError(f"licence scope must be 'article' or 'data', got {self.scope!r}")
-        if self.status is LicenseStatus.VERIFIED and not self.license_id:
-            raise BenchmarkError("a VERIFIED licence needs its identifier")
-        if self.status is LicenseStatus.UNVERIFIED and (
-            self.public_redistribution is not Permission.UNVERIFIED
+        _enum_member(LicenseStatus, self.status, "licence status")
+        permissions = {
+            "private_research_use": self.private_research_use,
+            "public_redistribution": self.public_redistribution,
+            "derivatives": self.derivatives,
+            "commercial_use": self.commercial_use,
+        }
+        for name, permission in permissions.items():
+            _enum_member(Permission, permission, f"licence {name}")
+        check_text(self.license_id, "licence id", nullable=True)
+        if not isinstance(self.note, str):
+            raise BenchmarkError("licence note must be a string")
+        if self.read_how is not None and self.read_how not in {m.value for m in ReadHow}:
+            raise BenchmarkError(f"licence read_how {self.read_how!r} is not a ReadHow value")
+        if self.status is LicenseStatus.RECORD_LEVEL and not self.license_id:
+            raise BenchmarkError("a RECORD_LEVEL licence needs its identifier")
+        if self.status is LicenseStatus.UNVERIFIED and any(
+            p in _GRANTING for p in permissions.values()
         ):
-            raise BenchmarkError("unverified terms cannot grant public redistribution")
+            raise BenchmarkError("unverified terms cannot grant any permission")
+        if self.status is LicenseStatus.RESTRICTED and (
+            self.private_research_use is Permission.ALLOWED
+            or any(
+                p in _GRANTING
+                for p in (self.public_redistribution, self.derivatives, self.commercial_use)
+            )
+        ):
+            raise BenchmarkError("a RESTRICTED licence cannot grant redistribution or reuse")
 
 
 @dataclass(frozen=True)
 class Checksum:
-    """MD5 as supplied by the record and as recomputed locally, plus a local SHA-256.
+    """MD5 as supplied by the record, plus the hashes of local bytes.
 
-    The state is derived: an MD5 never checked against local bytes is `supplied`.
+    The local MD5 and SHA-256 cannot be passed to the constructor: they are not `__init__`
+    fields. Only `verify_local_asset`, which hashes the bytes of a real file, sets them, so the
+    state `Md5State.VERIFIED` cannot be typed in. The state is derived: an MD5 never checked
+    against local bytes is `supplied`.
     """
 
     md5_supplied: str | None = None
-    md5_local: str | None = None
-    sha256_local: str | None = None
+    md5_local: str | None = field(default=None, init=False)
+    sha256_local: str | None = field(default=None, init=False)
 
     def __post_init__(self) -> None:
-        for name in ("md5_supplied", "md5_local"):
-            value = getattr(self, name)
-            if value is not None and not _is_hex(value, 32):
-                raise BenchmarkError(f"{name} is not a 32-digit hexadecimal string")
-        if self.sha256_local is not None and not _is_hex(self.sha256_local, 64):
-            raise BenchmarkError("sha256_local is not a 64-digit hexadecimal string")
-        if self.md5_local is not None and self.sha256_local is None:
-            raise BenchmarkError("a locally computed MD5 needs the local SHA-256 of the same bytes")
+        _hex(self.md5_supplied, 32, "md5_supplied")
 
     @property
     def md5_state(self) -> Md5State:
@@ -242,23 +437,25 @@ class Checksum:
         return Md5State.VERIFIED if self.md5_local == self.md5_supplied else Md5State.MISMATCH
 
 
-def _is_hex(text: str, length: int) -> bool:
-    return len(text) == length and all(c in "0123456789abcdef" for c in text)
+def verify_local_asset(path: Path, md5_supplied: str | None = None) -> Checksum:
+    """Stream one local file through MD5 and SHA-256 and return the resulting checksum.
 
-
-def verify_md5(path: Path, checksum: Checksum) -> Checksum:
-    """Hash one local file (MD5 and SHA-256, streamed) and return the updated checksum.
-
-    A missing file is SOURCE_MISSING. Reads only; never creates, moves or modifies the file.
+    The only producer of local hashes, hence of `Md5State.VERIFIED`: the state is reached only
+    when the digest of the bytes read here equals `md5_supplied`. A missing file is
+    SOURCE_MISSING. Reads only; never creates, moves or modifies the file. Nothing in E0 calls
+    this on a capture: E1 runs it on the three downloaded TERIPHIC files.
     """
     if not path.is_file():
         raise BenchmarkError(f"{path.name} is not present locally", ErrorCode.SOURCE_MISSING)
+    checksum = Checksum(md5_supplied=md5_supplied)
     md5, sha = hashlib.md5(), hashlib.sha256()
     with path.open("rb") as handle:
         while chunk := handle.read(_CHUNK):
             md5.update(chunk)
             sha.update(chunk)
-    return replace(checksum, md5_local=md5.hexdigest(), sha256_local=sha.hexdigest())
+    object.__setattr__(checksum, "md5_local", md5.hexdigest())
+    object.__setattr__(checksum, "sha256_local", sha.hexdigest())
+    return checksum
 
 
 @dataclass(frozen=True)
@@ -278,14 +475,25 @@ class AssetRecord:
     sample_rate_wording: str | None = None  # unit as the record prints it
 
     def __post_init__(self) -> None:
-        if not (self.source_id and self.doi and self.url and self.filename and self.group):
-            raise BenchmarkError("an asset needs source_id, doi, url, filename and group")
-        if Path(self.filename).name != self.filename:
-            raise BenchmarkError(f"filename {self.filename!r} must be a bare file name")
-        if not isinstance(self.split, Split):
-            raise BenchmarkError(f"unknown split {self.split!r}")
-        if self.size_bytes is not None and self.size_bytes <= 0:
-            raise BenchmarkError("size_bytes must be positive")
+        _match(_ID, self.source_id, "asset.source_id")
+        _match(_DOI, self.doi, "asset.doi")
+        _match(_URL, self.url, "asset.url")
+        check_text(self.asset_version, "asset.asset_version")
+        _match(_FILENAME, self.filename, "asset.filename")
+        _group(self.group, f"{self.filename}.group")
+        check_text(self.sample_rate_wording, "asset.sample_rate_wording", nullable=True)
+        if not isinstance(self.checksum, Checksum):
+            raise BenchmarkError(f"{self.filename}: checksum must be a Checksum")
+        _enum_member(Split, self.split, f"{self.filename}.split")
+        if self.size_bytes is not None and (
+            isinstance(self.size_bytes, bool)
+            or not isinstance(self.size_bytes, int)
+            or self.size_bytes <= 0
+        ):
+            raise BenchmarkError(
+                f"{self.filename}: size_bytes must be a positive integer or null,"
+                f" got {self.size_bytes!r}"
+            )
         checked = _check_parameters(self.parameters, ASSET_FIELDS, self.filename)
         absent = [name for name in ASSET_FIELDS if name not in checked]
         if absent:
@@ -316,27 +524,46 @@ class SourceRecord:
     plan_sha256: str | None = None  # pinned hash of the fit/holdout plan, if any
 
     def __post_init__(self) -> None:
+        _match(_ID, self.source_id, "source.source_id")
         if self.kind not in ("dataset", "publication"):
             raise BenchmarkError(f"{self.source_id}: kind must be dataset or publication")
-        if not (self.source_id and self.title and self.doi and self.url and self.retrieved):
-            raise BenchmarkError("a source needs source_id, title, doi, url and retrieved")
-        if not self.licenses:
+        check_text(self.title, "source.title")
+        _match(_DOI, self.doi, "source.doi")
+        _match(_URL, self.url, "source.url")
+        check_text(self.version, "source.version", nullable=True)
+        retrieved = check_text(self.retrieved, "source.retrieved")
+        try:
+            datetime.date.fromisoformat(retrieved)
+        except ValueError:
+            raise BenchmarkError(f"source.retrieved: {retrieved!r} is not an ISO date") from None
+        licenses = tuple(self.licenses)
+        if not licenses:
             raise BenchmarkError(
                 f"{self.source_id}: licence state is required", ErrorCode.LICENSE_UNVERIFIED
             )
-        scopes = [lic.scope for lic in self.licenses]
+        if not all(isinstance(lic, LicenseRecord) for lic in licenses):
+            raise BenchmarkError(f"{self.source_id}: licences must be LicenseRecord objects")
+        scopes = [lic.scope for lic in licenses]
         if len(scopes) != len(set(scopes)):
             raise BenchmarkError(f"{self.source_id}: a licence scope is listed twice")
-        for asset in self.assets:
+        assets = tuple(self.assets)
+        if not all(isinstance(asset, AssetRecord) for asset in assets):
+            raise BenchmarkError(f"{self.source_id}: assets must be AssetRecord objects")
+        for asset in assets:
             if asset.source_id != self.source_id:
                 raise BenchmarkError(f"{asset.filename}: source_id differs from {self.source_id}")
+        names = [asset.filename.casefold() for asset in assets]
+        if len(names) != len(set(names)):
+            raise BenchmarkError(f"{self.source_id}: a filename is listed twice")
+        assert_no_split_overlap(assets)
+        object.__setattr__(self, "licenses", licenses)
+        object.__setattr__(self, "assets", assets)
         object.__setattr__(
             self,
             "parameters",
             _check_parameters(self.parameters, SOURCE_FIELDS, self.source_id),
         )
-        if self.plan_sha256 is not None and not _is_hex(self.plan_sha256, 64):
-            raise BenchmarkError("plan_sha256 is not a 64-digit hexadecimal string")
+        _hex(self.plan_sha256, 64, "plan_sha256")
 
     def license_for(self, scope: str) -> LicenseRecord:
         for lic in self.licenses:
@@ -347,34 +574,73 @@ class SourceRecord:
         )
 
     def require_public_redistribution(self, scope: str) -> None:
-        """Raise LICENSE_UNVERIFIED unless public redistribution of `scope` is allowed."""
+        """Raise LICENSE_UNVERIFIED unless `scope` may be published in this MIT repository.
+
+        Publishing in an MIT repository passes the material to every user for any use, so the
+        licence must grant public redistribution *and* commercial use. A non-commercial licence
+        (CC BY-NC-ND) fails even though it permits sharing the article verbatim.
+        """
         lic = self.license_for(scope)
-        if lic.status is not LicenseStatus.VERIFIED or lic.public_redistribution not in (
-            Permission.ALLOWED,
-            Permission.ALLOWED_WITH_CONDITIONS,
-        ):
+        if lic.status is not LicenseStatus.RECORD_LEVEL:
             raise BenchmarkError(
-                f"{self.source_id}: public redistribution of the {scope} is not established",
+                f"{self.source_id}: licence of the {scope} is {lic.status.label}",
+                ErrorCode.LICENSE_UNVERIFIED,
+            )
+        if lic.public_redistribution not in _GRANTING:
+            raise BenchmarkError(
+                f"{self.source_id}: public redistribution of the {scope} is not granted",
+                ErrorCode.LICENSE_UNVERIFIED,
+            )
+        if lic.commercial_use not in _GRANTING:
+            raise BenchmarkError(
+                f"{self.source_id}: the {scope} licence ({lic.license_id}) does not grant"
+                " commercial use, which an MIT repository grants to everyone",
+                ErrorCode.LICENSE_UNVERIFIED,
+            )
+
+    def require_derivatives(self, scope: str) -> None:
+        """Raise LICENSE_UNVERIFIED unless adapted material of `scope` may be published."""
+        self.require_public_redistribution(scope)
+        lic = self.license_for(scope)
+        if lic.derivatives not in _GRANTING:
+            raise BenchmarkError(
+                f"{self.source_id}: the {scope} licence ({lic.license_id}) does not grant"
+                " adapted material (re-plotted figures, digitised points, modified data)",
                 ErrorCode.LICENSE_UNVERIFIED,
             )
 
 
 def assert_no_split_overlap(assets: Iterable[AssetRecord]) -> None:
-    """LEAKAGE_DETECTED if one acquisition group or one local hash sits in two roles."""
-    by_group: dict[str, Split] = {}
-    by_hash: dict[str, tuple[str, Split]] = {}
+    """LEAKAGE_DETECTED if one file identity sits in two roles or two acquisition groups.
+
+    The identities compared, each after case normalisation: acquisition group (one group, one
+    role), file name, MD5 supplied by the record, locally computed MD5 and locally computed
+    SHA-256. Two files that share a name or a hash are one acquisition and must share the group
+    and the role.
+    """
+    seen: dict[tuple[str, str], tuple[str, Split]] = {}
+    group_role: dict[str, Split] = {}
     for asset in assets:
-        seen = by_group.setdefault(asset.group, asset.split)
-        if seen is not asset.split:
+        group = group_key(asset.group)
+        role = group_role.setdefault(group, asset.split)
+        if role is not asset.split:
             raise BenchmarkError(
-                f"group {asset.group} is in both {seen.value} and {asset.split.value}",
+                f"group {asset.group} is in both {role.value} and {asset.split.value}",
                 ErrorCode.LEAKAGE_DETECTED,
             )
-        digest = asset.checksum.sha256_local
-        if digest is not None:
-            other = by_hash.setdefault(digest, (asset.group, asset.split))
-            if other[0] != asset.group:
+        identities = {
+            "file name": asset.filename.casefold(),
+            "supplied MD5": asset.checksum.md5_supplied,
+            "local MD5": asset.checksum.md5_local,
+            "local SHA-256": asset.checksum.sha256_local,
+        }
+        for kind, value in identities.items():
+            if value is None:
+                continue
+            other = seen.setdefault((kind, value), (group, asset.split))
+            if other[0] != group:  # the same group always has the same role (checked above)
                 raise BenchmarkError(
-                    f"{asset.group} and {other[0]} have identical bytes (SHA-256 {digest[:12]})",
+                    f"{asset.group} and {other[0]} share the {kind} {value[:12]} but sit in"
+                    f" {asset.split.value} and {other[1].value}",
                     ErrorCode.LEAKAGE_DETECTED,
                 )

@@ -29,7 +29,7 @@ All read-status labels are `summary` (fetch tool) unless noted; nothing was read
 | Distribution family, noise definition, AIR definition | n/a | n/a | n/a | U (not read in E0) |
 | Source-data licence | n/a | n/a | **UNVERIFIED** | n/a |
 | Article licence | none identified | none identified | CC BY-NC-ND 4.0 | UNVERIFIED |
-| Local file present, hash verified | none verified (files are being written by an external process, unread) | no | n/a | arXiv PDF in repo, hash recorded |
+| Local file present, hash verified | files present and hashed by the orchestrator 2026-10-31 (values in SOURCE_REGISTER.md); not verified by repository code until E1 runs `verify_local_asset`; unread | no | n/a | arXiv PDF in repo, hash recorded |
 
 ## 2. Dependency map: what can and cannot be reproduced
 
@@ -75,9 +75,14 @@ stated residual.**
    A file size of 163,840,136 = 163,840,000 + 136 bytes (record metadata only) is a hypothesis for
    a fixed header, not evidence: size alone cannot tell it from a Keysight single-waveform file
    (164 header bytes plus float32 samples also gives an integer sample count).
-   Smaller residual: `read_bin` checks the size field against the file length but does not check
-   that the last waveform ends exactly at the end of the file, so trailing bytes after a valid
-   structure would pass. Not changed in E0.
+   Smaller residual (review finding 13, **deferred to E1**): `read_bin` checks the size field
+   against the file length but does not check that the last waveform ends exactly at the end of
+   the file, so trailing bytes after a valid structure pass. The E0 reviewer reproduced it: a
+   valid header declaring 100 samples followed by 400,000 further bytes of samples is accepted and
+   returns the first 100. That contradicts the module's "ambiguous content raises" contract. Not
+   changed in E0 or in its fix round (no existing module is touched). **E1 must block it, with a
+   test, before any `.bin` path is used on a capture**; it is not reachable by a TERIPHIC file
+   unless that file starts with the Keysight cookie `AG10`.
 4. `ingest_uxr` additionally requires a sidecar passing `validate_metadata` and a
    `related_transmit_experiment_id` that exists in an OpticPS transmit manifest, so an external
    capture without both is refused even if a parser accepted its samples. The HDF5 reader needs a

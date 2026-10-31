@@ -1,6 +1,8 @@
 # Benchmark source: TERIPHIC photodiode-array dataset, PD1 / Subassembly 1 / PAM4 (Stage 3A, gate E0).
-# Metadata only; no asset has been downloaded or hashed by this gate. Unknown fields stay null.
-# Metadata was read 2026-10-31 through a fetch tool (status "summary", see docs/benchmarks/SOURCE_REGISTER.md).
+# Metadata only; this gate downloads, opens and hashes no asset. Unknown fields stay null.
+# Metadata was re-read 2026-10-31 as raw Zenodo API JSON and DataCite JSON (read_how "verified",
+# see docs/benchmarks/SOURCE_REGISTER.md). Local hashes are not stored here: only
+# verify_local_asset can produce them, in E1.
 # This file is not a transmit config and cannot affect any experiment_id.
 benchmark_config_version: 1
 source:
@@ -9,87 +11,85 @@ source:
   title: "Experimental characterization of TERIPHIC 4-fold and 8-fold InP photodiode arrays - Detection of 50Gbaud signals with NRZ and PAM-4 modulation formats"
   doi: "10.5281/zenodo.7886498"
   url: "https://zenodo.org/records/7886498"
-  version: "record 7886498 (API: Revision 2; HTML page label: v1)"
+  version: "record 7886498 (Zenodo revision counter 2; metadata.version and DataCite version are null)"
   retrieved: "2026-10-31"
   plan_sha256: "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
   licenses:
     - scope: data
-      status: VERIFIED
+      status: RECORD_LEVEL
       license_id: "CC-BY-4.0"
       private_research_use: ALLOWED
       public_redistribution: ALLOWED_WITH_CONDITIONS
-      note: "Record-level licence (attribution). Read through a fetch tool, not the raw page; no separate licence file inspected. No article is attached to the record."
-      read_how: summary
+      derivatives: ALLOWED_WITH_CONDITIONS
+      commercial_use: ALLOWED_WITH_CONDITIONS
+      note: "Record-level licence (attribution): Zenodo API license.id cc-by-4.0, DataCite rightsList cc-by-4.0 (SPDX). No separate licence file or per-file terms inspected. No article is attached to the record."
+      read_how: verified
     - scope: article
       status: UNVERIFIED
       license_id: null
       private_research_use: UNVERIFIED
       public_redistribution: UNVERIFIED
+      derivatives: UNVERIFIED
+      commercial_use: UNVERIFIED
       note: "The record is a dataset; no associated article was identified or checked."
       read_how: unconfirmed
   parameters:
-    wavelength_band: {value: "O-band", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: summary}
+    wavelength_band: {value: "O-band", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: verified}
   assets:
       - filename: 50G_PAM4_PD1_B2B_Subassembly1.bin
-        asset_version: "record 7886498 (API: Revision 2; HTML page label: v1)"
+        asset_version: "record 7886498 (Zenodo revision counter 2; no version label in metadata)"
         size_bytes: 163840136
         split: CHARACTERISATION
         group: "7886498/SA1/PD1/B2B"
         md5_supplied: "d7bd6d48bc020a138f4f129bc2ba7312"
-        md5_local: null
-        sha256_local: null
         sample_rate_wording: "256 Gbaud sample rate"
         parameters:
-          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: summary}
-          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: summary}
-          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: summary}
+          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: verified}
+          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: verified}
+          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: verified}
           wavelength_nm: {value: null, provenance: UNKNOWN, as_stated: "O-band only; no wavelength stated"}
           fibre_type: {value: null, provenance: UNKNOWN, as_stated: "not stated in the record"}
-          fibre_length_km: {value: 0, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (B2B)", read_how: summary}
-          transmitter_type: {value: "commercial CW laser + commercial Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: summary}
-          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: summary}
+          fibre_length_km: {value: 0, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (B2B)", read_how: verified}
+          transmitter_type: {value: "commercially available off-the-shelf (COTS) laser source + COTS Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: verified}
+          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: verified}
           reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "no transmitted bit or symbol sequence documented"}
           raw_format: {value: null, provenance: UNKNOWN, as_stated: ".bin only; no layout, dtype, header or scaling documented"}
           calibration: {value: null, provenance: UNKNOWN, as_stated: "no vertical units or scale documented"}
       - filename: 50G_PAM4_PD1_2km_Subassembly1.bin
-        asset_version: "record 7886498 (API: Revision 2; HTML page label: v1)"
+        asset_version: "record 7886498 (Zenodo revision counter 2; no version label in metadata)"
         size_bytes: 163840136
         split: VALIDATION
         group: "7886498/SA1/PD1/2km"
         md5_supplied: "d9e3c533394c53c3575491558ffc35b1"
-        md5_local: null
-        sha256_local: null
         sample_rate_wording: "256 Gbaud sample rate"
         parameters:
-          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: summary}
-          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: summary}
-          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: summary}
+          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: verified}
+          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: verified}
+          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: verified}
           wavelength_nm: {value: null, provenance: UNKNOWN, as_stated: "O-band only; no wavelength stated"}
           fibre_type: {value: null, provenance: UNKNOWN, as_stated: "not stated in the record"}
-          fibre_length_km: {value: 2, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (2km)", read_how: summary}
-          transmitter_type: {value: "commercial CW laser + commercial Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: summary}
-          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: summary}
+          fibre_length_km: {value: 2, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (2km)", read_how: verified}
+          transmitter_type: {value: "commercially available off-the-shelf (COTS) laser source + COTS Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: verified}
+          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: verified}
           reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "no transmitted bit or symbol sequence documented"}
           raw_format: {value: null, provenance: UNKNOWN, as_stated: ".bin only; no layout, dtype, header or scaling documented"}
           calibration: {value: null, provenance: UNKNOWN, as_stated: "no vertical units or scale documented"}
       - filename: 50G_PAM4_PD1_10km_Subassembly1.bin
-        asset_version: "record 7886498 (API: Revision 2; HTML page label: v1)"
+        asset_version: "record 7886498 (Zenodo revision counter 2; no version label in metadata)"
         size_bytes: 163840136
         split: LOCKED_TEST
         group: "7886498/SA1/PD1/10km"
         md5_supplied: "3d8774b068deaf50f37892b38953dfd6"
-        md5_local: null
-        sha256_local: null
         sample_rate_wording: "256 Gbaud sample rate"
         parameters:
-          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: summary}
-          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: summary}
-          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: summary}
+          sample_rate_hz: {value: 256000000000, provenance: INFERRED, unit: Hz, as_stated: "256 Gbaud sample rate (record wording; unit read as samples per second)", source_ref: "zenodo 7886498 description", read_how: verified}
+          baud_bd: {value: 50000000000, provenance: PUBLISHED_MEASUREMENT, unit: Bd, source_ref: "zenodo 7886498 description and file name", read_how: verified}
+          modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 title and file name (PAM4)", read_how: verified}
           wavelength_nm: {value: null, provenance: UNKNOWN, as_stated: "O-band only; no wavelength stated"}
           fibre_type: {value: null, provenance: UNKNOWN, as_stated: "not stated in the record"}
-          fibre_length_km: {value: 10, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (10km)", read_how: summary}
-          transmitter_type: {value: "commercial CW laser + commercial Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: summary}
-          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: summary}
+          fibre_length_km: {value: 10, provenance: PUBLISHED_MEASUREMENT, unit: km, source_ref: "zenodo 7886498 file name (10km)", read_how: verified}
+          transmitter_type: {value: "commercially available off-the-shelf (COTS) laser source + COTS Mach-Zehnder modulator (models not named)", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 description", read_how: verified}
+          detector: {value: "TERIPHIC InP photodiode PD1, Subassembly 1", provenance: PUBLISHED_MEASUREMENT, source_ref: "zenodo 7886498 file name and description", read_how: verified}
           reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "no transmitted bit or symbol sequence documented"}
           raw_format: {value: null, provenance: UNKNOWN, as_stated: ".bin only; no layout, dtype, header or scaling documented"}
           calibration: {value: null, provenance: UNKNOWN, as_stated: "no vertical units or scale documented"}

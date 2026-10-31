@@ -1,66 +1,80 @@
 # Benchmark source register (Stage 3A, gate E0)
 
 Retrieval date of all metadata below: 2026-10-31. Repository state: branch `v1.3-mpam`, base HEAD
-`8129eca` (E0 commits on top). Nothing was downloaded: no dataset file, no source-data XLSX, no PDF
-asset. Clean room kept: no optical-simulator source, notebook, package or code-containing page was
-opened; no code link on any page was followed.
+`8129eca` (E0 commits on top; this register was corrected in the E0 fix round). E0 and the fix round
+downloaded nothing and opened nothing under `data/external/`: no dataset file, no source-data XLSX, no
+PDF asset. Clean room kept: no optical-simulator source, notebook, package or code-containing page
+was opened; no code link on any page was followed.
 
 ## How facts were read (status vocabulary of `docs/engineering_log/VERIFICATION.md`)
 
 | Label | Meaning here |
 |---|---|
-| verified | read in the primary source by us. **No fact below has this status**: the fetch tool returns a model-written summary of a page, never the raw page, so the strongest status reachable in E0 is `summary`. |
-| summary | read through the WebFetch tool on the primary page or the Zenodo JSON record (summary-level; where two independent fetches agree this is said) |
+| verified | the raw text of the primary record was read by us on 2026-10-31 (JSON or XML fetched with `curl` from metadata endpoints; never a `/files/` endpoint, never a dataset or PDF asset). Raw reads in the fix round: Zenodo API records 7886498 and 7886228, DataCite JSON of 7886498, Crossref JSON of the Ran and Wiegart DOIs, Europe PMC full-text XML of PMC12234763. |
+| summary | read through the WebFetch tool (model-written summary of a page); not raised to `verified` unless a raw read above covers the same statement |
 | user-supplied | stated in the owner's brief or roadmap, source not read (`brief` below) |
 | unconfirmed | not read; unknown |
 
 Pages that could not be read: `nature.com` article page (cookie-handshake redirect loop, not
 worked around), `pmc.ncbi.nlm.nih.gov` (reCAPTCHA page), `ieeexplore.ieee.org` (empty).
 Bibliographic data for these came from Crossref and the Europe PMC copy of the full text
-(`PMC12234763`), both summary status.
+(`PMC12234763`); the fix round re-read both as raw JSON and XML, so the statements they carry are
+`verified` as statements of those records. The Europe PMC XML is a copy of the paper's text, not
+the publisher page, and it holds no figure data. Statements in the sections below that were not
+covered by a raw read keep the label `summary`; the E0 first pass used a fetch tool whose output
+was a summary, and calling that the strongest reachable status was wrong, because the raw JSON and
+XML were one `curl` away.
 
 ## Source 1. TERIPHIC photodiode arrays (Dataset A, P0)
 
 | Item | Value | Read as |
 |---|---|---|
-| Title | Experimental characterization of TERIPHIC 4-fold and 8-fold InP photodiode arrays - Detection of 50Gbaud signals with NRZ and PAM-4 modulation formats | summary (JSON record and HTML page agree) |
-| Creators | Panos Groumas, Efstathios Andrianopoulos, Christos Tsokos (ICCS). Contributors: David De Felipe, Norbert Keil, Patrick Runge (Fraunhofer HHI); Paraskevas Bakopoulos (NVIDIA) | summary (JSON) |
-| DOI / URL | `10.5281/zenodo.7886498`; https://zenodo.org/records/7886498; concept DOI `10.5281/zenodo.7886497` | summary |
-| Dataset version | JSON: "Revision 2" (latest version of concept 7886497). HTML page: "Version v1". Published 2023-05-02, modified 2023-05-03 (HTML). **Two version labels disagree; the exact version is UNCONFIRMED.** Re-read before any download. | summary |
-| Funding | EC H2020 TERIPHIC, GA 825502 | summary |
-| Files | 28 (14 NRZ, 14 PAM4), 4.6 GB total, every file 163,840,136 bytes (JSON) / "163.8 MB" (HTML) | summary |
-| Target MD5 (supplied by the record) | B2B `d7bd6d48bc020a138f4f129bc2ba7312`; 2 km `d9e3c533394c53c3575491558ffc35b1`; 10 km `3d8774b068deaf50f37892b38953dfd6` (PD1, Subassembly 1, PAM4). JSON and HTML lists agree for all 28 files. | summary, two fetches agree |
-| Local SHA-256 / MD5 verified | **none computed.** MD5 state is `supplied`, not `verified`. | - |
-| Data licence | CC-BY-4.0, record-level, Access "Open" (JSON); HTML page "CC BY 4.0". No separate licence file or terms for individual files inspected. Private research use: allowed. Public redistribution of derived data: allowed with attribution, subject to the record-level reading above. | summary |
+| Title | Experimental characterization of TERIPHIC 4-fold and 8-fold InP photodiode arrays - Detection of 50Gbaud signals with NRZ and PAM-4 modulation formats | verified (Zenodo API JSON) |
+| Creators | Panos Groumas, Efstathios Andrianopoulos, Christos Tsokos (ICCS). Contributors: David De Felipe, Norbert Keil, Patrick Runge (Fraunhofer HHI); Paraskevas Bakopoulos (NVIDIA) | verified (JSON) |
+| DOI / URL | `10.5281/zenodo.7886498`; https://zenodo.org/records/7886498; concept DOI `10.5281/zenodo.7886497` | verified (JSON) |
+| Dataset version | The raw record has no version label: Zenodo `revision` is 2 (a record counter), `metadata.version` is absent and the DataCite `version` is `null`. Published 2023-05-02, modified 2023-05-03 (JSON `created`, `modified`). The "v1" the first-pass fetch tool reported is not in the JSON or DataCite and was an artefact of the tool's summary (see discrepancy 1). | verified (JSON, DataCite) |
+| Funding | EC H2020 TERIPHIC, GA 825502 | verified (JSON `grants`) |
+| Files | 28 (14 NRZ, 14 PAM4), 4,587,523,808 bytes in total (sum of the listed sizes), every file 163,840,136 bytes | verified (JSON `files`) |
+| Target MD5 (supplied by the record) | B2B `d7bd6d48bc020a138f4f129bc2ba7312`; 2 km `d9e3c533394c53c3575491558ffc35b1`; 10 km `3d8774b068deaf50f37892b38953dfd6` (PD1, Subassembly 1, PAM4). | verified (JSON `files[].checksum`) |
+| Local hashes | see "Local hashes" below: reported by the orchestrator, not computed by E0 or the fix round. | orchestrator report |
+| Data licence | CC-BY-4.0, record-level: JSON `license.id` is `cc-by-4.0`, `access_right` is `open`; DataCite `rightsList` gives `cc-by-4.0` (SPDX). No separate licence file or terms for individual files inspected, hence status `RECORD_LEVEL`. Private research use: allowed. Public redistribution of derived data: allowed with attribution. | verified (JSON, DataCite) |
 | Article licence | none: the record is a dataset; no associated article was identified. `LICENSE/REUSE TERMS UNVERIFIED` for any article | unconfirmed |
-| Description wording | O-band; commercial (COTS) laser source and COTS Mach-Zehnder modulator, models not named; NRZ and PAM-4 at 50 Gbaud; two subassemblies (4 and 8 InP photodiodes); "The generated photocurrents were sampled by a real-time oscilloscope with a 256 Gbaud sample rate"; lengths B2B, 2 km, 10 km | summary |
-| Instrument parameters stated | symbol rate 50 GBd; sampling "256 Gbaud sample rate" (unit wording wrong; read by us as 256 GSa/s, label INFERRED, nominal 5.12 samples/symbol). Not stated: oscilloscope model, bandwidth, ENOB, vertical scale, laser wavelength or power, modulator model or Vpi, fibre type, launch power, PRBS or pattern, pulse shaping, DAC/AWG | summary |
-| Data fields | File name template per record: `Symbol rate#Modulation formats#PDn#Transmission length#version#Subassemblyn.bin`. Actual PD-array names have no `version` token, and PAM4 files for PD4 to PD8 (Subassembly 2) carry no length token. No description of file contents: no dtype, header, endianness, scaling, units, channel count or sample count | summary |
-| Sizes | 163,840,136 bytes each = 163,840,000 + 136 (arithmetic on the listed size only; a 136-byte constant is a hypothesis for E1, not a finding) | summary + arithmetic |
+| Description wording | The description says "a commercially available off-the-shelf (COTS) laser source, a COTS Mach-Zehnder modulator, and the TERIPHIC PD arrays"; models are not named, and the word "CW" does not appear. "signals with NRZ and PAM-4 modulation formats and 50 Gbaud symbol rates"; "Two different subassemblies were evaluated. The first subassembly had four InP photodiodes and the second eight."; "The generated photocurrents were sampled by a real-time oscilloscope with a 256 Gbaud sample rate. The data sets are actually the samples extracted from the oscilloscope."; lengths "B2B (0 km), 2 km, and 10 km"; "operate in the O-band" | verified (JSON `metadata.description`) |
+| Instrument parameters stated | symbol rate 50 GBd; sampling "256 Gbaud sample rate" (unit wording wrong; read by us as 256 GSa/s, label INFERRED, nominal 5.12 samples/symbol). The samples are, in the record's words, "actually the samples extracted from the oscilloscope", so the files are scope output, not transmitter data. Not stated: oscilloscope model, bandwidth, ENOB, vertical scale, laser wavelength or power, modulator model or Vpi, fibre type, launch power, PRBS or pattern, pulse shaping, DAC/AWG | verified (JSON description; absences are absences in that text) |
+| Data fields | File name template per record: "Symbol rate#Modulation formats#PDn#Transmission length#version#Subassemblyn.bin". Actual PD-array names have no `version` token, and PAM4 files for PD4 to PD8 (Subassembly 2) carry no length token (file list). The description gives no content description: no dtype, header, endianness, scaling, units, channel count or sample count | verified (JSON) |
+| Sizes | 163,840,136 bytes each = 163,840,000 + 136 (arithmetic on the listed size only; a 136-byte constant is a hypothesis for E1, not a finding) | verified (JSON) + arithmetic |
 | Missing | raw format, reference bit/symbol sequence, wavelength, fibre type and dispersion, vertical calibration, device responses, oscilloscope settings, acquisition timestamps | - |
 
-### Local state found (not created by E0)
+### Local hashes (hashed locally by orchestrator on owner-approved download, 2026-10-31)
 
-`data/external/teriphic/` (ignored by Git; `.gitignore` rule added in E0) contained, while this
-register was written, `50G_PAM4_PD1_B2B_Subassembly1.bin` at 163,840,136 bytes (equals the listed size)
-and `50G_PAM4_PD1_2km_Subassembly1.bin` growing from 18,718,720 bytes, written by a `curl`
-process (PID 2517, started 16:28 local, from the Zenodo files URL) that is not part of E0. E0 did not
-start, stop, open, hash or read either file. They are not "downloaded and verified"; their MD5 is
-unchecked and the 2 km file is incomplete until that process ends. The brief and the owner's
-instruction forbid downloads in this gate: whoever started the transfer should confirm
-authorisation for 3 x 163.8 MB.
+The three target files were downloaded with the owner's approval and hashed by the orchestrator.
+The values below were reported to the Dev who corrected this register; neither E0 nor the fix round
+opened, read or hashed these files, and `data/external/` was not opened. The MD5 of each file
+equals the MD5 supplied by the record (section above). Until E1 runs `verify_local_asset` on the
+files, the repository records the MD5 state as `supplied`, not `verified`: the schema cannot hold a
+typed-in local hash. **E1 will run `verify_local_asset` on the three downloaded files** and compare
+the result with these values.
+
+| File | Group | MD5 (local, hashed by orchestrator) | SHA-256 (local, hashed by orchestrator) |
+|---|---|---|---|
+| `50G_PAM4_PD1_B2B_Subassembly1.bin` | `7886498/SA1/PD1/B2B` | `d7bd6d48bc020a138f4f129bc2ba7312` | `b9c5968ae4cac4ea53b6bbda62c7255b3ecfa2ff530985c1e4ae0f4e55b9e0b2` |
+| `50G_PAM4_PD1_2km_Subassembly1.bin` | `7886498/SA1/PD1/2km` | `d9e3c533394c53c3575491558ffc35b1` | `22fc7bb592681ed6135b5be28a28b1f124344924316b4333508823f7674266d3` |
+| `50G_PAM4_PD1_10km_Subassembly1.bin` | `7886498/SA1/PD1/10km` | `3d8774b068deaf50f37892b38953dfd6` | `053bf8c9ba8df00063f5d686508833dc18685ec320d7e373b1877947e15b118b` |
+
+Hashing streams every byte through a digest. It reads no sample value: no one has decoded, plotted
+or summarised these captures (the fit/holdout plan, Revision 1, section R.1, says the same).
 
 ## Source 2. TERIPHIC quad InP EML array (Dataset B, P1, out of MZM model domain)
 
 | Item | Value | Read as |
 |---|---|---|
-| Title | Experimental characterization of TERIPHIC quad InP EML array - Generation and transmission of 50Gbaud signals with NRZ and PAM-4 modulation formats (JSON title paraphrased by the tool; exact title wording UNCONFIRMED) | summary (JSON only) |
-| Creators | Groumas, Andrianopoulos, Tsokos (ICCS). Contributors: De Felipe, Troppenz, Keil, Moehrle (HHI), Bakopoulos (NVIDIA) | summary |
-| DOI / URL | `10.5281/zenodo.7886228`; https://zenodo.org/records/7886228; concept DOI `10.5281/zenodo.7886227` | summary |
-| Version | "Record revision 4"; published 2023-05-02, modified 2023-05-03. HTML page not fetched. | summary |
-| Licence | CC-BY-4.0, Open (JSON). Same caveats as Source 1. | summary |
-| Files | 17 PAM4 `.bin`: 16 of 40,960,136 bytes and `50G_PAM4_EML2_B2B_v1.bin` of 163,840,136 bytes (MD5 `ae7df638705bd83a0d369b2b86e93f00`). Full MD5 list is in the JSON record; not copied here. | summary |
-| Description | quad EML (each DFB + EAM + SOA); three of four EMLs used (EML2, EML3, EML4 appear in names); 0 km, 2 km, 10 km; single commercial photodetector "over 70 GHz bandwidth" (whether this is 3 dB electrical is not stated in what was read); oscilloscope "256 Gbaud" sampling; digital 50 GHz low-pass filter applied "to improve SNR"; `v1`, `v2`, `v3` in names are repeated runs with the same operating parameters at different time indices | summary |
+| Title | Experimental characterization of TERIPHIC quad InP EML array - Generation and transmission of 50Gbaud signals with NRZ and PAM-4 modulation formats | verified (JSON) |
+| Creators | Groumas, Andrianopoulos, Tsokos (ICCS). Contributors: De Felipe, Troppenz, Keil, Moehrle (HHI), Bakopoulos (NVIDIA) | verified (JSON) |
+| DOI / URL | `10.5281/zenodo.7886228`; https://zenodo.org/records/7886228; concept DOI `10.5281/zenodo.7886227` | verified (JSON) |
+| Version | Zenodo `revision` 4 (a record counter); no version label in the metadata; published 2023-05-02, modified 2023-05-03. | verified (JSON) |
+| Licence | CC-BY-4.0, `access_right` open (JSON `license.id` `cc-by-4.0`). Same caveats as Source 1; status `RECORD_LEVEL`. | verified (JSON) |
+| Files | 17 files, all PAM4 `.bin` and **0 NRZ** although the title and the brief say "NRZ and PAM-4": 16 of 40,960,136 bytes and `50G_PAM4_EML2_B2B_v1.bin` of 163,840,136 bytes (MD5 `ae7df638705bd83a0d369b2b86e93f00`); 819,202,312 bytes in total. Full MD5 list is in the JSON record; not copied here. | verified (JSON `files`) |
+| Description | quad EML (each "a DFB laser, an Electroabsorption modulator, and a Semiconductor Optical Amplifier"); "Three out of the four EMLs were characterized successively"; names carry EML2, EML3, EML4; 0 km, 2 km, 10 km; "a single commercially avalaible photodetector with more than 70 GHz 3-dB bandwidth" (the record spells "avalaible"); "sampled by a real-time oscilloscope with a 256 Gbaud sample rate"; "A low-pass filter with a 50 GHz 3-dB cut-off frequency was digitally applied to the oscilloscope to improve the signal-to-noise ratio."; "Version: v1, v2 and v3. Same operating parameters but at different time index" | verified (JSON description) |
 | Local hashes | none | - |
 | Missing | same list as Source 1, plus EML bias and drive, filter details, whether the shipped samples are filtered | - |
 
@@ -68,38 +82,38 @@ authorisation for 3 x 163.8 MB.
 
 | Item | Value | Read as |
 |---|---|---|
-| Title | A 4x256 Gbps silicon transmitter with on-chip adaptive dispersion compensation | summary (Crossref and Europe PMC agree) |
-| Authors | Shihuan Ran, Yu Guo, Yuanbin Liu, Ting Miao, Yangbo Wu, Yang Qin, Yuyao Guo, Liangjun Lu, Yixiao Zhu, Yu Li, Qunbi Zhuge, Jianping Chen, Linjie Zhou (corresponding: Yu Li, Qunbi Zhuge) | summary |
-| Journal | Nature Communications, volume 16, article number 6268, published 2025-07-07; received 2024-11-08, accepted 2025-06-18 | summary |
-| DOI / URL | `10.1038/s41467-025-61408-7`; https://www.nature.com/articles/s41467-025-61408-7; PMC12234763; PMID 40624056 | summary |
-| Correction | change-history note (dated "8/11/2025", format ambiguous): symbols of Eq. (6) were amended in HTML and PDF. Equations must be read from the corrected version. | summary |
-| Article licence | CC BY-NC-ND 4.0 (Crossref and Europe PMC), (c) The Author(s) 2025. Attribution, non-commercial, no derivatives: figures may be shared verbatim, **modified or re-plotted figures are not covered**. | summary |
-| Source Data | Supplementary list: Supplementary information (MOESM1 PDF), Peer Review file (MOESM2 PDF), Source data `41467_2025_61408_MOESM3_ESM.xlsx`. Data availability text: "[article text removed: CC BY-NC-ND]." Code: upon request. | summary |
-| **Source-data licence** | **LICENSE/REUSE TERMS UNVERIFIED.** No licence for the XLSX appears in the text read. Do not assume it follows the article licence. File not fetched; size, hash, sheet names and columns unknown. | unconfirmed |
-| Instrument and link parameters | wavelength 1271 nm; measured fibre dispersion -3.99 ps/(nm km) at 1271 nm; standard single-mode fibre named G.652.D in captions and text; PAM-4; 4 x 256 Gb/s over 5 km, 4 x 200 Gb/s over 10 km (the 200 Gb/s case is shown for MZM-1 in the main text, the other three in Supplementary Information); 155-tap FFE, RLS update, optionally with MLSD; no transmit pre-emphasis; FEC thresholds quoted 2.4e-2 (20 % SD-FEC) and 3.8e-3 (6.7 % HD-FEC) | summary |
-| Not found in the text read | BER definition; whether 256 and 200 Gb/s are gross or net (table heading "Single-lane bit rate x Fiber length x |Dispersion|"); optical power and drive swing per figure; link loss. The last 12,873 characters of the full text were read only for data, code and licence statements. | summary |
+| Title | A 4x256 Gbps silicon transmitter with on-chip adaptive dispersion compensation (Crossref writes the multiplication sign as a character, not "x") | verified (Crossref JSON, Europe PMC XML) |
+| Authors | Shihuan Ran, Yu Guo, Yuanbin Liu, Ting Miao, Yangbo Wu, Yang Qin, Yuyao Guo, Liangjun Lu, Yixiao Zhu, Yu Li, Qunbi Zhuge, Jianping Chen, Linjie Zhou (corresponding: Yu Li, Qunbi Zhuge) | verified (Crossref author list; correspondence from the XML) |
+| Journal | Nature Communications, volume 16, issue 1, article number 6268, published 2025-07-07; received 2024-11-08, accepted 2025-06-18 | verified (Crossref, Europe PMC XML) |
+| DOI / URL | `10.1038/s41467-025-61408-7`; https://www.nature.com/articles/s41467-025-61408-7; PMC12234763; PMID 40624056 | verified for DOI (Crossref); PMC id from the Europe PMC request; PMID and nature.com URL carried from the first pass (summary) |
+| Correction | XML "Change history 8/11/2025": "[article text removed: CC BY-NC-ND]." (date format ambiguous). Equations must be read from the corrected version. | verified (XML) |
+| Article licence | CC BY-NC-ND 4.0 (Crossref licence URLs `creativecommons.org/licenses/by-nc-nd/4.0` for `vor` and `tdm`; Europe PMC XML copyright statement). The XML states: "[article text removed: CC BY-NC-ND]" and "[article text removed: CC BY-NC-ND]." **Incompatible with MIT publication: see "Licence conflict" below.** | verified (Crossref JSON, XML) |
+| Source Data | Supplementary list: Supplementary information (MOESM1 PDF), Peer Review file (MOESM2 PDF), Source data `41467_2025_61408_MOESM3_ESM.xlsx`. Data availability text: "[article text removed: CC BY-NC-ND]." Code: upon request. | verified (XML) |
+| **Source-data licence** | **LICENSE/REUSE TERMS UNVERIFIED.** The XML names the file and says source data are provided with the paper; no licence for the XLSX appears. Do not assume it follows the article licence. File not fetched; size, hash, sheet names and columns unknown. | verified as an absence in the XML |
+| Instrument and link parameters | "[article text removed: CC BY-NC-ND])" (abstract); "[article text removed: CC BY-NC-ND]" (Experimental results section); the fibre is written "standard G652.D type fiber" (no dot after the G; Experimental results section and eye-diagram caption); PAM-4; "[article text removed: CC BY-NC-ND]" updated by RLS, optionally combined with MLSD (abstract); "[article text removed: CC BY-NC-ND]"; thresholds "[article text removed: CC BY-NC-ND]" and "[article text removed: CC BY-NC-ND]", which appear in the Simulation results section of the XML. That the 200 Gb/s case is shown for MZM-1 in the main text and the other lanes in Supplementary Information was not re-checked against the raw XML | verified (XML) except the last sentence (summary) |
+| Not found in the text read | BER definition and gross-or-net rate: a keyword search of the raw XML finds no occurrence of "gross", "net" or "overhead" and no formal BER definition; table heading "Single-lane bit rate x Fiber length x |Dispersion|"; optical power and drive swing per figure; link loss. A keyword search is weaker than reading every sentence, so these stay UNKNOWN rather than "absent". | verified (XML keyword search) |
 | Missing | Source Data schema, figure-to-sheet mapping, actual launch power and swing, chirp parameters, laser and driver details | - |
 
 ## Source 4. Wiegart et al., JLT 39(2), 400-405 (2021) (Publication D, P0 mathematical check)
 
 | Item | Value | Read as |
 |---|---|---|
-| Title | Probabilistically Shaped 4-PAM for Short-Reach IM/DD Links With a Peak Power Constraint | summary (Crossref) |
-| Authors (order) | Thomas Wiegart, Francesco Da Ros, Metodi Plamenov Yankov, Fabian Steiner, Simone Gaiarin, Richard D. Wesel | summary (Crossref) |
-| Journal | Journal of Lightwave Technology, vol. 39, issue 2, pp. 400-405, published 2021-01-15 | summary (Crossref) |
-| DOI / URL | `10.1109/JLT.2020.3029371`; resolves to https://ieeexplore.ieee.org/document/9216555/ (redirect read; page empty to the tool) | summary |
+| Title | Probabilistically Shaped 4-PAM for Short-Reach IM/DD Links With a Peak Power Constraint | verified (Crossref JSON) |
+| Authors (order) | Thomas Wiegart, Francesco Da Ros, Metodi Plamenov Yankov, Fabian Steiner, Simone Gaiarin, Richard D. Wesel | verified (Crossref JSON) |
+| Journal | Journal of Lightwave Technology, vol. 39, issue 2, pp. 400-405, published 2021-01-15 | verified (Crossref JSON) |
+| DOI / URL | `10.1109/JLT.2020.3029371`; resolves to https://ieeexplore.ieee.org/document/9216555/ (redirect read in the first pass; page empty to the tool) | verified for DOI (Crossref); URL summary |
 | Author manuscript | `2005.12428v2.pdf` is in the repository root (ignored by `*.pdf`; SHA-256 `3a49c2f87a3a04b52892bc66c9f264f2dc432c354aedb9f8eb04650f1815d0ad`). `docs/engineering_log/LOG.md` (Phase 0) records a full read of it. E0 did not re-read it and does not take any technical field from it. Whether that arXiv ID is the author-accepted manuscript of the JLT paper is from the earlier log, not re-checked. | local file |
-| Licence | **LICENSE/REUSE TERMS UNVERIFIED.** IEEE publisher copyright; Crossref lists only IEEE licence links (VoR and author manuscript, no open licence). arXiv licence of v2 not read. Digitised figures or re-plotted data from the figures are not cleared for public redistribution. | summary |
+| Licence | **LICENSE/REUSE TERMS UNVERIFIED.** IEEE publisher copyright; Crossref lists only IEEE licence links (`vor` and `am` content versions point to the IEEE licence-information page, two `stm-asf` entries to IEEE policies; no open licence). arXiv licence of v2 not read. Digitised figures or re-plotted data from the figures are not cleared for public redistribution. | verified (Crossref JSON) |
 | Technical fields (constraint, signal labeling, distribution family, AIR, noise definition, real vs simulated) | Not read in E0. Title states 4-PAM and a peak power constraint. All others `null`/UNKNOWN in the config. To be read in E3. | - |
 
 ## Discrepancies between the brief/roadmap and what was read
 
 | # | Brief or roadmap says | Read | Effect |
 |---|---|---|---|
-| 1 | "exact dataset version" implied to be one value | Zenodo JSON says Revision 2; HTML page says v1 (Source 1). Source 2: revision 4 | version unconfirmed; recorded both |
+| 1 | "exact dataset version" implied to be one value | The first-pass summary reported "Revision 2" (JSON) against "v1" (HTML). The raw JSON shows that `revision` is a record counter (2 for Source 1, 4 for Source 2), and that `metadata.version` is absent and the DataCite `version` is `null`. No version label exists in the metadata; the "v1" came from the fetch tool, not from the record | not a discrepancy of the record: an artefact of the first-pass tool. The configs now say "revision counter 2; no version label in metadata" |
 | 2 | Source 2: captures "sampled at 256 GSa/s" | record says "256 Gbaud" (same wrong unit as Source 1) | brief silently substituted the unit for Source 2; here both are INFERRED |
-| 3 | "CW laser" | record text read says "commercially available off-the-shelf laser source"; "CW" not seen | not recorded as stated; `transmitter_type` omits CW |
-| 4 | Source 2 detector ">70 GHz 3-dB electrical bandwidth" | read: "over 70 GHz bandwidth"; "3-dB electrical" not seen | wording not confirmed |
+| 3 | "CW laser" (brief) | Source 1 states "a commercially available off-the-shelf (COTS) laser source"; neither "CW" nor "continuous" appears in the record | `transmitter_type` is "COTS laser source", as the record says. The first-pass config wrote "commercial CW laser" as PUBLISHED_MEASUREMENT, which the record does not support; corrected in the fix round |
+| 4 | Source 2 detector ">70 GHz 3-dB electrical bandwidth" (brief) | the record states "a single commercially avalaible photodetector with more than 70 GHz 3-dB bandwidth"; only the word "electrical" is absent. The 50 GHz filter is "A low-pass filter with a 50 GHz 3-dB cut-off frequency was digitally applied to the oscilloscope to improve the signal-to-noise ratio." | the first pass paraphrased both ("over 70 GHz", "50 GHz low-pass filter") and said "3-dB" was not seen; it is in the record. Use the exact quotes. Whether the 70 GHz refers to an electrical bandwidth stays unstated |
 | 5 | Ran: "negative G.652-like dispersion example around -3.99 ps/(nm km)" | the paper gives -3.99 ps/(nm km) as the measured fibre dispersion at 1271 nm, and names the fibre G.652.D | stronger than the brief: a measured value, labelled PUBLISHED_MEASUREMENT |
 | 6 | Ran: "4 x 200 Gb/s over 10 km" | main text shows 200 Gb/s for MZM-1 only; other three lanes in Supplementary Information | only one lane is in the main text |
 | 7 | Ran: "Article page advertises ... Source Data XLSX" | the nature.com page was not readable; the listing was confirmed on the Europe PMC copy | same fact, different source |
@@ -107,7 +121,9 @@ authorisation for 3 x 163.8 MB.
 | 9 | Record "Files ... about 163.8 MB", MD5s | sizes (163,840,136 bytes) and all three MD5 match | no discrepancy |
 | 10 | Ran title, journal, volume, article number, DOI, CC BY-NC-ND | match Crossref and Europe PMC | no discrepancy |
 | 11 | Wiegart bibliographic data (authors, JLT 39(2), 400-405, DOI) | match Crossref | no discrepancy |
-| 12 | v1/v2/v3 are time indices (Source 2) | JSON record states repeated runs with the same operating parameters at different time indices | matches the brief |
+| 12 | v1/v2/v3 are time indices (Source 2) | JSON record states "Same operating parameters but at different time index" | matches the brief |
+| 13 | Source 2 is "PAM4/NRZ" (brief, title) | the file list holds 17 PAM4 files and 0 NRZ files (Source 2); the NRZ files are in Source 1 (14 NRZ, 14 PAM4) | no NRZ capture exists in the EML record; do not plan an EML NRZ analysis |
+| 14 | Source 1 file contents | the record says the files are "actually the samples extracted from the oscilloscope" | the files are scope output, with the scope's sampling and any scope-side processing unstated |
 
 The record description names an NRZ and PAM-4 set; the brief's three target files exist under the
 listed names. Nothing in the roadmap or brief about 1271 nm, FEC thresholds or the correction
@@ -117,8 +133,34 @@ note was contradicted.
 
 | Source | Part | Licence | Private research use | Public redistribution |
 |---|---|---|---|---|
-| 1 TERIPHIC PD | data | CC-BY-4.0 (record-level, summary) | allowed | allowed with attribution; a defensible rights review is still required before vendoring any capture (roadmap L0): captures stay in ignored `data/external/` |
-| 2 TERIPHIC EML | data | CC-BY-4.0 (record-level, summary) | allowed | as above |
-| 3 Ran | article | CC BY-NC-ND 4.0 | allowed | verbatim only; no re-plotted or modified figures in the MIT repo |
+| 1 TERIPHIC PD | data | CC-BY-4.0 (RECORD_LEVEL, verified in raw JSON and DataCite) | allowed | allowed with attribution; a defensible rights review is still required before vendoring any capture (roadmap L0): captures stay in ignored `data/external/` |
+| 2 TERIPHIC EML | data | CC-BY-4.0 (RECORD_LEVEL, verified in raw JSON) | allowed | as above |
+| 3 Ran | article | CC BY-NC-ND 4.0 (RECORD_LEVEL) | allowed for non-commercial use | **nothing from the article enters this MIT repository**, not even verbatim figures: see "Licence conflict" |
 | 3 Ran | source data XLSX | LICENSE/REUSE TERMS UNVERIFIED | unverified | not allowed until resolved; derived replicas not published |
 | 4 Wiegart | article | LICENSE/REUSE TERMS UNVERIFIED | unverified | no figures, digitised or re-plotted points published; original equations and original curves only |
+
+## Licence conflict: CC BY-NC-ND (Ran article) against the MIT repository
+
+The Ran article is under CC BY-NC-ND 4.0. NC restricts commercial use, MIT grants it: anyone
+who receives this repository may use everything in it commercially. A file that carries CC BY-NC-ND
+material therefore cannot be placed in an MIT repository without breaking the licence of
+that material, and the two licences are incompatible for that content. ND adds a second bar: the
+XML states "[article text removed: CC BY-NC-ND]."
+
+Rule for this repository, enforced by `LicenseRecord.commercial_use` and `derivatives` and by
+`SourceRecord.require_public_redistribution` (which fails for the Ran article):
+
+- Ran article material, figures even verbatim, and any adapted content stay out of the repository.
+  That covers re-plotted figures, digitised points, redrawn tables and paraphrased passages that
+  follow the article closely.
+- Allowed: independently computed results from cleared numeric data, and facts stated as such with
+  a citation (for example "the paper reports -3.99 ps/(nm km) at 1271 nm" with the DOI). The
+  numbers in `configs/benchmarks/ran_2025_g652d.yaml` are such cited facts. Quotation of short
+  licence or description phrases in this register is for provenance, not for reuse of the article.
+- Private research use under the NC terms (reading, comparing against our own numbers) is not
+  restricted by this rule and stays outside the repository.
+- The Source Data XLSX has its own, unread licence (`LICENSE/REUSE TERMS UNVERIFIED`); it is not
+  assumed to follow the article.
+- The earlier register text "verbatim only; no re-plotted or modified figures in the MIT repo"
+  was narrower than the brief (no figures vendored) and left verbatim figures open; it is
+  withdrawn.

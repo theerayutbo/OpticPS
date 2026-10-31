@@ -1,15 +1,17 @@
 """Strict, offline loader for `configs/benchmarks/*.yaml` (benchmark_config_version 1).
 
-Default-deny at every level: unknown or missing keys, wrong types, unknown enum values and a
-value without provenance are refused. Unknown facts are written as `value: null` with
-`provenance: UNKNOWN`. Nothing here opens a network connection or a data file; the benchmark
+Default-deny at every level: duplicate YAML keys, unknown or missing keys, wrong types, unknown
+enum values and a value without provenance are refused. Unknown facts are written as
+`value: null` with `provenance: UNKNOWN`. Field-level rules (finite, positive, units, character
+allow-lists, immutability, leakage between roles) live in the `provenance` constructors, which
+this loader only calls. Nothing here opens a network connection or a data file; the benchmark
 configs are separate from the transmit configs, so they cannot change an `experiment_id`.
 """
 
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Hashable, Mapping
 from pathlib import Path
 from typing import Any, TypeVar
 
@@ -27,6 +29,7 @@ from opticps.benchmarks.provenance import (
     Provenance,
     SourceRecord,
     Split,
+    check_text,
 )
 
 CONFIG_VERSION = 1
@@ -40,6 +43,8 @@ _LICENSE_KEYS = {
     "license_id",
     "private_research_use",
     "public_redistribution",
+    "derivatives",
+    "commercial_use",
     "note",
     "read_how",
 }
@@ -51,11 +56,41 @@ _ASSET_KEYS = {
     "split",
     "group",
     "md5_supplied",
-    "md5_local",
-    "sha256_local",
     "sample_rate_wording",
     "parameters",
 }
+
+
+class _StrictLoader(yaml.SafeLoader):
+    """SafeLoader that refuses a mapping key given twice (PyYAML keeps the last one silently)."""
+
+
+def _no_duplicate_keys(loader: _StrictLoader, node: yaml.MappingNode, deep: bool = False) -> Any:
+    loader.flatten_mapping(node)
+    seen: set[Hashable] = set()
+    for key_node, _ in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        if not isinstance(key, Hashable):
+            raise yaml.constructor.ConstructorError(
+                None, None, f"unhashable mapping key {key!r}", key_node.start_mark
+            )
+        if key in seen:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        seen.add(key)
+    return yaml.SafeLoader.construct_mapping(loader, node, deep=deep)
+
+
+_StrictLoader.add_constructor(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, _no_duplicate_keys)
+
+
+def load_strict_yaml(text: str) -> Any:
+    """Parse YAML with the strict loader: duplicate keys at any depth raise `yaml.YAMLError`."""
+    return yaml.load(text, Loader=_StrictLoader)  # noqa: S506 - SafeLoader subclass
 
 
 def _mapping(
@@ -72,14 +107,6 @@ def _mapping(
     return value
 
 
-def _text(value: Any, where: str, *, nullable: bool = False) -> Any:
-    if value is None and nullable:
-        return None
-    if not isinstance(value, str) or not value.strip():
-        raise BenchmarkError(f"{where}: must be a non-empty string, got {value!r}")
-    return value
-
-
 def _enum(kind: type[_E], value: Any, where: str) -> _E:
     try:
         return kind(value)  # type: ignore[call-arg]
@@ -90,16 +117,13 @@ def _enum(kind: type[_E], value: Any, where: str) -> _E:
 
 def _parameter(raw: Any, where: str) -> ParameterValue:
     body = _mapping(raw, where, {"value", "provenance"}, _PARAMETER_KEYS - {"value", "provenance"})
-    value = body["value"]
-    if isinstance(value, bool) or isinstance(value, (list, dict)):
-        raise BenchmarkError(f"{where}.value: must be a number, a string or null")
     return ParameterValue(
-        value=value,
+        value=body["value"],
         provenance=_enum(Provenance, body["provenance"], f"{where}.provenance"),
-        unit=_text(body.get("unit"), f"{where}.unit", nullable=True),
-        as_stated=_text(body.get("as_stated"), f"{where}.as_stated", nullable=True),
-        source_ref=_text(body.get("source_ref"), f"{where}.source_ref", nullable=True),
-        read_how=_text(body.get("read_how"), f"{where}.read_how", nullable=True),
+        unit=check_text(body.get("unit"), f"{where}.unit", nullable=True),
+        as_stated=check_text(body.get("as_stated"), f"{where}.as_stated", nullable=True),
+        source_ref=check_text(body.get("source_ref"), f"{where}.source_ref", nullable=True),
+        read_how=check_text(body.get("read_how"), f"{where}.read_how", nullable=True),
     )
 
 
@@ -112,22 +136,16 @@ def _parameters(raw: Any, where: str) -> dict[str, ParameterValue]:
 def _license(raw: Any, where: str) -> LicenseRecord:
     body = _mapping(raw, where, _LICENSE_KEYS - {"note", "read_how"}, {"note", "read_how"})
     return LicenseRecord(
-        scope=_text(body["scope"], f"{where}.scope"),
+        scope=check_text(body["scope"], f"{where}.scope"),
         status=_enum(LicenseStatus, body["status"], f"{where}.status"),
-        license_id=_text(body["license_id"], f"{where}.license_id", nullable=True),
+        license_id=check_text(body["license_id"], f"{where}.license_id", nullable=True),
         private_research_use=_enum(Permission, body["private_research_use"], f"{where}.private"),
         public_redistribution=_enum(Permission, body["public_redistribution"], f"{where}.public"),
-        note=_text(body.get("note", "n/a"), f"{where}.note"),
-        read_how=_text(body.get("read_how"), f"{where}.read_how", nullable=True),
+        derivatives=_enum(Permission, body["derivatives"], f"{where}.derivatives"),
+        commercial_use=_enum(Permission, body["commercial_use"], f"{where}.commercial_use"),
+        note=check_text(body.get("note", "n/a"), f"{where}.note"),
+        read_how=check_text(body.get("read_how"), f"{where}.read_how", nullable=True),
     )
-
-
-def _size(value: Any, where: str) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise BenchmarkError(f"{where}: must be a positive integer or null, got {value!r}")
-    return value
 
 
 def _asset(raw: Any, source: Mapping[str, Any], where: str) -> AssetRecord:
@@ -141,18 +159,18 @@ def _asset(raw: Any, source: Mapping[str, Any], where: str) -> AssetRecord:
         source_id=source["source_id"],
         doi=source["doi"],
         url=source["url"],
-        asset_version=_text(body["asset_version"], f"{where}.asset_version"),
-        filename=_text(body["filename"], f"{where}.filename"),
+        asset_version=check_text(body["asset_version"], f"{where}.asset_version"),
+        filename=check_text(body["filename"], f"{where}.filename"),
         checksum=Checksum(
-            md5_supplied=_text(body.get("md5_supplied"), f"{where}.md5_supplied", nullable=True),
-            md5_local=_text(body.get("md5_local"), f"{where}.md5_local", nullable=True),
-            sha256_local=_text(body.get("sha256_local"), f"{where}.sha256_local", nullable=True),
+            md5_supplied=check_text(
+                body.get("md5_supplied"), f"{where}.md5_supplied", nullable=True
+            )
         ),
-        size_bytes=_size(body.get("size_bytes"), f"{where}.size_bytes"),
+        size_bytes=body.get("size_bytes"),
         split=_enum(Split, body["split"], f"{where}.split"),
-        group=_text(body["group"], f"{where}.group"),
+        group=check_text(body["group"], f"{where}.group"),
         parameters=_parameters(body["parameters"], f"{where}.parameters"),
-        sample_rate_wording=_text(
+        sample_rate_wording=check_text(
             body.get("sample_rate_wording"), f"{where}.sample_rate_wording", nullable=True
         ),
     )
@@ -170,23 +188,20 @@ def parse_source(raw: Any) -> SourceRecord:
     if not isinstance(assets_raw, list):
         raise BenchmarkError("source.assets: must be a list")
     assets = tuple(_asset(a, body, f"source.assets[{i}]") for i, a in enumerate(assets_raw))
-    names = [a.filename for a in assets]
-    if len(names) != len(set(names)):
-        raise BenchmarkError("source.assets: a filename is listed twice")
     return SourceRecord(
-        source_id=_text(body["source_id"], "source.source_id"),
-        kind=_text(body["kind"], "source.kind"),
-        title=_text(body["title"], "source.title"),
-        doi=_text(body["doi"], "source.doi"),
-        url=_text(body["url"], "source.url"),
-        version=_text(body["version"], "source.version", nullable=True),
-        retrieved=_text(body["retrieved"], "source.retrieved"),
+        source_id=check_text(body["source_id"], "source.source_id"),
+        kind=check_text(body["kind"], "source.kind"),
+        title=check_text(body["title"], "source.title"),
+        doi=check_text(body["doi"], "source.doi"),
+        url=check_text(body["url"], "source.url"),
+        version=check_text(body["version"], "source.version", nullable=True),
+        retrieved=check_text(body["retrieved"], "source.retrieved"),
         licenses=tuple(
             _license(x, f"source.licenses[{i}]") for i, x in enumerate(body["licenses"])
         ),
         assets=assets,
         parameters=_parameters(body.get("parameters", {}), "source.parameters"),
-        plan_sha256=_text(body.get("plan_sha256"), "source.plan_sha256", nullable=True),
+        plan_sha256=check_text(body.get("plan_sha256"), "source.plan_sha256", nullable=True),
     )
 
 
@@ -195,16 +210,14 @@ def load_source_config(path: Path) -> SourceRecord:
     if not path.is_file():
         raise BenchmarkError(f"{path} does not exist", ErrorCode.SOURCE_MISSING)
     try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        document = load_strict_yaml(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as error:
         raise BenchmarkError(f"{path.name}: not valid YAML: {error}") from error
     body = _mapping(document, path.name, {"benchmark_config_version", "source"})
-    if body["benchmark_config_version"] != CONFIG_VERSION or isinstance(
-        body["benchmark_config_version"], bool
-    ):
+    version = body["benchmark_config_version"]
+    if type(version) is not int or version != CONFIG_VERSION:
         raise BenchmarkError(
-            f"{path.name}: benchmark_config_version {body['benchmark_config_version']!r} "
-            f"is not {CONFIG_VERSION}"
+            f"{path.name}: benchmark_config_version {version!r} is not the integer {CONFIG_VERSION}"
         )
     return parse_source(body["source"])
 
