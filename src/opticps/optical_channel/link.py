@@ -584,7 +584,10 @@ def transmit_profile(
             raise ValueError("matched-received-power needs received_power_dbm")
         mean_unit = launch_mean_per_watt(normalized, sample_rate, config)
         target_w = dbm_to_watt(received_power_dbm)
-        laser_w = target_w / (mean_unit * 10 ** (-span_loss_db(config) / 10))
+        # A huge loss underflows the transmission to 0.0: the needed laser is then unbounded, and
+        # that is the same refusal as any other laser above the limit (never a ZeroDivisionError).
+        transmission = mean_unit * 10 ** (-span_loss_db(config) / 10)
+        laser_w = target_w / transmission if transmission > 0 else math.inf
         if not math.isfinite(laser_w) or laser_w > MAX_MATCHED_LASER_POWER_W:
             raise ValueError(
                 f"matched-received-power would need a laser of {laser_w:g} W, above the sanity "
@@ -596,4 +599,8 @@ def transmit_profile(
     result = transmit(normalized, sample_rate, config, rng)
     record = resolved.to_record()
     record["power_protocol"] = protocol.value
+    if config.sensitivity_scenario is not None:
+        # a label given on the base config is kept (to_record only knows the scenario's own)
+        record["sensitivity_scenario"] = config.sensitivity_scenario
+        record["not_a_benchmark_result"] = True
     return ProfileLinkResult(replace(result, fiber=record), resolved, protocol, config)

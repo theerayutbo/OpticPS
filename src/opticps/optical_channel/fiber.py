@@ -412,6 +412,13 @@ class ParameterProvenance:
             if not 0 < low <= high:
                 raise FiberProfileError("validity_range_nm must be positive and ordered")
             object.__setattr__(self, "validity_range_nm", (low, high))
+            wl = self.measurement_wavelength_nm
+            tol = _WAVELENGTH_TOLERANCE_NM
+            if wl is not None and not low - tol <= wl <= high + tol:
+                raise FiberProfileError(
+                    f"measurement_wavelength_nm={wl:g} lies outside the value's own "
+                    f"validity_range_nm ({low:g} to {high:g}); the provenance contradicts itself"
+                )
 
 
 @dataclass(frozen=True)
@@ -543,10 +550,21 @@ class SensitivityScenario:
     label: str
     values: Mapping[str, float]
     note: str = ""
+    # The wavelength a scenario D is stated at. Needed when any dispersion slope is in force: a D
+    # with no wavelength cannot be moved along the wavelength axis, so the slope is refused.
+    dispersion_wavelength_nm: float | None = None
 
     def __post_init__(self) -> None:
         if not self.label.strip():
             raise FiberProfileError("a sensitivity scenario needs a label")
+        if self.dispersion_wavelength_nm is not None:
+            if _finite(self.dispersion_wavelength_nm, "dispersion_wavelength_nm") <= 0:
+                raise FiberProfileError("dispersion_wavelength_nm must be positive")
+            if "dispersion_ps_per_nm_km" not in self.values:
+                raise FiberProfileError(
+                    "dispersion_wavelength_nm is the wavelength of a scenario D; the scenario "
+                    "states no D"
+                )
         allowed = set(_SCENARIO_FIELDS)
         extra = set(self.values) - allowed
         if extra:
@@ -769,31 +787,32 @@ def _check_slope_against_table(
     sources: dict[str, str],
     table_value: dict[str, float],
     wavelength_nm: float,
-    label: str | None,
+    *,
+    slope_from_scenario: bool,
+    scalar_d_declared_over_table: bool,
 ) -> None:
-    """Refuse an S that disagrees with the local slope of the D table in force."""
+    """Refuse an S that disagrees with the local slope of the D table in force.
+
+    The check is skipped only when the profile declared its scalar D over the table (the table's
+    slope then plays no part). That flag is never set under a scenario S: a scenario S that moves
+    the scalar D off the table is refused before any declaration is read.
+    """
     name = "dispersion_slope_ps_per_nm2_km"
     table = profile.dispersion_table
     slope = out[name]
-    if (
-        table is None
-        or slope is None
-        or "dispersion_ps_per_nm_km" not in table_value
-        or "declared over table" in sources["dispersion_ps_per_nm_km"]
-    ):
+    if table is None or slope is None or scalar_d_declared_over_table:
         return
     local = table.slope_at(wavelength_nm)
     if abs(slope - local) <= _SLOPE_TOLERANCE_ABS + _SLOPE_TOLERANCE_REL * abs(local):
         return
-    from_scenario = sources[name].startswith("scenario")
-    decl = None if from_scenario else profile.precedence.get(name)
+    decl = None if slope_from_scenario else profile.precedence.get(name)
     if decl is None:
         raise FiberProfileError(
             f"S={slope:g} conflicts with the local slope {local:g} ps/(nm^2 km) of the D table "
             f"{table.name!r} at {wavelength_nm:g} nm"
             + (
                 "; a scenario cannot override a table"
-                if from_scenario
+                if slope_from_scenario
                 else "; the profile declares no winner (`precedence` with provenance)"
             )
         )
@@ -859,6 +878,8 @@ def resolve_profile(
     slope_pv = profile.dispersion_slope_ps_per_nm2_km
     # S in force for placing D: the profile's, else the scenario's (a scenario fills unknowns only)
     slope_value = slope_pv.value if slope_pv.known else values.get("dispersion_slope_ps_per_nm2_km")
+    slope_from_scenario = not slope_pv.known and slope_value is not None
+    d_declared_over_table = False
     anchor_nm: float | None = None
     for name in _SCENARIO_FIELDS:
         pv = getattr(profile, name)
@@ -868,6 +889,16 @@ def resolve_profile(
             elif name in values:
                 out[name] = values[name]
                 sources[name] = f"scenario: {label}"
+                if name == "dispersion_ps_per_nm_km" and slope_value is not None:
+                    assert scenario is not None
+                    anchor_nm = scenario.dispersion_wavelength_nm
+                    if anchor_nm is None:
+                        raise OutOfValidityRangeError(
+                            "the scenario D states no wavelength, so a dispersion slope cannot "
+                            "be applied to it; set `dispersion_wavelength_nm` on the scenario "
+                            "(the wavelength its D is stated at) or leave S out"
+                        )
+                    out[name] = values[name] + slope_value * (wavelength_nm - anchor_nm)
             elif name in (
                 "dispersion_slope_ps_per_nm2_km",
                 "group_index",
@@ -910,6 +941,12 @@ def resolve_profile(
                 out[name] = tab
                 continue
             if not math.isclose(value, tab, rel_tol=_AGREEMENT_REL_TOL, abs_tol=1e-12):
+                if name == "dispersion_ps_per_nm_km" and slope_from_scenario:
+                    raise FiberProfileError(
+                        f"{name} placed with the scenario S gives {value:g}, the table "
+                        f"{tab:g} at {wavelength_nm:g} nm; a scenario cannot override a table, "
+                        "under any `precedence` declaration"
+                    )
                 decl = profile.precedence.get(name)
                 if decl is None:
                     raise FiberProfileError(
@@ -918,6 +955,8 @@ def resolve_profile(
                         "declares no winner; declare one in `precedence` with its provenance"
                     )
                 out[name] = tab if decl.winner == "table" else value
+                if name == "dispersion_ps_per_nm_km" and decl.winner == "scalar":
+                    d_declared_over_table = True
                 sources[name] = (
                     f"{pv.provenance.category.value} (declared over table)"
                     if decl.winner == "scalar"
@@ -930,7 +969,15 @@ def resolve_profile(
         if scalar_extrapolated:
             extrapolated.append(name)
         out[name] = value
-    _check_slope_against_table(profile, out, sources, table_value, wavelength_nm, label)
+    _check_slope_against_table(
+        profile,
+        out,
+        sources,
+        table_value,
+        wavelength_nm,
+        slope_from_scenario=slope_from_scenario,
+        scalar_d_declared_over_table=d_declared_over_table,
+    )
     if missing:
         raise MissingFiberPropertyError(
             f"profile {profile.profile_id!r} has unknown {missing}; supply a measurement, or an "
