@@ -22,7 +22,8 @@ operation for operation, so legacy results are bit-identical; it falls back to t
 log-domain kernel if it ever produces a non-finite value. Every other order uses the
 log-domain kernel (log-sum-exp), which cannot underflow. A non-finite rate raises
 ValueError. The result records the nodes used, the sigma spread max(sd)/min(sd) and the
-quadrature. Equal-sigma convergence, 8-30 dB in 2 dB steps, three PMFs per order: 120
+quadrature. The spread is taken over levels with P > 0 only: a dead level enters no rate.
+Equal-sigma convergence, 8-30 dB in 2 dB steps, three PMFs per order: 120
 nodes are 1.9e-8 (M=16), 2.6e-8 (M=2), 3.7e-8 (M=8) and 4.1e-8 (M=4) from the 320-node
 value; 240 nodes (the default for M != 4) are within 4.2e-10 (M=8), 1.5e-10 (M=16) and
 7.6e-11 (M=2) of it, and within 3.9e-10 of an independent adaptive Gauss-Kronrod integral
@@ -281,17 +282,32 @@ def _conditional_entropies_common_grid(
 
 
 def _warn_gauss_hermite_unreliable(spread: float, order: int, nodes: int) -> None:
-    """Warn that per-level Gauss-Hermite is unreliable at this sigma spread."""
-    entry = next(((sp, err) for sp, err in _GH4_120_WORST_ERROR if sp >= spread), None)
-    if entry is None:
-        measured = f"above {_GH4_120_WORST_ERROR[-1][1]:.1e} bit"
+    """Warn that per-level Gauss-Hermite is unreliable at this sigma spread.
+
+    The error table was measured for PAM4 at 120 nodes only. At another order the message
+    says so and does not quote it: the threshold is applied there by analogy, not measured.
+    """
+    if order == 4:
+        entry = next(((sp, err) for sp, err in _GH4_120_WORST_ERROR if sp >= spread), None)
+        if entry is None:
+            measured = f"above {_GH4_120_WORST_ERROR[-1][1]:.1e} bit"
+        else:
+            measured = f"up to {entry[1]:.1e} bit at spread {entry[0]:g}"
+        detail = (
+            f"the PAM4 120-node error first exceeds 1e-4 bit at spread 3.4, so spreads above "
+            f"{_GH_SPREAD_THRESHOLD:g} are not trusted; measured {measured} (0-45 dB)."
+        )
     else:
-        measured = f"up to {entry[1]:.1e} bit at spread {entry[0]:g}"
+        detail = (
+            f"the error table (first above 1e-4 bit at spread 3.4) was measured for PAM4 at "
+            f"120 nodes only and is not a measurement for PAM{order} at {nodes} nodes; the "
+            f"threshold {_GH_SPREAD_THRESHOLD:g} is applied here by analogy. Per-order errors "
+            f"at spreads 2 to 64 are in docs/ALGORITHM_PROVENANCE.md."
+        )
     warnings.warn(
         f"Gauss-Hermite rates (PAM{order}, {nodes} nodes) with sigma spread max/min = "
-        f"{spread:.4g} are unreliable: the PAM4 120-node error first exceeds 1e-4 bit at "
-        f"spread 3.4, so spreads above {_GH_SPREAD_THRESHOLD:g} are not trusted; measured "
-        f"{measured} (0-45 dB). Pass quadrature='common_grid' for a converged result.",
+        f"{spread:.4g} are unreliable: {detail} Pass quadrature='common_grid' for a "
+        f"converged result.",
         UserWarning,
         stacklevel=3,
     )
@@ -330,7 +346,8 @@ def gaussian_rates(
         raise ValueError("Noise standard deviations must be positive")
     if quadrature not in ("auto", "gauss_hermite", "common_grid"):
         raise ValueError(f"quadrature must be auto, gauss_hermite or common_grid: {quadrature!r}")
-    spread = float(sd.max() / sd.min())
+    live = p > 0  # a level with P = 0 does not enter any rate, so its sigma does not count
+    spread = float(sd[live].max() / sd[live].min())
     unequal = spread > 1.0 + _SPREAD_EQUAL_TOL
     use_grid = quadrature == "common_grid" or (quadrature == "auto" and m_order != 4 and unequal)
     labels = label_bits(m_order)

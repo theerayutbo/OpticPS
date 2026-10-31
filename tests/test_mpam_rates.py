@@ -801,3 +801,78 @@ def test_pam4_values_are_exactly_those_computed_before_the_change():
     assert psnr_for_rate(u, 1.0, "bmd") == 13.8538069668088
     assert psnr_for_rate(outer, 1.5, "smd") == 19.22575288366302
     assert optimal_outer_probability(14.0) == (0.3624999999999998, 1.102138587773097)
+
+
+# ---------------------------------------------------------------------------------------
+# C4 minors from the C2 review: dead levels, warning text at M != 4, pinned grid constants.
+# ---------------------------------------------------------------------------------------
+
+
+def test_common_grid_constants_are_pinned():
+    """Direct asserts on the integrator constants the provenance numbers were measured with."""
+    assert rates_module._PANEL_ORDER == 10  # 10 Gauss-Legendre nodes per panel
+    steps = rates_module._PANEL_SD_STEPS
+    assert steps.tolist() == [float(t) for t in range(-12, 13)]  # integer sd steps, +-12 sd
+    assert steps[0] == -12.0 and steps[-1] == 12.0 and steps.size == 25
+    # A single live level at mean 0, sd 1: 24 panels of 10 nodes, covering exactly +-12 sd.
+    p = np.array([0.0, 1.0, 0.0, 0.0])
+    y, w = rates_module._common_grid(p, np.arange(4.0), np.ones(4))
+    assert y.size == 24 * 10 and w.sum() == pytest.approx(24.0, abs=1e-12)
+    assert y.min() > 1.0 - 12.0 and y.max() < 1.0 + 12.0
+
+
+def test_dead_levels_do_not_enter_the_sigma_spread():
+    """Spread, routing and warnings come from the levels with P > 0 only."""
+    levels = np.arange(8, dtype=float)
+    sigma = np.full(8, 0.35)
+    sigma[0] = 100.0  # a dead level with an absurd sigma: spread 285 if it counted
+    p = np.array([0.0, 0.1, 0.1, 0.3, 0.3, 0.1, 0.1, 0.0])
+    r = no_warning(p, levels, sigma)  # no UserWarning and no common grid
+    assert r.sigma_spread == 1.0 and r.quadrature == "gauss_hermite"
+    forced = no_warning(p, levels, sigma, quadrature="gauss_hermite")
+    assert forced.smd == r.smd and forced.bmd_raw == r.bmd_raw
+    # The result does not depend on the dead level's sigma at all.
+    other = sigma.copy()
+    other[0] = 0.35
+    assert gaussian_rates(p, levels, other).smd == pytest.approx(r.smd, abs=1e-12)
+    # PAM4 legacy path: a dead outer level with a wild sigma neither warns nor changes the rate.
+    p4 = np.array([0.0, 0.5, 0.5, 0.0])
+    wild = np.array([50.0, 0.3, 0.3, 0.3])
+    calm = np.array([0.3, 0.3, 0.3, 0.3])
+    a, b = no_warning(p4, np.arange(4.0), wild), no_warning(p4, np.arange(4.0), calm)
+    assert a.sigma_spread == 1.0 and a.smd == pytest.approx(b.smd, abs=1e-12)
+    # A live level with the same wild sigma does count: the grid is used and no GH warning.
+    live = no_warning(
+        np.array([0.1, 0.4, 0.4, 0.1]), np.arange(4.0), wild, quadrature="common_grid"
+    )
+    assert live.sigma_spread == pytest.approx(50.0 / 0.3)
+    # Edge: when all but one level is dead the spread is 1 by definition (single live level).
+    single = no_warning(
+        np.array([0.0, 1.0, 0.0, 0.0]), np.arange(4.0), np.array([9.0, 1.0, 5.0, 2.0])
+    )
+    assert single.sigma_spread == 1.0 and single.smd == pytest.approx(0.0, abs=1e-9)
+
+
+def test_dead_level_with_live_unequal_sigma_still_uses_the_grid():
+    levels = np.arange(8, dtype=float)
+    sigma = np.array([100.0, 0.3, 0.3, 0.6, 0.3, 0.3, 0.3, 0.3])
+    p = np.array([0.0, 0.1, 0.1, 0.3, 0.3, 0.1, 0.1, 0.0])
+    r = gaussian_rates(p, levels, sigma)
+    assert r.quadrature == "common_grid" and r.sigma_spread == pytest.approx(2.0)
+
+
+def test_warning_at_other_orders_does_not_quote_the_pam4_table():
+    levels = np.arange(8, dtype=float)
+    sigma = np.full(8, 0.3)
+    sigma[3] = 1.2  # spread 4
+    with pytest.warns(UserWarning, match="unreliable") as caught:
+        gaussian_rates(uniform(8), levels, sigma, quadrature="gauss_hermite")
+    text = str(caught[0].message)
+    assert "PAM8" in text and "240 nodes" in text and "common_grid" in text
+    assert "measured for PAM4" in text and "not a measurement for PAM8" in text
+    assert "3.5e-04" not in text and "measured up to" not in text  # no PAM4 numbers as if PAM8's
+    # The PAM4 text is unchanged and still quotes the table.
+    p, m, s = sigma_pattern(4, 12.0, 0.5, 2.0, 2)
+    with pytest.warns(UserWarning, match=r"3\.5e-04 bit at spread 4") as caught4:
+        gaussian_rates(p, m, s)
+    assert "PAM4 120-node error" in str(caught4[0].message)
