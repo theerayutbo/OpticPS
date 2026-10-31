@@ -30,6 +30,7 @@ from opticps.optimization.adaptive import (
     STREAM_SIM_NOISE,
     STREAM_SIM_PAYLOAD,
     AcquisitionId,
+    BaselineOverrideError,
     BestFixed,
     Selection,
     design_point_selection,
@@ -54,6 +55,7 @@ from opticps.transmitter.mpam_config import (
     check_frame_fit,
     dac_codes_per_level_step,
     load_mpam_config,
+    pam4_uniform_rate_bps,
     rate_equalisation,
 )
 from opticps.transmitter.pulse import PulseConfig, peak_factor, shape, symbol_centre_offset
@@ -369,9 +371,12 @@ def generate_all(config_path: Path, root: Path) -> tuple[Settings, list[Profile]
 
 MANIFEST_SCHEMA_VERSION = 2
 MPAM_ORDERS = (2, 8, 16)  # orders this generator writes; PAM4 uses generate_all
+MPAM_PROTOCOLS = ("A", "B")
+EVIDENCE = "simulated"  # every file written here is synthetic; the label is not a setting
+SYNTHETIC_SOURCE = "simulated/synthetic waveform; no measurement"
 MANIFEST_COLUMNS_V2 = [
-    "manifest_schema_version", "experiment_id", "role", "waveform_filename", "data_out",
-    "modulation", "modulation_order", "bits_per_symbol", "protocol", "shaping_mode",
+    "manifest_schema_version", "experiment_id", "role", "reportable", "waveform_filename",
+    "data_out", "modulation", "modulation_order", "bits_per_symbol", "protocol", "shaping_mode",
     "shaping_family", "shaping_parameter", "probabilities", "realised_probabilities",
     "entropy_target_bits", "symbol_entropy_bits", "constraint_protocol", "symbol_rate_Bd",
     "sample_rate_Sa_per_s", "samples_per_symbol", "number_of_symbols", "preamble_symbols",
@@ -396,6 +401,7 @@ class MpamWaveform:
     parameter: str
     direct: bool
     role: str
+    reportable: bool = True
 
 
 @dataclass(frozen=True)
@@ -441,7 +447,7 @@ def select_for_order(config: MpamConfig, order: int) -> OrderSelection:
     record = {
         "design_psnr_db": psnr_db,
         "design_rate_bpcu": rate,
-        "evidence": config.evidence,
+        "evidence": EVIDENCE,
         "stream_keys": {
             "simulated_payload": STREAM_SIM_PAYLOAD,
             "simulated_noise": STREAM_SIM_NOISE,
@@ -457,12 +463,43 @@ def select_for_order(config: MpamConfig, order: int) -> OrderSelection:
     )
 
 
+def require_reportable_baseline(config: MpamConfig, choice: OrderSelection, order: int) -> None:
+    """Refuse a BestFixed that is not the reportable baseline of the pinned menu.
+
+    Three independent conditions, all needed: the object says `reportable` (it is only set by
+    `best_fixed` over the pinned menu), its order is this order, and it names a member of the
+    pinned menu with exactly that member's PMF. A hand-built or replaced object, or one chosen
+    from another menu, raises `BaselineOverrideError`; nothing is written.
+    """
+    best = choice.best
+    pinned = config.reported_fixed_menu(order)
+    problems = []
+    if not best.reportable:
+        problems.append(f"reportable is False ({best.reportable_reason})")
+    if best.order != order or choice.order != order:
+        problems.append(f"order {best.order}/{choice.order} is not PAM{order}")
+    member = pinned.get(best.name)
+    if member is None:
+        problems.append(f"member {best.name!r} is not in the pinned menu {list(pinned)}")
+    elif len(best.probabilities) != order or (
+        max(abs(a - b) for a, b in zip(best.probabilities, member, strict=True)) > 1e-12
+    ):
+        problems.append(f"the PMF of {best.name!r} differs from the pinned one")
+    if problems:
+        raise BaselineOverrideError(
+            f"PAM{order}_BestFixed is a required waveform and must be a reportable baseline: "
+            + "; ".join(problems)
+        )
+
+
 def mpam_waveforms(
     config: MpamConfig, choice: OrderSelection | None, order: int
 ) -> list[MpamWaveform]:
     """The waveforms of one order: the pinned menu, the adaptive PMF and BestFixed.
 
     PAM2 has one symmetric PMF, the uniform, so it gets only PAM2_Uniform (choice is None).
+    A BestFixed that is not the reportable baseline of the pinned menu is refused
+    (`require_reportable_baseline`).
     """
     if choice is None:
         if order != 2:
@@ -470,6 +507,7 @@ def mpam_waveforms(
         return [
             MpamWaveform("PAM2_Uniform", (0.5, 0.5), "uniform", "none", "none", True, "required")
         ]
+    require_reportable_baseline(config, choice, order)
     top = float(np.log2(order))
     out: list[MpamWaveform] = []
     for name, p in config.reported_fixed_menu(order).items():
@@ -542,11 +580,28 @@ def generate_mpam_profile(
     step = dac_codes_per_level_step(order, scale)
     waveforms = mpam_waveforms(config, choice, order)
     selection_keys = {} if choice is None else choice.record["stream_keys"]
-    menu = {} if choice is None else config.reported_fixed_menu(order)
+    # Every waveform's own PMF, shaped or not, against the direct uniform of its order.
     equalisation = {
         r["name"]: r
-        for r in rate_equalisation(order, menu, profile.symbols, sps, config.block_length)
-    }
+        for r in rate_equalisation(
+            order, {wf.name: wf.probabilities for wf in waveforms}, profile.symbols, sps,
+            config.block_length,
+        )
+    }  # fmt: skip
+    # Protocol B matches realised rate: the same PMFs against one target across orders, the PAM4
+    # uniform of this protocol. Protocol A fixes the symbol rate instead, so it has no such target.
+    common_target = pam4_uniform_rate_bps(config, profile) if profile.protocol == "B" else None
+    common = (
+        {}
+        if common_target is None
+        else {
+            r["name"]: r
+            for r in rate_equalisation(
+                order, {wf.name: wf.probabilities for wf in waveforms}, profile.symbols, sps,
+                config.block_length, target_bps=common_target,
+            )
+        }
+    )  # fmt: skip
     rows: list[dict[str, Any]] = []
     checksums: dict[str, str] = {}
     for wf in waveforms:
@@ -586,8 +641,8 @@ def generate_mpam_profile(
             "config_sha256": config.sha256,
             "config_schema_version": CONFIG_SCHEMA_VERSION,
             "instrument": "Keysight M8199B (hardware playback not verified)",
-            "source": "simulated/synthetic waveform; no measurement",
-            "evidence": config.evidence,
+            "source": SYNTHETIC_SOURCE,
+            "evidence": EVIDENCE,
             "modulation": spec.name,
             "modulation_order": order,
             "bits_per_symbol": spec.bits_per_symbol,
@@ -643,7 +698,16 @@ def generate_mpam_profile(
                 "fec": "none implemented",
                 "pas": False,
             },
-            "rate_equalisation": equalisation.get(wf.name, "not applicable"),
+            "rate_equalisation": equalisation[wf.name],
+            "rate_equalisation_common_target": (
+                "not applicable: Protocol A holds the symbol rate, not the bit rate"
+                if common_target is None
+                else {
+                    "target": "PAM4 direct uniform of the same protocol, head included",
+                    "target_bps": common_target,
+                    **common[wf.name],
+                }
+            ),
             "waveform_sha256": waveform_hash,
         }
         if choice is not None and wf.name.endswith("_Adaptive"):
@@ -658,6 +722,7 @@ def generate_mpam_profile(
                 "member": choice.best.name,
                 "selected_on": choice.best.selected_on,
                 "reportable": choice.best.reportable,
+                "reportable_reason": choice.best.reportable_reason,
             }
         files = _write_references(folder / "references" / wf.name, wf.name, frame, metadata)
         for filename, digest in files.items():
@@ -668,6 +733,7 @@ def generate_mpam_profile(
                 "manifest_schema_version": MANIFEST_SCHEMA_VERSION,
                 "experiment_id": experiment_id,
                 "role": wf.role,
+                "reportable": str(wf.reportable).lower(),
                 "waveform_filename": relative,
                 "data_out": config.data_out,
                 "modulation": spec.name,
@@ -705,7 +771,7 @@ def generate_mpam_profile(
                 "waveform_rms": f"{rms:.9f}",
                 "waveform_papr_db": f"{20 * np.log10(peak / rms):.4f}",
                 "waveform_mean": f"{float(samples.mean()):.3e}",
-                "evidence": config.evidence,
+                "evidence": EVIDENCE,
                 "random_seed": config.seed,
                 "payload_stream_key": payload_key,
                 "training_stream_key": TRAINING_STREAM_KEY,
@@ -735,6 +801,14 @@ def generate_mpam_all(
     M8199BConstraintError lists them. The adaptive and best-fixed choices are made once per
     order and written to adaptive_selection_PAM{M}.json.
     """
+    bad_orders = [o for o in orders if o not in MPAM_ORDERS]
+    bad_protocols = [x for x in protocols if x not in MPAM_PROTOCOLS]
+    if not orders or not protocols or bad_orders or bad_protocols:
+        raise ValueError(
+            f"orders must be a non-empty subset of {MPAM_ORDERS} (PAM4 is written by "
+            f"generate_all) and protocols of {MPAM_PROTOCOLS}; got orders {tuple(orders)}, "
+            f"protocols {tuple(protocols)}"
+        )
     config = load_mpam_config(config_path)
     chosen = [p for p in config.profiles if p.order in orders and p.protocol in protocols]
     bad = [

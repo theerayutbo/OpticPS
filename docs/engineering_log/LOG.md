@@ -241,3 +241,11 @@ C5: `ModulationSpec` and `order=4` defaults; `Frame.order`; head = 512 preamble 
 Findings: (1) Training length at M = 16: simulated relative sd of the sigma estimate 5.64 % (theory 5.61 %), 95 % half width 11.1 %; the plan's "+-5.6 %" is one sigma. (2) Equal user rate against the direct uniform: PAM4 PS70 +7.11 % FEASIBLE, PS80 +17.23 % INFEASIBLE; PAM8 H288 +5.3 %, H272 +11.6 / +11.5 % FEASIBLE; PAM16 H388 +4.7 %, H372 +9.3 % FEASIBLE (reported, never applied; sample rate in every manifest stays 224 GSa/s). (3) Uniform at M = 2, 8, 16 carries exactly log2 M bits per symbol (payload x m information bits, matcher loss 0). (4) DAC codes per level step at 8 bit, NRZ: 254, 84.67, 36.29, 16.93 (M = 2, 4, 8, 16), on the mid-tread assumption.
 
 Tests: 768 passed in 526.47s. Independent review (Loki) pending.
+
+## 2026-10-31 | v1.3-mpam C5 fix round (independent review FAIL, 2 MAJOR)
+
+Dev: Opus 5.5 session. New commit on top of 908dd0c; nothing amended; no golden, committed waveform, checksum or `configs/m8199b_profiles.yaml` change.
+
+Fixed: (1) `reportable` is enforced by the export and the validator (default False; manifest column); (2) the evidence label is hard-coded `simulated`, the YAML key is refused, the validator fails a mislabelled synthetic package; (3) the equalisation statement is scoped: same-order target, only PAM4 PS80 is INFEASIBLE (+17.23 %); common target (PAM4 uniform net rate 110.25 Gb/s) H272 (258.4 / 258.1 GSa/s) and H372 (265.8) are INFEASIBLE too; 112 Gb/s is nominal, net uniform rates 111.125, 110.25, 106.67, 101.5 Gb/s; (4) v2 pinned-menu targets and `member=` checked; (5) default-deny: zero checks, header-only manifest, empty or incomplete checksums, missing rows all fail (v1 too; CLI exit 1); (6) the validator recomputes rates, probabilities, entropy, matcher figures, protocol and checks scale (half a DAC code) and preamble order; (7) the loader is strict at every level with enums, `orders` checked before any directory is made; (8) the ten survivors are killed; (9) FEATURE_GAP_MATRIX row repaired; (11) Adaptive and BestFixed report their own equalisation result, plus the common-target result.
+
+Tests: 853 passed in 547.11s. Review of the fix round pending.

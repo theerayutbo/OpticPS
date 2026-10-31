@@ -11,7 +11,6 @@ common:
   decimals: 9
   sample_rate_Sa_per_s: 224.0e9
   constraint_protocol: fixed_peak   # same drive alphabet for every waveform of a group
-  evidence: simulated               # simulated | mock | measured | analytical
 # The best-fixed baseline, declared before any test data is seen. Loaded through
 # load_mpam_config; the loader refuses a file whose deficits differ from the code's pinned
 # values, and reported baselines are built only from them (never from a run-time argument).

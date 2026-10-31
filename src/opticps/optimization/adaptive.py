@@ -840,7 +840,9 @@ class BestFixed:
     """The fixed PMF with the highest objective on training acquisitions.
 
     `selected_on` names the acquisitions used. Their content hash was recomputed; their
-    split label was only read (declared), see `best_fixed`.
+    split label was only read (declared), see `best_fixed`. `reportable` has no True default:
+    only `best_fixed` over the pinned menu sets it, so an object built by hand is not a
+    reportable baseline, and the M-PAM export refuses it.
     """
 
     name: str
@@ -851,8 +853,8 @@ class BestFixed:
     order: int
     table: list[dict[str, Any]]
     selected_on: str
-    reportable: bool = True
-    reportable_reason: str = "the pinned menu of configs/mpam_profiles.yaml"
+    reportable: bool = False
+    reportable_reason: str = "NON-REPORTABLE: not derived from the pinned menu"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)

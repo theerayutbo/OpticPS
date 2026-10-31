@@ -41,7 +41,7 @@ def cmd_generate(args: argparse.Namespace) -> int:
     for profile in profiles:
         results = validate_profile(args.output / profile.name, settings.data_out)
         counts = Counter(r.passed for r in results)
-        failed += counts[False]
+        failed += counts[False] + (0 if results else 1)  # zero checks is never a pass
         print(f"{profile.name}: {counts[True]} checks passed, {counts[False]} failed")
     return 1 if failed else 0
 
@@ -56,10 +56,14 @@ def cmd_validate(args: argparse.Namespace) -> int:
             load_capture(path)
             print(f"{path.name}: valid")
         return 0
-    for folder in sorted(p for p in args.output.iterdir() if p.is_dir()):
+    folders = sorted(p for p in args.output.iterdir() if p.is_dir())
+    if not folders:
+        print(f"{args.output}: no profile folders to validate")
+        return 1  # nothing validated is not a pass
+    for folder in folders:
         results = validate_profile(folder, args.data_out)
         bad = [r for r in results if not r.passed]
-        failed += len(bad)
+        failed += len(bad) + (0 if results else 1)  # zero checks is never a pass
         print(f"{folder.name}: {len(results) - len(bad)} passed, {len(bad)} failed")
         for item in bad:
             print(f"  FAIL {item.waveform} {item.check}: {item.detail}")

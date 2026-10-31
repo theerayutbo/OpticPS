@@ -19,3 +19,16 @@ Protocol B symbol counts and design rates (1.5 b at M=8, 2.0 at M=16) are my cho
 ## Not done (by scope)
 CLI, receiver (C6), demo/compare/uxr/report consumers (C7). A fresh M=16 generation takes about 40 s.
 Files: src/opticps/{modulation/pam.py,transmitter/{frame,export,mpam_config}.py,measurement/validate_export.py,optimization/{adaptive,constraints}.py}, configs/mpam_profiles.yaml, tests/test_mpam_{frame_rx,config}.py.
+
+## Fix round (after QA FAIL, 2 MAJOR)
+Gate: 853 passed in 547.11s (768 before; +24 test_mpam_config, +61 test_mpam_frame_rx), anchor green, no golden/anchor test edited. ruff check, ruff format --check, mypy clean. 45 M=2/8/16 waveforms regenerated in a temp folder (not committed): 9 packages, 0 failed (53 / 365 / 363 checks at M = 2 / 8 / 16). Committed PAM4 packages: 215 checks each, 0 failed.
+1 reportable: `BestFixed.reportable` defaults False; `export.require_reportable_baseline` refuses (BaselineOverrideError, nothing written) a flag False, wrong order, non-pinned member or other PMF; manifest column `reportable`; validator fails a required row that is not true and checks BestFixed `member=`.
+2 evidence: YAML key removed and refused; generator hard-codes `simulated`; validator `evidence_matches_source` (row, metadata, source string; v1 too).
+3 docs: ROADMAP_STATUS dev. 10, LOG, ALGORITHM_PROVENANCE. Same-order: only PS80 at M=4 INFEASIBLE (+17.23 %). Common target 110.25 Gb/s: H272 258.4/258.1, H372 265.8 GSa/s INFEASIBLE (table written by code; also `rate_equalisation_common_target` in metadata, Protocol B only). Net uniform 111.125, 110.25, 106.67, 101.5 Gb/s.
+4 validator pins the menu itself (MB bisection, agrees with fixed_menu to 1e-9); names, BestFixed member, Adaptive symmetry checked.
+5 default-deny: header-only, zero rows, missing/duplicate rows (`manifest_rows_complete`), empty/incomplete/malformed checksums (`checksum_list_complete`), missing files (no crash); CLI exit 1 on no folders or zero checks. `manifest_schema(columns, [])` is now None (test changed).
+6 recomputed vs manifest: realised, entropy, payload bits, matcher rate/loss (+ block composition), nominal/net rate, protocol, constraint protocol, peak/rms, full scale; preamble m-sequence order; scale tolerance = half a DAC code = 0.5/127 of full scale (3.94e-3), below which the 8-bit code is unchanged.
+7 loader strict at every level (exact keys, enums for constraint_protocol and metric, numeric types); `orders`/`protocols` validated before mkdir.
+8 mutants: 41 applied to the new code on a scratch copy, each re-applied and failing a test. The review's ten: column order, realised=target, loss 0, nominal 2xbaud, _is_uniform False, errors=0, head True, startswith, fit-512, quantiser. The two "near equivalent" were not equivalent: fit-512 is reachable with a block length that is not a multiple of 512 (1124 symbols, block 100: 2248 samples); the quantisers differ at ties (uniform PAM8 at n=10: (2,1,1,1,1,1,1,2) against (2,2,1,1,1,1,1,1)); tests added for both. Three mutants survived the first pass (metadata-only evidence, orders check, CLI zero checks): tests added, rerun killed.
+9 FEATURE_GAP_MATRIX export row repaired.
+11 Adaptive and BestFixed report their own `rate_equalisation` (and common target); `rate_equalisation` direct-uniform test is now exact (1e-12), consistent with `_is_uniform`.

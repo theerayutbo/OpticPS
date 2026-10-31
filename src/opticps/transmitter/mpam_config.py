@@ -4,7 +4,9 @@
 menu and its entropy deficits are declared in the YAML before any test data is seen; the
 loader refuses a file whose deficits differ from the values pinned in code, and
 `MpamConfig.reported_fixed_menu` builds the baseline only from them, so a reported baseline
-cannot be changed by an argument at run time.
+cannot be changed by an argument at run time. The export enforces it: a BestFixed that is not
+`reportable`, or not exactly a member of the pinned menu, is refused
+(`export.require_reportable_baseline`), and the manifest carries the flag.
 
 Nothing here talks to an instrument. The M8199B limits applied are the ones already enforced
 in `instruments.m8199b` (sample rate range, multiple of 512 samples, maximum length).
@@ -47,8 +49,14 @@ from opticps.transmitter.frame import make_matcher
 from opticps.transmitter.pulse import PulseConfig
 
 CONFIG_SCHEMA_VERSION = 2
-EVIDENCE_LABELS = ("simulated", "mock", "measured", "analytical")
 PROTOCOLS = ("A", "B")
+CONSTRAINT_PROTOCOLS = (
+    "fixed_peak",
+    "fixed_average_optical_power",
+    "fixed_OMA",
+    "equal_realized_user_rate",
+)
+METRICS = ("smd", "bmd")
 _TOP_KEYS = {
     "config_schema_version",
     "common",
@@ -57,6 +65,21 @@ _TOP_KEYS = {
     "protocol_A",
     "protocol_B",
 }
+_COMMON_KEYS = {
+    "seed",
+    "block_length",
+    "pulse",
+    "data_out",
+    "decimals",
+    "sample_rate_Sa_per_s",
+    "constraint_protocol",
+}
+_PULSE_KEYS = {"shape", "roll_off", "boundary"}
+_MENU_KEYS = {"members", "entropy_deficits_bits"}
+_ADAPTIVE_KEYS = {"metric", "training_samples", "training_acquisitions", "design_rate_bpcu"}
+_PROFILE_KEYS = {"name", "symbol_rate_Bd", "symbols"}
+_PROTOCOL_B_KEYS = {"nominal_bit_rate_bps", "samples_per_symbol", "symbols"}
+_DESIGN_ORDERS = (8, 16)
 _MENU_MEMBERS = ["Uniform", "Inner", "Outer"]
 
 
@@ -85,7 +108,11 @@ class MpamProfile:
 
 @dataclass(frozen=True)
 class MpamConfig:
-    """The validated contents of configs/mpam_profiles.yaml."""
+    """The validated contents of configs/mpam_profiles.yaml.
+
+    There is no evidence label: the generator writes synthetic waveforms only and labels them
+    "simulated" itself (`export.EVIDENCE`), so the label is not a file setting.
+    """
 
     sha256: str
     seed: int
@@ -95,7 +122,6 @@ class MpamConfig:
     decimals: int
     sample_rate: float
     constraint_protocol: str
-    evidence: str
     fixed_deficits: tuple[float, ...]
     adaptive: Mapping[str, Any]
     profiles: tuple[MpamProfile, ...]
@@ -108,14 +134,54 @@ class MpamConfig:
         return [p for p in self.profiles if p.order == order]
 
 
-def _require(mapping: Mapping[str, Any], key: str, where: str) -> Any:
-    if key not in mapping:
-        raise ConfigError(f"{where}: missing key {key!r}")
-    return mapping[key]
+def _mapping(value: Any, where: str, keys: set[str]) -> Mapping[str, Any]:
+    """`value` must be a mapping with exactly `keys`: a missing or an unknown key is refused."""
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"{where}: must be a mapping, got {type(value).__name__}")
+    missing = sorted(keys - set(value))
+    if missing:
+        raise ConfigError(f"{where}: missing keys {missing}")
+    unknown = sorted(set(value) - keys, key=str)
+    if unknown:
+        raise ConfigError(f"{where}: unknown keys {unknown}")
+    return value
+
+
+def _number(value: Any, where: str, *, integer: bool = False, positive: bool = True) -> Any:
+    """A finite number (an int if `integer`), positive unless `positive` is False.
+
+    PyYAML reads `224.0e9` (no sign in the exponent) as a string, so a numeral string that
+    `float` accepts is taken as the number it spells.
+    """
+    kind = "integer" if integer else "number"
+    if isinstance(value, bool) or not isinstance(value, (int, float, str)):
+        raise ConfigError(f"{where}: must be a finite {kind}, got {value!r}")
+    try:
+        number = float(value)
+    except ValueError:
+        raise ConfigError(f"{where}: must be a finite {kind}, got {value!r}") from None
+    if not np.isfinite(number) or (integer and not number.is_integer()):
+        raise ConfigError(f"{where}: must be a finite {kind}, got {value!r}")
+    if positive and not number > 0:
+        raise ConfigError(f"{where}: must be positive, got {value!r}")
+    return int(number) if integer else number
+
+
+def _by_order(value: Any, where: str, orders: tuple[int, ...], *, integer: bool) -> dict[int, Any]:
+    if not isinstance(value, Mapping):
+        raise ConfigError(f"{where}: must be a mapping from order to a number")
+    if set(value) != set(orders):
+        raise ConfigError(f"{where}: keys must be exactly {list(orders)}, got {list(value)}")
+    return {o: _number(value[o], f"{where}[{o}]", integer=integer) for o in orders}
 
 
 def load_mpam_config(path: Path) -> MpamConfig:
-    """Read and validate the M-PAM profile YAML. Unknown versions and keys are refused."""
+    """Read and validate the M-PAM profile YAML.
+
+    Default-deny at every nesting level: an unknown version, an unknown or missing key
+    anywhere, an enum value outside its set (`data_out`, `constraint_protocol`, `metric`,
+    pulse settings) and the removed `evidence` key are all refused with a `ConfigError`.
+    """
     raw = Path(path).read_bytes()
     config = yaml.safe_load(raw)
     if not isinstance(config, dict):
@@ -128,22 +194,48 @@ def load_mpam_config(path: Path) -> MpamConfig:
     unknown = set(config) - _TOP_KEYS
     if unknown:
         raise ConfigError(f"unknown top-level keys {sorted(unknown)}")
-    common = _require(config, "common", "config")
+    common = _mapping(_require(config, "common", "config"), "common", _COMMON_KEYS)
     if common["data_out"] not in DATA_OUTPUTS:
         raise ConfigError(f"data_out must be one of {DATA_OUTPUTS}")
-    if common["evidence"] not in EVIDENCE_LABELS:
-        raise ConfigError(f"evidence must be one of {EVIDENCE_LABELS}")
-    menu = _require(config, "fixed_menu", "config")
-    deficits = tuple(float(x) for x in menu["entropy_deficits_bits"])
-    if list(menu["members"]) != _MENU_MEMBERS or deficits != DEFAULT_FIXED_DEFICITS:
+    if common["constraint_protocol"] not in CONSTRAINT_PROTOCOLS:
+        raise ConfigError(f"constraint_protocol must be one of {CONSTRAINT_PROTOCOLS}")
+    pulse = _mapping(common["pulse"], "common.pulse", _PULSE_KEYS)
+    try:
+        pulse_config = PulseConfig(**pulse)
+    except (TypeError, ValueError) as error:
+        raise ConfigError(f"common.pulse: {error}") from error
+    seed = _number(common["seed"], "common.seed", integer=True, positive=False)
+    block_length = _number(common["block_length"], "common.block_length", integer=True)
+    decimals = _number(common["decimals"], "common.decimals", integer=True)
+    sample_rate = _number(common["sample_rate_Sa_per_s"], "common.sample_rate_Sa_per_s")
+    menu = _mapping(_require(config, "fixed_menu", "config"), "fixed_menu", _MENU_KEYS)
+    raw_deficits = menu["entropy_deficits_bits"]
+    if not isinstance(raw_deficits, list):
+        raise ConfigError("fixed_menu.entropy_deficits_bits: must be a list")
+    deficits = tuple(
+        _number(x, "fixed_menu.entropy_deficits_bits", positive=False) for x in raw_deficits
+    )
+    if menu["members"] != _MENU_MEMBERS or deficits != DEFAULT_FIXED_DEFICITS:
         raise BaselineOverrideError(
             f"the pinned best-fixed menu is {_MENU_MEMBERS} at deficits "
             f"{DEFAULT_FIXED_DEFICITS} bit; the file declares {menu['members']} at {deficits}. "
             "A reported baseline cannot be changed by configuration or argument"
         )
-    sample_rate = float(common["sample_rate_Sa_per_s"])
+    adaptive = _mapping(_require(config, "adaptive", "config"), "adaptive", _ADAPTIVE_KEYS)
+    if adaptive["metric"] not in METRICS:
+        raise ConfigError(f"adaptive.metric must be one of {METRICS}")
+    _number(adaptive["training_samples"], "adaptive.training_samples", integer=True)
+    _number(adaptive["training_acquisitions"], "adaptive.training_acquisitions", integer=True)
+    _by_order(
+        adaptive["design_rate_bpcu"], "adaptive.design_rate_bpcu", _DESIGN_ORDERS, integer=False
+    )
     profiles: list[MpamProfile] = []
-    for entry in _require(config["protocol_A"], "profiles", "protocol_A"):
+    protocol_a = _mapping(_require(config, "protocol_A", "config"), "protocol_A", {"profiles"})
+    entries = protocol_a["profiles"]
+    if not isinstance(entries, list) or not entries:
+        raise ConfigError("protocol_A.profiles: must be a non-empty list")
+    for entry in entries:
+        entry = _mapping(entry, "protocol_A.profiles[]", _PROFILE_KEYS)
         for order in SUPPORTED_ORDERS:
             profiles.append(
                 MpamProfile(
@@ -151,14 +243,18 @@ def load_mpam_config(path: Path) -> MpamConfig:
                     f"{entry['name']}_PAM{order}",
                     order,
                     sample_rate,
-                    float(entry["symbol_rate_Bd"]),
-                    int(entry["symbols"]),
+                    _number(entry["symbol_rate_Bd"], "protocol_A.symbol_rate_Bd"),
+                    _number(entry["symbols"], "protocol_A.symbols", integer=True),
                 )
             )
-    b = config["protocol_B"]
-    nominal = float(b["nominal_bit_rate_bps"])
+    b = _mapping(_require(config, "protocol_B", "config"), "protocol_B", _PROTOCOL_B_KEYS)
+    nominal = _number(b["nominal_bit_rate_bps"], "protocol_B.nominal_bit_rate_bps")
+    sps_by_order = _by_order(
+        b["samples_per_symbol"], "protocol_B.samples_per_symbol", SUPPORTED_ORDERS, integer=True
+    )
+    symbols_by_order = _by_order(b["symbols"], "protocol_B.symbols", SUPPORTED_ORDERS, integer=True)
     for order in SUPPORTED_ORDERS:
-        sps = int(b["samples_per_symbol"][order])
+        sps = sps_by_order[order]
         baud = nominal / ModulationSpec(order).bits_per_symbol
         if abs(sample_rate / baud - sps) > 1e-9:
             raise ConfigError(
@@ -167,23 +263,28 @@ def load_mpam_config(path: Path) -> MpamConfig:
             )
         profiles.append(
             MpamProfile(
-                "B", f"B_112G_PAM{order}", order, sample_rate, baud, int(b["symbols"][order])
+                "B", f"B_112G_PAM{order}", order, sample_rate, baud, symbols_by_order[order]
             )
         )
     return MpamConfig(
         sha256=hashlib.sha256(raw).hexdigest(),
-        seed=int(common["seed"]),
-        block_length=int(common["block_length"]),
-        pulse=PulseConfig(**common["pulse"]),
+        seed=seed,
+        block_length=block_length,
+        pulse=pulse_config,
         data_out=common["data_out"],
-        decimals=int(common["decimals"]),
+        decimals=decimals,
         sample_rate=sample_rate,
         constraint_protocol=str(common["constraint_protocol"]),
-        evidence=str(common["evidence"]),
         fixed_deficits=deficits,
-        adaptive=_require(config, "adaptive", "config"),
+        adaptive=adaptive,
         profiles=tuple(profiles),
     )
+
+
+def _require(mapping: Mapping[str, Any], key: str, where: str) -> Any:
+    if key not in mapping:
+        raise ConfigError(f"{where}: missing key {key!r}")
+    return mapping[key]
 
 
 # ------------------------------------------------------------------ frame length and fit
@@ -270,27 +371,33 @@ def rate_equalisation(
     sps: int,
     block_length: int = 1024,
     nominal_sample_rate: float = 224e9,
+    target_bps: float | None = None,
 ) -> list[dict[str, Any]]:
     """Report, per menu member, the sample rate that would equalise its realised user rate.
 
-    The target is the direct uniform of the same order (log2 M bits per symbol, no matcher).
-    Each row is evaluated as if the adjustment were declared; it is only REPORTED here
-    (`applied` is always False): no waveform is resampled or re-clocked. A member whose
-    required rate leaves 200 to 256 GSa/s is INFEASIBLE.
+    By default the target is the direct uniform of the same order (log2 M bits per symbol, no
+    matcher): a same-order comparison. Pass `target_bps` for a common target across orders
+    (see `pam4_uniform_rate_bps`). Each row is evaluated as if the adjustment were declared; it
+    is only REPORTED here (`applied` is always False): no waveform is resampled or re-clocked.
+    A member whose required rate leaves 200 to 256 GSa/s is INFEASIBLE.
     """
     spec = ModulationSpec(order)
     payload = symbols - spec.head_symbols
     uniform_bits = spec.bits_per_symbol * block_length
-    target = FrameAccounting(
-        spec.head_symbols, payload, block_length, uniform_bits, sps
-    ).user_rate_bps(nominal_sample_rate)
+    target = (
+        FrameAccounting(spec.head_symbols, payload, block_length, uniform_bits, sps).user_rate_bps(
+            nominal_sample_rate
+        )
+        if target_bps is None
+        else target_bps
+    )
     constraint = EqualRealizedUserRate(
         target, nominal_sample_rate_hz=nominal_sample_rate, allow_sample_rate_adjustment=True
     )
     rows = []
     for name, p in menu.items():
         pmf = np.asarray(p, dtype=float)
-        direct = bool(np.allclose(pmf, 1.0 / order, atol=1e-12))
+        direct = bool(np.max(np.abs(pmf - 1.0 / order)) <= 1e-12)
         bits = uniform_bits if direct else make_matcher(pmf, block_length, order).k
         accounting = FrameAccounting(spec.head_symbols, payload, block_length, bits, sps)
         result = constraint.check(accounting)
@@ -310,6 +417,26 @@ def rate_equalisation(
     return rows
 
 
+def pam4_uniform_rate_bps(config: MpamConfig, profile: MpamProfile) -> float:
+    """Realised user rate of the PAM4 direct uniform of the same protocol and symbol rate.
+
+    The common target of the cross-order comparison (Protocol B matches realised rate including
+    the head overhead): 2 bit per symbol, head 1024, no matcher loss. `profile` is any profile
+    of the stem (for example `B_112G_PAM8`); its PAM4 sibling is read from the config.
+    """
+    stem = profile.name.rsplit("_PAM", 1)[0]
+    sibling = next(p for p in config.profiles if p.name == f"{stem}_PAM4")
+    spec = ModulationSpec(4)
+    accounting = FrameAccounting(
+        spec.head_symbols,
+        sibling.symbols - spec.head_symbols,
+        config.block_length,
+        spec.bits_per_symbol * config.block_length,
+        sibling.sps,
+    )
+    return accounting.user_rate_bps(sibling.sample_rate)
+
+
 def dac_codes_per_level_step(order: int, full_scale_levels: float, bits: int = 8) -> float:
     """DAC codes between adjacent levels under the mid-tread map `export.dac_quantize` assumes.
 
@@ -323,7 +450,8 @@ def dac_codes_per_level_step(order: int, full_scale_levels: float, bits: int = 8
 
 __all__ = [
     "CONFIG_SCHEMA_VERSION",
-    "EVIDENCE_LABELS",
+    "CONSTRAINT_PROTOCOLS",
+    "METRICS",
     "BaselineOverrideError",
     "ConfigError",
     "MpamConfig",
@@ -333,5 +461,6 @@ __all__ = [
     "frame_length_rows",
     "head_symbols",
     "load_mpam_config",
+    "pam4_uniform_rate_bps",
     "rate_equalisation",
 ]

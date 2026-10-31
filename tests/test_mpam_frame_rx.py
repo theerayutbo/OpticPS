@@ -6,6 +6,7 @@ lengths, sample counts, DAC steps), not read back from the code under test.
 
 import copy
 import csv
+import dataclasses
 import json
 import math
 import shutil
@@ -17,11 +18,17 @@ import numpy as np
 import pytest
 import yaml
 
+from opticps.cli.main import main as cli_main
 from opticps.distribution_matching.ccdm import ConstantCompositionMatcher
 from opticps.instruments.m8199b import M8199BConstraintError
 from opticps.measurement.validate_export import (
+    EXPECTED_TARGETS,
+    SCALE_TOLERANCE,
+    expected_names,
+    expected_preamble,
     levels_of,
     manifest_schema,
+    pinned_menu,
     validate_profile,
 )
 from opticps.modulation.pam import (
@@ -32,17 +39,30 @@ from opticps.modulation.pam import (
     label_bits,
     pam_levels,
 )
-from opticps.optimization.adaptive import estimate_channel, fixed_menu
+from opticps.optimization.adaptive import (
+    BaselineOverrideError,
+    BestFixed,
+    best_fixed,
+    estimate_channel,
+    fixed_menu,
+    simulate_acquisitions,
+)
 from opticps.optimization.constraints import FeasibilityStatus
 from opticps.transmitter.export import (
     MANIFEST_COLUMNS,
     MANIFEST_COLUMNS_V2,
+    _is_uniform,
     dac_quantize,
     generate_mpam_all,
+    generate_mpam_profile,
+    mpam_waveforms,
+    select_for_order,
+    sha256_file,
 )
 from opticps.transmitter.frame import (
     Frame,
     build_frame,
+    make_matcher,
     payload_rng,
     preamble_indices,
     training_indices,
@@ -53,6 +73,7 @@ from opticps.transmitter.mpam_config import (
     dac_codes_per_level_step,
     frame_length_rows,
     load_mpam_config,
+    pam4_uniform_rate_bps,
     rate_equalisation,
 )
 
@@ -531,8 +552,9 @@ def test_unknown_columns_without_a_version_are_refused(tmp_path):
     (folder / "checksums.sha256").write_text("")
     assert failed_checks(validate_profile(folder)) == {"manifest_schema_known"}
     assert manifest_schema(None, []) is None
-    assert manifest_schema(list(MANIFEST_COLUMNS), []) == 1
-    assert manifest_schema(list(MANIFEST_COLUMNS_V2), []) is None  # v2 needs a row that says 2
+    # a header-only manifest is no package, in either schema (default-deny)
+    assert manifest_schema(list(MANIFEST_COLUMNS), []) is None
+    assert manifest_schema(list(MANIFEST_COLUMNS_V2), []) is None
 
 
 @pytest.mark.parametrize(
@@ -596,7 +618,15 @@ def test_preamble_not_on_outer_levels_of_this_order_fails(exported, tmp_path):
 
 def test_v1_manifest_still_validates_as_schema_1():
     columns = list(MANIFEST_COLUMNS)
-    assert manifest_schema(columns, []) == 1 and len(columns) == 40
+    row = dict.fromkeys(columns, "x")
+    assert manifest_schema(columns, [row]) == 1 and len(columns) == 40
+    assert manifest_schema(columns, []) is None  # header only: no package
+    for folder in sorted(Path("output/keysight_m8199b").iterdir()):
+        if folder.is_dir():
+            with (folder / "experiment_manifest.csv").open(newline="") as handle:
+                reader = csv.DictReader(handle)
+                rows = list(reader)
+                assert manifest_schema(list(reader.fieldnames or []), rows) == 1
 
 
 def test_generation_refuses_infeasible_profiles_and_writes_nothing(tmp_path):
@@ -671,3 +701,739 @@ def test_pam16_export_validates_and_head_is_3072(tmp_path):
     assert {r["samples_per_symbol"] for r in manifest} == {"8"}
     assert not failed_checks(validate_profile(folder))
     assert copy.deepcopy(manifest)[0]["bits_per_symbol"] == "4"
+
+
+# ------------------------------------------------------------------ review round: helpers
+
+
+def refresh(folder: Path) -> None:
+    """Recompute every hash a package keeps, as an honest rewrite of the files would."""
+    manifest, columns = read_manifest(folder)
+    for r in manifest:
+        name = Path(r["waveform_filename"]).stem
+        r["waveform_sha256"] = sha256_file(folder / r["waveform_filename"])
+        r["reference_sha256"] = sha256_file(folder / "references" / name / f"{name}_symbols.csv")
+    rewrite_manifest(folder, lambda c, _rows: (c, manifest))
+    skip = {"checksums.sha256", "validation_results.csv"}
+    lines = [
+        f"{sha256_file(path)}  {path.relative_to(folder).as_posix()}"
+        for path in sorted(folder.rglob("*"))
+        if path.is_file() and path.name not in skip
+    ]
+    (folder / "checksums.sha256").write_text("\n".join(lines) + "\n")
+
+
+def edit_metadata(folder: Path, name: str, edit) -> None:
+    path = folder / "references" / name / f"{name}_metadata.json"
+    meta = json.loads(path.read_text())
+    edit(meta)
+    path.write_text(json.dumps(meta, indent=2, sort_keys=True) + "\n")
+
+
+def edit_row(folder: Path, index: int, **changes: str) -> None:
+    def edit(columns, rows):
+        rows[index].update(changes)
+        return columns, rows
+
+    rewrite_manifest(folder, edit)
+
+
+def wave_lines(folder: Path, name: str) -> list[str]:
+    return (folder / f"waveforms/{name}.csv").read_text().splitlines()
+
+
+def write_wave(folder: Path, name: str, lines: list[str]) -> None:
+    (folder / f"waveforms/{name}.csv").write_text("\n".join(lines) + "\n")
+
+
+IDX = {name: i for i, name in enumerate(expected_names(2, 8))}
+PAM8_NAMES = expected_names(2, 8)
+
+
+# ------------------------------------------------------------------ finding 1: reportable
+
+
+@pytest.fixture(scope="module")
+def pam8(tmp_path_factory):
+    tmp = tmp_path_factory.mktemp("pam8")
+    path = small_config(tmp)
+    config = load_mpam_config(path)
+    profile = next(p for p in config.profiles if p.name == "B_112G_PAM8")
+    return config, profile, select_for_order(config, 8)
+
+
+def hand_built(name: str, pmf, *, order: int = 8, **kwargs) -> BestFixed:
+    return BestFixed(name, list(pmf), 0.0, "bmd", 1024, order, [], "hand built", **kwargs)
+
+
+def nothing_written(root: Path) -> bool:
+    return not root.exists() or not any(root.iterdir())
+
+
+def test_a_directly_built_best_fixed_is_not_reportable():
+    assert hand_built("PAM8_Uniform", fixed_menu(8)["PAM8_Uniform"]).reportable is False
+    assert "NON-REPORTABLE" in hand_built("X", [0.125] * 8).reportable_reason
+
+
+def test_the_qa_repro_is_refused_by_the_export(pam8, tmp_path):
+    """A best-fixed chosen from a menu that is not the pinned one must not reach a package."""
+    config, profile, choice = pam8
+    train, _ = simulate_acquisitions(22.0, 8, 12000, 3, 1, 0)
+    other = best_fixed(train, 8, "bmd", 1024, {"X": (0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2)})
+    assert other.reportable is False and other.name == "X"
+    with pytest.raises(BaselineOverrideError, match="reportable is False"):
+        generate_mpam_profile(profile, config, dataclasses.replace(choice, best=other), tmp_path)
+    assert nothing_written(tmp_path)
+
+
+def test_every_way_of_faking_a_reportable_baseline_is_refused(pam8, tmp_path):
+    config, profile, choice = pam8
+    pinned = fixed_menu(8)
+    inner, outer = pinned["PAM8_Fixed_Inner_H288"], pinned["PAM8_Fixed_Outer_H272"]
+    cases = {
+        "default flag": hand_built("PAM8_Fixed_Inner_H288", inner),
+        "flag True, member not pinned": hand_built("X", inner, reportable=True),
+        "flag True, pinned name, another PMF": hand_built(
+            "PAM8_Fixed_Inner_H288", outer, reportable=True
+        ),
+        "pinned name and PMF, flag False": hand_built(
+            "PAM8_Fixed_Inner_H288", inner, reportable=False
+        ),
+        "flag True, wrong order": hand_built(
+            "PAM8_Fixed_Inner_H288", inner, order=16, reportable=True
+        ),
+        "flag True, PMF of the wrong length": hand_built(
+            "PAM8_Fixed_Inner_H288", inner[:4], reportable=True
+        ),
+    }
+    for label, best in cases.items():
+        with pytest.raises(BaselineOverrideError, match="BestFixed"):
+            mpam_waveforms(config, dataclasses.replace(choice, best=best), 8)
+        with pytest.raises(BaselineOverrideError):
+            generate_mpam_profile(profile, config, dataclasses.replace(choice, best=best), tmp_path)
+        assert nothing_written(tmp_path), label
+
+
+def test_a_uniform_best_fixed_and_a_uniform_adaptive_are_sent_as_direct_uniform(pam8, tmp_path):
+    """Also accepts a best-fixed that is exactly a pinned member (no matcher for uniform)."""
+    config, profile, choice = pam8
+    uniform = tuple([0.125] * 8)
+    best = hand_built("PAM8_Uniform", uniform, reportable=True)
+    adaptive = dataclasses.replace(choice.adaptive, probabilities=list(uniform))
+    chosen = dataclasses.replace(choice, best=best, adaptive=adaptive)
+    waveforms = {w.name: w for w in mpam_waveforms(config, chosen, 8)}
+    assert waveforms["PAM8_BestFixed"].direct and waveforms["PAM8_Adaptive"].direct
+    assert not waveforms["PAM8_Fixed_Inner_H288"].direct
+    rows = generate_mpam_profile(profile, config, chosen, tmp_path)
+    for row in rows:
+        if row["waveform_filename"].endswith(("BestFixed.csv", "Adaptive.csv")):
+            assert row["reportable"] == "true" and float(row["distribution_matcher_rate"]) == 3.0
+            assert float(row["distribution_matcher_rate_loss"]) == 0.0
+    meta = json.loads(
+        (
+            tmp_path / "B_112G_PAM8/references/PAM8_BestFixed/PAM8_BestFixed_metadata.json"
+        ).read_text()
+    )
+    assert meta["frame"]["matcher_composition"] is None
+    assert meta["best_fixed"]["member"] == "PAM8_Uniform" and meta["best_fixed"]["reportable"]
+    assert not failed_checks(validate_profile(tmp_path / "B_112G_PAM8"))
+
+
+def test_is_uniform_has_a_tight_tolerance():
+    assert _is_uniform([0.125] * 8, 8) and _is_uniform(
+        (0.125 + 5e-13, 0.125 - 5e-13, *[0.125] * 6), 8
+    )
+    assert not _is_uniform((0.125 + 1e-9, 0.125 - 1e-9, *[0.125] * 6), 8)
+    assert not _is_uniform(fixed_menu(8)["PAM8_Fixed_Inner_H288"], 8)
+    assert not _is_uniform([0.125] * 8, 16)
+
+
+def test_the_v2_manifest_has_the_literal_column_list_with_reportable():
+    assert MANIFEST_COLUMNS_V2 == [
+        "manifest_schema_version", "experiment_id", "role", "reportable", "waveform_filename",
+        "data_out", "modulation", "modulation_order", "bits_per_symbol", "protocol",
+        "shaping_mode", "shaping_family", "shaping_parameter", "probabilities",
+        "realised_probabilities", "entropy_target_bits", "symbol_entropy_bits",
+        "constraint_protocol", "symbol_rate_Bd", "sample_rate_Sa_per_s", "samples_per_symbol",
+        "number_of_symbols", "preamble_symbols", "training_symbols", "head_symbols",
+        "payload_symbols", "number_of_samples", "waveform_duration_s",
+        "distribution_matcher_rate", "distribution_matcher_rate_loss",
+        "payload_information_bits", "nominal_information_rate_bps",
+        "actual_net_payload_rate_bps", "level_spacing_full_scale", "dac_codes_per_level_step",
+        "pulse_shape", "amplitude_scale", "waveform_peak", "waveform_rms", "waveform_papr_db",
+        "waveform_mean", "evidence", "random_seed", "payload_stream_key",
+        "training_stream_key", "waveform_sha256", "reference_sha256",
+    ]  # fmt: skip
+
+
+def test_exported_rows_say_reportable_and_the_validator_fails_a_required_row_that_is_not(
+    exported, tmp_path
+):
+    folder = copy_package(exported, tmp_path)
+    manifest, _ = read_manifest(folder)
+    assert {r["reportable"] for r in manifest} == {"true"}
+    meta = json.loads(
+        (folder / "references/PAM8_BestFixed/PAM8_BestFixed_metadata.json").read_text()
+    )
+    assert meta["best_fixed"]["reportable"] is True
+    for value in ("false", "maybe", ""):
+        edit_row(folder, IDX["PAM8_BestFixed"], reportable=value)
+        refresh(folder)
+        assert failed_checks(validate_profile(folder)) == {"reportable"}, value
+    edit_row(folder, IDX["PAM8_Uniform"], reportable="false")
+    refresh(folder)
+    assert failed_checks(validate_profile(folder)) == {"reportable"}
+
+
+# ------------------------------------------------------------------ finding 11: equalisation
+
+
+def test_adaptive_and_best_fixed_report_the_equalisation_of_their_own_pmf(exported):
+    """Not "not applicable": the real result for the PMF that was sent, from its composition."""
+    _, out, _ = exported
+    for name in ("PAM8_Adaptive", "PAM8_BestFixed"):
+        meta = json.loads((out / f"B_112G_PAM8/references/{name}/{name}_metadata.json").read_text())
+        equalisation = meta["rate_equalisation"]
+        counts = meta["frame"]["matcher_composition"]
+        assert isinstance(equalisation, dict) and equalisation["name"] == name
+        assert equalisation["applied"] is False
+        assert counts is not None  # both are shaped in this fixture
+        bits = independent_bits(counts)
+        assert equalisation["bits_per_block"] == bits
+        ratio = 3 * 1024 / bits  # the direct uniform carries 3 bits per symbol
+        assert equalisation["required_increase"] == pytest.approx(ratio - 1, rel=1e-12)
+        assert equalisation["required_sample_rate_hz"] == pytest.approx(224e9 * ratio, rel=1e-12)
+        assert (equalisation["status"] == "FEASIBLE") == (ratio <= 256 / 224)
+        # 2 payload blocks of the 4096-symbol frame, 6 samples per symbol at 224 GSa/s
+        assert equalisation["user_rate_bps"] == pytest.approx(
+            224e9 / 6 * 2 * bits / 4096, rel=1e-12
+        )
+
+
+def test_uniform_net_rates_of_protocol_b_are_not_the_nominal_112_gbps():
+    """112 Gb/s is a nominal label: the head costs 1024 to 3072 of each frame's symbols."""
+    config = load_mpam_config(CONFIG)
+    heads = {2: 1024, 4: 1024, 8: 2048, 16: 3072}
+    symbols = {2: 131072, 4: 65536, 8: 43008, 16: 32768}
+    sps = {2: 2, 4: 4, 8: 6, 16: 8}
+    expected = {2: 111.125e9, 4: 110.25e9, 8: 106.6666667e9, 16: 101.5e9}
+    for order in (2, 4, 8, 16):
+        net = 224e9 / sps[order] * BITS[order] * (symbols[order] - heads[order]) / symbols[order]
+        assert net == pytest.approx(expected[order], rel=1e-9)
+        profile = next(p for p in config.profiles if p.name == f"B_112G_PAM{order}")
+        rows = rate_equalisation(order, {"u": [1 / order] * order}, profile.symbols, profile.sps)
+        assert rows[0]["user_rate_bps"] == pytest.approx(net, rel=1e-12)
+    pam4 = next(p for p in config.profiles if p.name == "B_112G_PAM4")
+    assert pam4_uniform_rate_bps(config, pam4) == pytest.approx(110.25e9, rel=1e-12)
+
+
+def test_common_target_equalisation_is_the_pam4_uniform_net_rate():
+    """Against the PAM4 uniform net rate (110.25 Gb/s) both PS80-class members, H272 and
+    H372, are INFEASIBLE, not only the PAM4 one; the status comes from the arithmetic here."""
+    config = load_mpam_config(CONFIG)
+    target = 224e9 / 4 * 2 * 63 / 64  # PAM4: 63 of 64 blocks carry 2048 bits
+    seen = {}
+    for order in (4, 8, 16):
+        profile = next(p for p in config.profiles if p.name == f"B_112G_PAM{order}")
+        assert pam4_uniform_rate_bps(config, profile) == pytest.approx(target, rel=1e-12)
+        menu = fixed_menu(order)
+        rows = {
+            r["name"]: r
+            for r in rate_equalisation(
+                order,
+                menu,
+                profile.symbols,
+                profile.sps,
+                target_bps=pam4_uniform_rate_bps(config, profile),
+            )
+        }
+        for name, pmf in menu.items():
+            if name.endswith("Uniform"):
+                bits = BITS[order] * 1024
+            else:
+                counts = ConstantCompositionMatcher.from_symmetric_probabilities(pmf, 1024).counts
+                bits = independent_bits(counts) if order > 4 else rows[name]["bits_per_block"]
+            blocks = (profile.symbols - {4: 1024, 8: 2048, 16: 3072}[order]) // 1024
+            rate = 224e9 / profile.sps * bits * blocks / profile.symbols
+            needed = 224e9 * target / rate
+            assert rows[name]["required_sample_rate_hz"] == pytest.approx(needed, rel=1e-9) or (
+                name.endswith("Uniform") and order == 4
+            )
+            assert (rows[name]["status"] == "FEASIBLE") == (200e9 <= needed <= 256e9), name
+            seen[name] = (round(needed / 1e9, 1), rows[name]["status"])
+    assert seen["PAM8_Fixed_Inner_H272"] == (258.4, "INFEASIBLE")  # 258.35
+    assert seen["PAM8_Fixed_Outer_H272"] == (258.1, "INFEASIBLE")
+    assert seen["PAM16_Fixed_Inner_H372"] == (265.8, "INFEASIBLE")
+    assert seen["PAM16_Fixed_Outer_H372"] == (265.8, "INFEASIBLE")
+    assert seen["PAM4_Fixed_PS80"][1] == "INFEASIBLE"
+    for name in ("PAM8_Fixed_Inner_H288", "PAM8_Fixed_Outer_H288", "PAM16_Fixed_Inner_H388",
+                 "PAM16_Fixed_Outer_H388", "PAM4_Fixed_PS70", "PAM8_Uniform", "PAM16_Uniform"):  # fmt: skip
+        assert seen[name][1] == "FEASIBLE", name
+
+
+def test_metadata_carries_the_common_target_result_for_protocol_b_only(exported, tmp_path):
+    _, out, _ = exported
+    folder = out / "B_112G_PAM8"
+    # this fixture shortens the frames (PAM4: 4096 symbols, 3 of 4 blocks carry payload)
+    target = 224e9 / 4 * 2 * 3 / 4
+    for name in ("PAM8_Fixed_Inner_H272", "PAM8_Uniform", "PAM8_Adaptive"):
+        meta = json.loads((folder / f"references/{name}/{name}_metadata.json").read_text())
+        common = meta["rate_equalisation_common_target"]
+        counts = meta["frame"]["matcher_composition"]
+        bits = 3 * 1024 if counts is None else independent_bits(counts)
+        needed = 224e9 * target / (224e9 / 6 * bits * 2 / 4096)
+        assert common["target_bps"] == pytest.approx(target, rel=1e-12)
+        assert common["required_sample_rate_hz"] == pytest.approx(needed, rel=1e-9)
+        assert (common["status"] == "FEASIBLE") == (200e9 <= needed <= 256e9)
+        assert common["applied"] is False and common["name"] == name
+        assert meta["rate_equalisation"]["name"] == name  # the same-order result sits beside it
+    path = small_config(tmp_path)
+    generate_mpam_all(path, tmp_path / "a", orders=(2,), protocols=("A",))
+    meta = json.loads(
+        (tmp_path / "a/A_8GBd_PAM2/references/PAM2_Uniform/PAM2_Uniform_metadata.json").read_text()
+    )
+    assert "Protocol A holds the symbol rate" in meta["rate_equalisation_common_target"]
+
+
+# ------------------------------------------------------------------ finding 2: evidence
+
+
+@pytest.mark.parametrize("label", ["mock", "measured", "analytical"])
+def test_a_synthetic_package_claiming_another_evidence_label_fails(exported, tmp_path, label):
+    """The QA repro: every row and the metadata say `label`, the metadata source says synthetic."""
+    folder = copy_package(exported, tmp_path)
+    manifest, _ = read_manifest(folder)
+    for index, row in enumerate(manifest):
+        name = Path(row["waveform_filename"]).stem
+        edit_row(folder, index, evidence=label)
+        edit_metadata(folder, name, lambda m: m.update(evidence=label))
+    refresh(folder)
+    results = validate_profile(folder)
+    assert failed_checks(results) == {"evidence_matches_source"}  # the label itself is a known one
+    assert sum(not c.passed for c in results) == len(manifest)
+
+
+def test_the_generator_hard_codes_the_simulated_label(exported):
+    _, out, _ = exported
+    for name in ("B_112G_PAM8", "B_112G_PAM2"):
+        manifest, _ = read_manifest(out / name)
+        assert {r["evidence"] for r in manifest} == {"simulated"}
+        for row in manifest:
+            stem = Path(row["waveform_filename"]).stem
+            meta = json.loads((out / name / f"references/{stem}/{stem}_metadata.json").read_text())
+            assert meta["evidence"] == "simulated" and "synthetic" in meta["source"]
+
+
+def test_a_v1_package_claiming_measured_evidence_fails(tmp_path):
+    folder = tmp_path / "B_highspeed_56GBd"
+    shutil.copytree("output/keysight_m8199b/B_highspeed_56GBd", folder)
+    assert not failed_checks(validate_profile(folder))
+    edit_row(folder, 0, measured_or_simulated_source="measured")
+    assert "evidence_matches_source" in failed_checks(validate_profile(folder))
+
+
+# ------------------------------------------------------------------ finding 4: names and members
+
+
+def test_the_validators_pinned_menu_agrees_with_the_generators_and_with_literals():
+    for order in (4, 8, 16):
+        mine, theirs = pinned_menu(order), fixed_menu(order)
+        assert list(mine) == list(theirs) == expected_names(2, order)[:-2]
+        for name in mine:
+            assert mine[name] == pytest.approx(list(theirs[name]), abs=1e-9)
+    assert pinned_menu(8)["PAM8_Fixed_Inner_H288"][:4] == pytest.approx(
+        [0.0569, 0.1031, 0.1532, 0.1868], abs=5e-5
+    )
+    assert pinned_menu(16)["PAM16_Fixed_Outer_H372"][:2] == pytest.approx(
+        [0.1544, 0.0998], abs=5e-5
+    )
+    assert set(EXPECTED_TARGETS) <= set(pinned_menu(4))
+
+
+def test_a_pmf_put_under_the_wrong_name_is_caught(exported, tmp_path):
+    """The QA repro: the H272 PMF in the H288 slot, consistently in row and metadata."""
+    folder = copy_package(exported, tmp_path)
+    wrong = pinned_menu(8)["PAM8_Fixed_Inner_H272"]
+    entropy = -sum(p * math.log2(p) for p in wrong)
+    edit_row(
+        folder,
+        IDX["PAM8_Fixed_Inner_H288"],
+        probabilities=json.dumps([round(p, 6) for p in wrong]),
+        entropy_target_bits=f"{entropy:.6f}",
+    )
+    edit_metadata(
+        folder,
+        "PAM8_Fixed_Inner_H288",
+        lambda m: m["shaping"].update(target_probabilities=wrong, entropy_target_bits=entropy),
+    )
+    refresh(folder)
+    failed = failed_checks(validate_profile(folder))
+    assert "target_is_requested" in failed
+    assert failed.isdisjoint(
+        {"manifest_probabilities_match_metadata", "entropy_target_matches_probabilities"}
+    )
+
+
+@pytest.mark.parametrize("parameter", ["member=X", "member=PAM8_Fixed_Inner_H272", "pairs=[]", ""])
+def test_best_fixed_member_must_be_a_pinned_member_with_its_pmf(exported, tmp_path, parameter):
+    folder = copy_package(exported, tmp_path)
+    manifest, _ = read_manifest(folder)
+    current = manifest[IDX["PAM8_BestFixed"]]["shaping_parameter"]
+    assert current.startswith("member=PAM8_")
+    assert parameter != current
+    edit_row(folder, IDX["PAM8_BestFixed"], shaping_parameter=parameter)
+    refresh(folder)
+    assert "target_is_requested" in failed_checks(validate_profile(folder))
+
+
+def test_adaptive_pmf_must_be_symmetric(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    skew = [0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1, 0.2 - 0.0]
+    skew[0], skew[7] = 0.25, 0.15
+    entropy = -sum(p * math.log2(p) for p in skew)
+    edit_row(
+        folder,
+        IDX["PAM8_Adaptive"],
+        probabilities=json.dumps(skew),
+        entropy_target_bits=f"{entropy:.6f}",
+    )
+    edit_metadata(
+        folder,
+        "PAM8_Adaptive",
+        lambda m: m["shaping"].update(target_probabilities=skew, entropy_target_bits=entropy),
+    )
+    refresh(folder)
+    assert "target_is_requested" in failed_checks(validate_profile(folder))
+
+
+# ------------------------------------------------------------------ finding 5: default-deny
+
+
+def test_a_header_only_manifest_with_an_empty_checksum_list_fails_in_both_schemas(tmp_path):
+    for columns in (MANIFEST_COLUMNS, MANIFEST_COLUMNS_V2):
+        folder = tmp_path / f"p{len(columns)}"
+        folder.mkdir()
+        (folder / "experiment_manifest.csv").write_text(",".join(columns) + "\n")
+        (folder / "checksums.sha256").write_text("")
+        results = validate_profile(folder)
+        assert results and failed_checks(results) == {"manifest_schema_known"}
+        assert "no rows" in results[0].detail
+    assert cli_main(["validate", "--output", str(tmp_path)]) == 1
+
+
+def test_a_missing_manifest_fails_instead_of_crashing(tmp_path):
+    folder = tmp_path / "p"
+    folder.mkdir()
+    results = validate_profile(folder)
+    assert (
+        failed_checks(results) == {"manifest_schema_known"} and "no manifest" in results[0].detail
+    )
+
+
+def test_the_cli_fails_when_there_is_nothing_to_validate(tmp_path):
+    assert cli_main(["validate", "--output", str(tmp_path)]) == 1  # no profile folders at all
+
+
+def test_the_cli_passes_a_good_v2_package_and_fails_a_damaged_one(exported, tmp_path):
+    root = tmp_path / "out"
+    root.mkdir()
+    shutil.copytree(exported[1] / "B_112G_PAM8", root / "B_112G_PAM8")
+    assert cli_main(["validate", "--output", str(root)]) == 0
+    (root / "B_112G_PAM8" / "checksums.sha256").write_text("")
+    assert cli_main(["validate", "--output", str(root)]) == 1
+
+
+def test_fewer_rows_than_expected_fail_even_after_a_rehash(exported, tmp_path):
+    """The QA repro: 1 of 7 rows kept, the manifest hash updated."""
+    folder = copy_package(exported, tmp_path)
+
+    def keep_one(columns, rows):
+        return columns, rows[:1]
+
+    rewrite_manifest(folder, keep_one)
+    refresh(folder)
+    results = validate_profile(folder)
+    assert failed_checks(results) == {"manifest_rows_complete"}
+    assert "PAM8_BestFixed" in next(c.detail for c in results if not c.passed)
+    folder2 = copy_package(exported, tmp_path / "second")
+    rewrite_manifest(folder2, lambda c, rows: (c, rows + rows[:1]))  # a duplicate row
+    refresh(folder2)
+    assert "manifest_rows_complete" in failed_checks(validate_profile(folder2))
+
+
+def test_an_empty_or_incomplete_checksum_list_fails(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    (folder / "checksums.sha256").write_text("")
+    assert failed_checks(validate_profile(folder)) == {"checksum_list_complete"}
+    refresh(folder)
+    lines = (folder / "checksums.sha256").read_text().splitlines()
+    (folder / "checksums.sha256").write_text("\n".join(lines[:-1]) + "\n")
+    assert failed_checks(validate_profile(folder)) == {"checksum_list_complete"}
+    (folder / "checksums.sha256").write_text("\n".join([*lines, "not a checksum line"]) + "\n")
+    assert failed_checks(validate_profile(folder)) == {"checksum_list_complete"}
+    (folder / "checksums.sha256").write_text("\n".join([*lines, f"{'0' * 64}  ../escape"]) + "\n")
+    assert failed_checks(validate_profile(folder)) == {"checksum_file_entry"}
+
+
+def test_a_v1_package_with_a_dropped_row_fails(tmp_path):
+    folder = tmp_path / "B_highspeed_56GBd"
+    shutil.copytree("output/keysight_m8199b/B_highspeed_56GBd", folder)
+    rewrite_manifest(folder, lambda c, rows: (c, rows[:4]))
+    refresh(folder)
+    assert failed_checks(validate_profile(folder)) == {"manifest_rows_complete"}
+
+
+def test_a_missing_reference_file_is_a_failed_check_not_a_crash(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    (folder / "references/PAM8_Uniform/PAM8_Uniform_info_bits.txt").unlink()
+    assert "reference_files_readable" in failed_checks(validate_profile(folder))
+
+
+# ------------------------------------------------------------------ finding 6: recomputation
+
+
+def test_the_exported_manifest_values_are_the_independently_computed_ones(exported):
+    """Not read back from the validator: the arithmetic is written out here."""
+    _, out, _ = exported
+    folder = out / "B_112G_PAM8"
+    manifest, _ = read_manifest(folder)
+    shaped = 0
+    for row in manifest:
+        name = Path(row["waveform_filename"]).stem
+        meta = json.loads((folder / f"references/{name}/{name}_metadata.json").read_text())
+        target = json.loads(row["probabilities"])
+        realised = json.loads(row["realised_probabilities"])
+        lines = (folder / f"references/{name}/{name}_symbols.csv").read_text().splitlines()[1:]
+        payload = [int(line.split(",")[1]) for line in lines[2048:]]
+        counts = [payload.count(s) / len(payload) for s in range(8)]
+        assert realised == pytest.approx(counts, abs=1e-6)  # recomputed from the file
+        bits_per_symbol, baud = 3, 224e9 / 6
+        assert float(row["nominal_information_rate_bps"]) == pytest.approx(
+            bits_per_symbol * baud, rel=1e-9
+        )  # three bits per symbol, not two
+        assert float(row["nominal_information_rate_bps"]) == pytest.approx(112e9, rel=1e-9)
+        entropy = -sum(p * math.log2(p) for p in target)
+        if meta["frame"]["matcher_composition"] is None:
+            assert float(row["distribution_matcher_rate_loss"]) == 0.0
+            assert float(row["distribution_matcher_rate"]) == 3.0
+        else:
+            shaped += 1
+            composition = meta["frame"]["matcher_composition"]
+            rate = independent_bits(composition) / 1024
+            assert float(row["distribution_matcher_rate"]) == pytest.approx(rate, abs=1e-6)
+            assert float(row["distribution_matcher_rate_loss"]) == pytest.approx(
+                entropy - rate, abs=1e-5
+            )
+            assert float(row["distribution_matcher_rate_loss"]) > 0.0
+            # realised is the composition of the file, not the target (rounded to a block of 1024)
+            assert max(abs(a - b) for a, b in zip(realised, target, strict=True)) > 1e-5
+        net = int(row["payload_information_bits"]) / (4096 * 6 / 224e9)
+        assert float(row["actual_net_payload_rate_bps"]) == pytest.approx(net, rel=1e-6)
+    assert shaped == 6
+
+
+TAMPER = [
+    ("realised_probabilities", IDX["PAM8_Fixed_Inner_H288"], "realised_matches_manifest"),
+    ("symbol_entropy_bits", IDX["PAM8_Fixed_Inner_H288"], "symbol_entropy_matches_realised"),
+    ("payload_information_bits", IDX["PAM8_Fixed_Inner_H288"], "payload_information_bits_manifest"),
+    ("distribution_matcher_rate", IDX["PAM8_Fixed_Inner_H288"], "matcher_rate_manifest"),
+    ("distribution_matcher_rate_loss", IDX["PAM8_Fixed_Inner_H288"], "matcher_loss_manifest"),
+    ("distribution_matcher_rate_loss", IDX["PAM8_Uniform"], "matcher_loss_manifest"),
+    ("nominal_information_rate_bps", IDX["PAM8_Uniform"], "rates_manifest"),
+    ("actual_net_payload_rate_bps", IDX["PAM8_Uniform"], "rates_manifest"),
+    ("protocol", IDX["PAM8_Uniform"], "protocol_consistent"),
+    ("constraint_protocol", IDX["PAM8_Uniform"], "constraint_protocol_known"),
+    ("payload_symbols", IDX["PAM8_Uniform"], "payload_symbols_manifest"),
+    ("waveform_peak", IDX["PAM8_Uniform"], "waveform_statistics_manifest"),
+    ("amplitude_scale", IDX["PAM8_Uniform"], "full_scale_expected"),
+]
+
+
+@pytest.mark.parametrize(("column", "index", "check"), TAMPER)
+def test_manifest_values_are_compared_with_values_recomputed_from_the_files(
+    exported, tmp_path, column, index, check
+):
+    """After a rehash, so that only the compared value is wrong: exactly one check fails."""
+    folder = copy_package(exported, tmp_path)
+    manifest, _ = read_manifest(folder)
+    current = manifest[index][column]
+    wrong = {
+        "realised_probabilities": json.dumps([0.125] * 8),
+        "symbol_entropy_bits": "2.5",
+        "payload_information_bits": "1",
+        "distribution_matcher_rate": "2.9",
+        "distribution_matcher_rate_loss": "0.0" if index == IDX["PAM8_Fixed_Inner_H288"] else "0.5",
+        "nominal_information_rate_bps": "74666666666",  # 2 bits x 37.333 GBd, not 3
+        "actual_net_payload_rate_bps": "1",
+        "protocol": "A",
+        "constraint_protocol": "fixed_OMA",
+        "payload_symbols": "2000",
+        "waveform_peak": "0.5",
+        "amplitude_scale": "0.5",
+    }[column]
+    assert wrong != current
+    edit_row(folder, index, **{column: wrong})
+    refresh(folder)
+    failed = failed_checks(validate_profile(folder))
+    assert check in failed, failed
+    extra = {"protocol": {"manifest_rows_complete"}}  # one protocol per package
+    if column not in ("constraint_protocol", "amplitude_scale"):
+        assert failed == {check} | extra.get(column, set()), failed
+
+
+def test_waveform_scale_tolerance_is_half_a_dac_code(exported, tmp_path):
+    """A scale error below half a code (1/254 of full scale) passes, above it fails."""
+    assert SCALE_TOLERANCE == pytest.approx(0.5 / 127)
+    results = {}
+    for factor in (0.9999, 0.997, 0.995, 0.9):
+        folder = copy_package(exported, tmp_path / str(factor))
+        lines = wave_lines(folder, "PAM8_Uniform")
+        scaled = [f"{float(v) * factor:.9f}" for v in lines[1:]]
+        write_wave(folder, "PAM8_Uniform", [lines[0], *scaled])
+        refresh(folder)
+        failed = failed_checks(validate_profile(folder))
+        results[factor] = "waveform_scale" in failed
+        assert failed <= {"waveform_scale", "waveform_statistics_manifest"}, (factor, failed)
+    # the outer level (sample 1.0) moves by 1 - factor
+    assert results == {0.9999: False, 0.997: False, 0.995: True, 0.9: True}
+
+
+def test_two_swapped_preamble_chips_are_caught_by_the_m_sequence_check(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    symbols_path = folder / "references/PAM8_Uniform/PAM8_Uniform_symbols.csv"
+    lines = symbols_path.read_text().splitlines()
+    fields = [line.split(",") for line in lines[1:]]
+    p = 0
+    q = next(k for k in range(1, 40) if fields[k][1] != fields[0][1])
+    assert {fields[p][1], fields[q][1]} == {"0", "7"}
+    fields[p][1:], fields[q][1:] = fields[q][1:], fields[p][1:]
+    symbols_path.write_text("\n".join([lines[0], *(",".join(f) for f in fields)]) + "\n")
+    wave = wave_lines(folder, "PAM8_Uniform")
+    sps = 6
+    block_p = wave[1 + p * sps : 1 + (p + 1) * sps]
+    block_q = wave[1 + q * sps : 1 + (q + 1) * sps]
+    wave[1 + p * sps : 1 + (p + 1) * sps] = block_q
+    wave[1 + q * sps : 1 + (q + 1) * sps] = block_p
+    write_wave(folder, "PAM8_Uniform", wave)
+    refresh(folder)
+    assert failed_checks(validate_profile(folder)) == {"preamble_is_m_sequence"}
+
+
+def test_the_expected_preamble_is_the_511_chip_m_sequence_plus_a_balance_symbol():
+    chips = expected_preamble(8)
+    assert len(chips) == 512 and set(chips) == {0, 7} and chips.count(0) == chips.count(7) == 256
+    assert chips == [int(x) for x in preamble_indices(8)]
+    assert chips[:9] == [7] * 9  # the all-ones start state is read out first
+    ones = [c // 7 for c in chips[:511]]
+    # an m-sequence of degree 9 repeats after 511 and has the two-valued autocorrelation
+    shifted = ones[37:] + ones[:37]
+    agreements = sum(a == b for a, b in zip(ones, shifted, strict=True))
+    assert agreements == 255
+
+
+def test_a_flipped_symbol_in_the_waveform_fails_the_noise_free_reconstruction(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    lines = wave_lines(folder, "PAM8_Uniform")
+    sps, k = 6, 2048 + 5
+    symbols = (folder / "references/PAM8_Uniform/PAM8_Uniform_symbols.csv").read_text().splitlines()
+    index = int(symbols[1 + k].split(",")[1])
+    other = levels_of(8)[(index + 1) % 8] / 7
+    lines[1 + k * sps : 1 + (k + 1) * sps] = [f"{other:.9f}"] * sps
+    write_wave(folder, "PAM8_Uniform", lines)
+    refresh(folder)
+    failed = failed_checks(validate_profile(folder))
+    assert {"noise_free_reconstruction", "waveform_scale"} <= failed
+
+
+def test_head_check_fails_when_the_payload_does_not_start_at_the_head(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    edit_metadata(folder, "PAM8_Uniform", lambda m: m["frame"].update(payload=[1024, 4096]))
+    refresh(folder)
+    assert failed_checks(validate_profile(folder)) == {"head_multiple_of_1024"}
+
+
+def test_a_waveform_name_must_start_with_its_modulation(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    old, new = "PAM8_Uniform", "XPAM8_Uniform"
+    shutil.move(folder / f"waveforms/{old}.csv", folder / f"waveforms/{new}.csv")
+    shutil.move(folder / f"references/{old}", folder / f"references/{new}")
+    for suffix in ("_symbols.csv", "_info_bits.txt", "_metadata.json"):
+        shutil.move(
+            folder / f"references/{new}/{old}{suffix}", folder / f"references/{new}/{new}{suffix}"
+        )
+    edit_row(folder, 0, waveform_filename=f"waveforms/{new}.csv")
+    refresh(folder)
+    results = validate_profile(folder)
+    assert "modulation_matches_manifest_row" in failed_checks(results)
+    assert all(
+        c.waveform == new
+        for c in results
+        if c.check == "modulation_matches_manifest_row" and not c.passed
+    )
+
+
+# ------------------------------------------------------------------ finding 8: equivalents
+
+
+def test_the_512_sample_rule_is_reachable_with_a_block_length_that_is_not_a_multiple_of_512():
+    """With block 1024 it cannot fail (the symbol count is a multiple of 1024 and sps is whole),
+    but check_frame_fit takes any block length: 1124 symbols x 2 = 2248 samples, payload 100."""
+    odd = MpamProfile("B", "odd", 2, 224e9, 112e9, 1124)
+    fit = check_frame_fit(2, odd, 100)
+    assert fit.status is FeasibilityStatus.INFEASIBLE
+    assert "2248 samples is not a multiple of 512" in fit.reason and "payload" not in fit.reason
+    even = MpamProfile("B", "even", 2, 224e9, 112e9, 1024 + 256)
+    assert check_frame_fit(2, even, 256).status is FeasibilityStatus.FEASIBLE  # 2560 = 5 x 512
+    assert check_frame_fit(2, even, 256).reason.endswith("(head 1024, payload 256)")
+
+
+def test_orders_above_pam4_use_the_symmetric_quantiser_and_pam4_the_legacy_one():
+    """The two differ at ties (uniform PAM8 at n = 10: the legacy rule splits a +-x pair); on
+    the pinned menus at n = 1024 they agree, so only this case tells them apart."""
+    uniform8 = [1 / 8] * 8
+    assert make_matcher(uniform8, 10, 8).counts == (2, 1, 1, 1, 1, 1, 1, 2)
+    assert make_matcher([1 / 16] * 16, 18, 16).counts == (2, *([1] * 14), 2)
+    assert make_matcher((0.15, 0.35, 0.35, 0.15), 10, 4).counts == (2, 4, 3, 1)  # legacy, pinned
+    for order in (8, 16):
+        for pmf in fixed_menu(order).values():
+            counts = make_matcher(pmf, 1024, order).counts
+            assert counts == counts[::-1]
+
+
+def test_a_metadata_only_evidence_claim_on_a_synthetic_package_fails(exported, tmp_path):
+    folder = copy_package(exported, tmp_path)
+    edit_metadata(folder, "PAM8_Uniform", lambda m: m.update(evidence="measured"))
+    refresh(folder)
+    failed = failed_checks(validate_profile(folder))
+    assert {"evidence_matches_source", "modulation_order_matches_metadata"} == failed
+    folder2 = copy_package(exported, tmp_path / "second")
+    edit_metadata(folder2, "PAM8_Uniform", lambda m: m.update(source="measured on a bench"))
+    refresh(folder2)
+    assert failed_checks(validate_profile(folder2)) == {"evidence_matches_source"}
+
+
+@pytest.mark.parametrize(
+    ("orders", "protocols"),
+    [
+        ((4,), ("A", "B")),
+        ((), ("B",)),
+        ((8,), ()),
+        ((3,), ("B",)),
+        ((8,), ("C",)),
+        ((2, 4), ("B",)),
+    ],
+)
+def test_orders_and_protocols_are_validated_before_anything_is_written(tmp_path, orders, protocols):
+    out = tmp_path / "out"
+    with pytest.raises(ValueError, match="orders must be a non-empty subset"):
+        generate_mpam_all(CONFIG, out, orders=orders, protocols=protocols)
+    assert not out.exists()
+
+
+def test_the_cli_treats_zero_checks_as_a_failure(exported, tmp_path, monkeypatch):
+    root = tmp_path / "out"
+    root.mkdir()
+    shutil.copytree(exported[1] / "B_112G_PAM2", root / "B_112G_PAM2")
+    assert cli_main(["validate", "--output", str(root)]) == 0
+    monkeypatch.setattr("opticps.measurement.validate_export.validate_profile", lambda *a: [])
+    assert cli_main(["validate", "--output", str(root)]) == 1

@@ -32,7 +32,8 @@ def test_the_committed_config_loads_and_hashes_its_raw_bytes():
     config = load_mpam_config(CONFIG)
     assert config.sha256 == hashlib.sha256(CONFIG.read_bytes()).hexdigest()
     assert yaml.safe_load(CONFIG.read_text())["config_schema_version"] == 2
-    assert config.fixed_deficits == (0.12, 0.28) and config.evidence == "simulated"
+    assert config.fixed_deficits == (0.12, 0.28) and not hasattr(config, "evidence")
+    assert "evidence" not in yaml.safe_load(CONFIG.read_text())["common"]
     assert config.constraint_protocol == "fixed_peak" and config.data_out == "DataOut1"
     assert len(config.profiles) == 12 and {p.protocol for p in config.profiles} == {"A", "B"}
 
@@ -116,7 +117,7 @@ def test_unknown_versions_keys_and_labels_are_refused(tmp_path):
         (lambda c: c.update(config_schema_version=3), "not supported"),
         (lambda c: c.pop("config_schema_version"), "not supported"),
         (lambda c: c.update(surprise=1), "unknown top-level"),
-        (lambda c: c["common"].update(evidence="guessed"), "evidence must be"),
+        (lambda c: c["common"].update(evidence="guessed"), "unknown keys"),
         (lambda c: c["common"].update(data_out="DataOut9"), "data_out"),
         (lambda c: c["protocol_B"]["samples_per_symbol"].update({8: 5}), "samples per symbol"),
     ):
@@ -126,3 +127,62 @@ def test_unknown_versions_keys_and_labels_are_refused(tmp_path):
     path.write_text("- 1\n- 2\n")
     with pytest.raises(ConfigError):
         load_mpam_config(path)
+
+
+def test_the_evidence_label_is_not_a_setting(tmp_path):
+    """The generator writes synthetic files only and labels them itself; no value is accepted."""
+    for value in ("simulated", "mock", "measured", "analytical", "guessed"):
+        with pytest.raises(ConfigError, match=r"common: unknown keys \['evidence'\]"):
+            load_mpam_config(edited(tmp_path, lambda c, v=value: c["common"].update(evidence=v)))
+
+
+def _drop(section: str, key: str):
+    def edit(config):
+        del config[section][key]
+
+    return edit
+
+
+@pytest.mark.parametrize(
+    ("edit", "match"),
+    [
+        # unknown keys at every nesting level
+        (lambda c: c["common"].update(surprise=1), "common: unknown keys"),
+        (lambda c: c["common"]["pulse"].update(surprise=1), "common.pulse: unknown keys"),
+        (lambda c: c["fixed_menu"].update(surprise=1), "fixed_menu: unknown keys"),
+        (lambda c: c["adaptive"].update(surprise=1), "adaptive: unknown keys"),
+        (lambda c: c["protocol_A"].update(surprise=1), "protocol_A: unknown keys"),
+        (
+            lambda c: c["protocol_A"]["profiles"][0].update(surprise=1),
+            r"protocol_A.profiles\[\]: unknown keys",
+        ),
+        (lambda c: c["protocol_B"].update(surprise=1), "protocol_B: unknown keys"),
+        # missing keys
+        (_drop("common", "seed"), "common: missing keys"),
+        (_drop("adaptive", "metric"), "adaptive: missing keys"),
+        (_drop("protocol_B", "symbols"), "protocol_B: missing keys"),
+        (lambda c: c["common"]["pulse"].pop("shape"), "common.pulse: missing keys"),
+        # enums
+        (lambda c: c["common"].update(constraint_protocol="junk"), "constraint_protocol must be"),
+        (lambda c: c["adaptive"].update(metric="junk"), "adaptive.metric must be"),
+        (lambda c: c["common"]["pulse"].update(shape="junk"), "common.pulse"),
+        # orders and types
+        (lambda c: c["adaptive"]["design_rate_bpcu"].pop(16), "design_rate_bpcu"),
+        (lambda c: c["adaptive"]["design_rate_bpcu"].update({4: 1.0}), "design_rate_bpcu"),
+        (lambda c: c["protocol_B"]["symbols"].pop(2), r"protocol_B.symbols"),
+        (lambda c: c["common"].update(seed="abc"), "common.seed"),
+        (lambda c: c["common"].update(block_length=-1), "common.block_length"),
+        (lambda c: c["common"].update(block_length=1.5), "common.block_length"),
+        (lambda c: c.update(common=[1]), "common: must be a mapping"),
+        (lambda c: c["protocol_A"].update(profiles=[]), "non-empty list"),
+    ],
+)
+def test_loader_is_strict_at_every_nesting_level(tmp_path, edit, match):
+    with pytest.raises(ConfigError, match=match):
+        load_mpam_config(edited(tmp_path, edit))
+
+
+def test_yaml_exponent_numerals_read_as_strings_are_still_numbers():
+    """PyYAML reads `224.0e9` as a string; the loader takes the number it spells."""
+    assert isinstance(yaml.safe_load("a: 224.0e9")["a"], str)
+    assert load_mpam_config(CONFIG).sample_rate == 224e9
