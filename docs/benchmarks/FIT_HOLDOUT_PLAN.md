@@ -209,7 +209,7 @@ statistic is computed**; ~~the commit date is the freeze date~~ [Revision 2: a c
 whatever its author set and can be forged; see R2.3 for what the freeze proves and what it does
 not].
 
-Enforcement: `src/opticps/benchmarks/holdout.py::require_frozen_criterion(asset, criterion_path)`
+Enforcement: `src/opticps/benchmarks/holdout.py::require_frozen_criterion(asset, ~~criterion_path~~ [Revision 3: not a parameter, the path is the fixed constant `CRITERION_PATH`])`
 refuses (raises `BenchmarkError`) any evaluation of a `VALIDATION` or `LOCKED_TEST` asset when the
 criterion file is absent, incomplete (a metric missing, not finite or not positive), refers to
 another plan hash, or is not committed and unmodified in Git. ~~It returns the commit that froze
@@ -277,8 +277,9 @@ adds this section).
 
 ### R2.2 Metrics defined, estimators frozen
 
-All estimators below are frozen by this revision. A change needs a new revision that is
-committed before the criterion file is.
+All estimators below are frozen by this revision. ~~A change needs a new revision that is
+committed before the criterion file is.~~ [Revision 3: nothing checks that order, and the tool does
+not claim to; what it does check is in R3.2.]
 
 - Normalisation: one affine map, fixed on B2B and applied unchanged to every length: x_norm =
   (x - c0) / g0, where c0 is the mean of the four B2B level centroids and g0 the mean of the
@@ -308,8 +309,8 @@ committed before the criterion file is.
 
 ### R2.3 The criterion file, and what its freeze proves
 
-Schema (`criterion_version: 2`), exactly these keys: `plan_sha256`, `limits`, `b2b_basis` and
-`multipliers`. For each metric `b2b_basis` is the number computed from B2B data only, `multipliers`
+~~Schema (`criterion_version: 2`), exactly these keys: `plan_sha256`, `limits`, `b2b_basis` and
+`multipliers`.~~ [Revision 3: `criterion_version: 3` adds the key `estimators`, see R3.2.] For each metric `b2b_basis` is the number computed from B2B data only, `multipliers`
 is the stated multiplier, and the limit must equal their product (relative tolerance 1e-9), so a
 limit cannot hide an unstated factor.
 
@@ -320,9 +321,9 @@ limit cannot hide an unstated factor.
    `--assume-unchanged` and `--skip-worktree` cannot hide a change; an uncommitted plan is
    refused); the limits returned are read from the `HEAD` bytes, never from a working file;
 2. the criterion has the schema above, and its `plan_sha256` is the hash of the committed plan;
-3. the first commit of the followed history of the file that holds non-null `limits` is the
+3. ~~the first commit of the followed history of the file that holds non-null `limits` is the
    freeze commit, and **no later commit changed the limits**: a re-commit with other limits is
-   refused;
+   refused;~~ [Revision 3: no history is followed across paths, see R3.2.]
 4. the inputs for 2 km are `b2b_model` and `scenario_list`; for 10 km `frozen_parameters`,
    `selected_scenario` and `evaluation_script`, and the 2 km stage must be done;
 5. `RESERVED` and `UNASSIGNED` assets (PD2 and PD3, section 1 rule 5) are refused;
@@ -341,8 +342,10 @@ What this does **not** prove, stated plainly:
   freeze commit pushed to a remote that the owner does not control. Pushing is an owner action;
   this revision did not push and the tool cannot check it.
 - The tool cannot see statistics computed outside it (procedure, R.2 and R.3).
-- A first commit that holds wrong limits cannot be corrected; that needs a new plan revision and
-  a new criterion file name.
+- ~~A first commit that holds wrong limits cannot be corrected; that needs a new plan revision and
+  a new criterion file name.~~ [Revision 3: the path is fixed, so there is no new file name to
+  use. A wrong first commit cannot be corrected by the tool; the owner would have to change the
+  path constant in a new plan revision.]
 - `FrozenCriterion` can be built only by the checker as far as Python allows (the constructor,
   `replace`, `copy` and `pickle` refuse); code that calls `object.__new__` can still forge one.
 
@@ -368,3 +371,73 @@ default: for 10 km it offers `VALIDATED` only when the file is intact, 2 km was 
 end `FAILED`, and the shared-sequence check found `NOT_SHARED`; a missing state offers none. A
 10 km file that was burned (anything changed after its result was seen, section 2) can end only
 `EXPLORATORY` or `BLOCKED`. 2 km still cannot end `VALIDATED`.
+
+## Revision 3 (2026-10-31): the freeze guard is narrowed after the third E0 review
+
+Previous version: SHA-256 `45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11`
+(Revision 2, commit 0424e9c; Revision 1 is `42a578f5...` at 8f57af9, the first version `6bf4238a...`
+at 8900748). New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml` (a file cannot contain its own hash; the 8-digit
+prefix is in the commit message, and the full value is in the test file).
+
+Reason, truthfully. The freeze guard was reopened by three independent reviews in a row
+(`handoff/E0_qa.md`, `E0_qa2.md`, `E0_qa3.md`). Each fix round closed the routes the review had
+found and the next review found others: a re-commit with other limits, an amended or backdated
+commit and index flags (second review); a re-tuned limit under a new file name, a plan changed
+after the freeze, hostile repository-local Git settings, an unchecked stage declaration and licence
+spellings (third review). Adding checks to a local history check does not end that series, because
+nothing local can prove what happened before the commit. The owner therefore decided to narrow
+what the guard promises and to simplify it rather than extend it. Still before E1: no numeric limit
+is set and no criterion file exists; no sample of any capture has been read, according to the
+orchestrator's record and the Dev logs.
+
+### R3.1 The promise
+
+The guard catches accidents and casual re-tuning by ordinary commits. It does not stop deliberate tampering by someone who controls the repository, and it gives no date proof. Only an external timestamp can.
+
+The same text is in the docstring of `holdout.py`. Any wording elsewhere that claims more is
+superseded by this paragraph.
+
+### R3.2 What the guard does now
+
+- The criterion has **one fixed path**, `docs/benchmarks/TERIPHIC_CRITERION.yaml` relative to the
+  repository root (`holdout.CRITERION_PATH`); it is not a parameter. A file at any other path is
+  ignored and cannot satisfy the guard. No rename is followed. The freeze commit is the first
+  commit that holds the criterion at that path; a draft kept under another name is not a criterion.
+  A history in which the path was renamed in (Git's similarity threshold set to 20 %) is refused.
+- The criterion is compared as a whole between commits, with number types: `plan_sha256`, `limits`,
+  `b2b_basis`, `multipliers` and `estimators`. Any later commit that changes any of them, deletes the
+  file or restores it, is refused. A plan changed after the freeze, with `plan_sha256` re-tied, is
+  therefore refused while a frozen criterion exists.
+- `criterion_version: 3` adds the key `estimators`, which must name exactly the four estimator ids
+  of R2.2 (`holdout.ESTIMATORS`). The ids label the estimators of R2.2; they do not verify code.
+- R2.2 said a change of estimators needs a revision committed before the criterion. That order is
+  **not checked** and the sentence is struck through above. Plan text and criterion are tied by
+  `plan_sha256` only.
+- Git is run with `--no-replace-objects`, `log.showSignature=false` and `log.showRoot=true`. A
+  shallow clone, a partial clone and a repository with `.git/info/grafts` are refused.
+- `b2b_basis` is a number the tool cannot recompute: "a limit cannot hide an unstated factor"
+  holds arithmetically only.
+
+### R3.3 What is declared by the caller
+
+`validation_stage`, `sequence_check`, `state` and the existence of the input files are the
+caller's declarations. The tool checks that the input files are committed, unchanged and not
+empty, and that the declared combination is allowed. It does not establish that the 2 km stage or the
+shared-sequence check was done, or in what order the files were committed. R.2 says a shared
+sequence marks "the affected holdout" `EXPLORATORY`; `allowed_verdicts` now offers `EXPLORATORY` for
+2 km with a `SHARED` check as well as for 10 km.
+
+### R3.4 Routes that remain, under the promise
+
+Rewriting history (amend, rebase, filter, a new clone), a commit date or author typed by whoever
+commits, a hostile `.git/config` or hook that makes `git` start another program, a criterion first
+written at the fixed path after a draft elsewhere, and statistics computed outside the tool. None
+of these is chased further. The only date proof is an external timestamp of the freeze commit, which
+is an owner action this revision did not take.
+
+### R3.5 Earlier text edited in place by this revision
+
+Struck through and marked above: the `criterion_path` parameter in R.4, the "committed before the
+criterion" sentence of R2.2, the schema sentence, item 3 and the "wrong first commit" bullet of
+R2.3. `git diff 0424e9c -- docs/benchmarks/FIT_HOLDOUT_PLAN.md` shows the whole change.

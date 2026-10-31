@@ -98,6 +98,10 @@ class Permission(StrEnum):
 
 
 _GRANTING = (Permission.ALLOWED, Permission.ALLOWED_WITH_CONDITIONS)
+# Identifiers the guard recognises, lower-cased and without punctuation (see
+# `LicenseRecord._check_identifier_terms`).
+_KNOWN_LICENCE_IDS = frozenset({"cc010", "mit", "apache20", "bsd3clause", "ncsa"})
+_CC_BY_FAMILY = re.compile(r"ccby(?:nc|nd|sa)*[0-9]{2}(?:[a-z]{2})?")  # CC-BY-NC-ND-3.0-DE
 
 
 class Md5State(StrEnum):
@@ -194,9 +198,15 @@ _TEXT_FIELDS = frozenset(
 # A known value that is really the word for "no value" is refused (e.g. the string "null").
 # Compared after case folding and removal of all white space ("N / A" is "n/a").
 _PLACEHOLDERS = frozenset(
-    {"null", "none", "nan", "unknown", "n/a", "na", "~", "-", "tbd", "tba", "todo", "unspecified"}
-)
-# A numeric field also has a declared plausibility range: a value outside it is refused as a
+    {
+        "null", "none", "nan", "unknown", "n/a", "na", "~", "-", "tbd", "tba", "tbc", "todo",
+        "unspecified", "nil", "pending",
+    }
+)  # fmt: skip
+# "none" is also a real answer for a field that asks whether something is present: an
+# `equalizer` of "none" says the source used no equaliser (an unknown one stays null).
+_NONE_IS_AN_ANSWER = frozenset({"equalizer"})
+# Every numeric field has a declared plausibility range: a value outside it is refused as a
 # probable unit or typing error, not as a physical impossibility. Ranges are for optical-link
 # captures and sources (an oscilloscope sampling at 256 Hz, or a rate of 10**400, is a mistake).
 PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
@@ -204,6 +214,7 @@ PLAUSIBLE_RANGES: dict[str, tuple[float, float]] = {
     "baud_bd": (1e6, 1e12),
     "wavelength_nm": (200.0, 20000.0),
     "fibre_length_km": (0.0, 1e5),
+    "dispersion_ps_per_nm_km": (-1e4, 1e4),
 }
 
 _ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,127}")
@@ -261,7 +272,9 @@ def _hex(value: object, length: int, where: str) -> str | None:
 def is_placeholder(text: str) -> bool:
     """True for the words and marks that stand for "no value" (TBD, N / A, ?, ---, ...)."""
     squeezed = "".join(text.split()).casefold()
-    return squeezed in _PLACEHOLDERS or (bool(squeezed) and set(squeezed) <= set("?-~.!"))
+    return (squeezed.rstrip(".!") or squeezed) in _PLACEHOLDERS or (
+        bool(squeezed) and set(squeezed) <= set("?-~.!")
+    )
 
 
 def _enum_member(kind: type[StrEnum], value: object, where: str) -> None:
@@ -313,7 +326,7 @@ class ParameterValue:
             raise BenchmarkError(f"a known value must be finite, got {value!r}")
         if isinstance(value, str):
             check_text(value, "parameter.value")
-            if is_placeholder(value):
+            if is_placeholder(value) and value.strip().casefold() != "none":
                 raise BenchmarkError(f"the string {value!r} is not a known value; write null")
 
     @property
@@ -361,6 +374,8 @@ def _check_field(name: str, parameter: ParameterValue, where: str) -> None:
     elif name in _TEXT_FIELDS:
         if not isinstance(value, str):
             raise BenchmarkError(f"{where}: {name} must be text, got {value!r}")
+        if is_placeholder(value) and name not in _NONE_IS_AN_ANSWER:
+            raise BenchmarkError(f"{where}: {name} {value!r} is not a known value; write null")
         if parameter.unit is not None:
             raise BenchmarkError(f"{where}: {name} has no unit")
 
@@ -439,21 +454,43 @@ class LicenseRecord:
             raise BenchmarkError("a RESTRICTED licence cannot grant redistribution or reuse")
 
     def _check_identifier_terms(self) -> None:
-        """A licence identifier carrying NC or ND cannot be typed as granting what it excludes.
+        """A licence identifier cannot be typed as granting what it excludes, or be unknown.
 
-        The tokens of the identifier (split at every non-alphanumeric character, so "CC BY-NC-ND
-        4.0" and the SPDX id "CC-BY-NC-ND-4.0" read alike) are checked: NC excludes commercial
-        use, ND excludes adapted material. This does not interpret a licence; it only refuses a
-        record that contradicts its own identifier.
+        The identifier is lower-cased and stripped of every non-alphanumeric character, so "CC
+        BY-NC-ND 4.0", "CC-BYNCND-4.0" and the full name "Attribution-NonCommercial-
+        NoDerivatives 4.0 International" read alike. NC excludes commercial use, ND excludes
+        adapted material. An identifier outside `_KNOWN_LICENCE_IDS` cannot grant anything: the
+        guard cannot read what it does not recognise. This does not interpret a licence.
         """
-        tokens = {t for t in re.split(r"[^A-Za-z0-9]+", str(self.license_id).upper()) if t}
-        if "NC" in tokens and self.commercial_use in _GRANTING:
+        text = str(self.license_id)
+        flat = re.sub(r"[^a-z0-9]", "", text.casefold())
+        terms = {t for t in re.split(r"[^A-Za-z0-9]+", text.upper()) if t in ("NC", "ND")}
+        joined = re.match(r"(?:cc)?by((?:nc|nd|sa)+)", flat)
+        if joined:
+            terms |= {t.upper() for t in re.findall("nc|nd", joined.group(1))}
+        if "noncommercial" in flat:
+            terms.add("NC")
+        if "noderivative" in flat:
+            terms.add("ND")
+        if "NC" in terms and self.commercial_use in _GRANTING:
             raise BenchmarkError(
                 f"licence {self.license_id}: a NonCommercial licence cannot grant commercial use"
             )
-        if "ND" in tokens and self.derivatives in _GRANTING:
+        if "ND" in terms and self.derivatives in _GRANTING:
             raise BenchmarkError(
                 f"licence {self.license_id}: a NoDerivatives licence cannot grant adapted material"
+            )
+        known = flat in _KNOWN_LICENCE_IDS or _CC_BY_FAMILY.fullmatch(flat) is not None
+        granted = (
+            self.private_research_use,
+            self.public_redistribution,
+            self.derivatives,
+            self.commercial_use,
+        )
+        if not known and any(p in _GRANTING for p in granted):
+            raise BenchmarkError(
+                f"licence {self.license_id!r} is not a known identifier, so it cannot grant"
+                " anything; add it to the known list after reading it"
             )
 
 

@@ -8,6 +8,7 @@ loops over the implementation's own constant cannot notice that the constant los
 import copy
 import dataclasses
 import hashlib
+import json
 import math
 import os
 import pickle
@@ -58,13 +59,20 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 2 of the plan (2026-10-31, before any sample was read). Revision 1 hashed to
-# PREVIOUS_PLAN_SHA256 (commit 8f57af9) and the first version to ORIGINAL_PLAN_SHA256 (commit
-# 8900748). A deliberate amendment must change this line, the plan_sha256 in the TERIPHIC config
-# and add a dated section.
-PLAN_SHA256 = "45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11"
-PREVIOUS_PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
+# Pinned for Revision 3 of the plan (2026-10-31, before any sample was read). Revision 2 hashed to
+# PREVIOUS_PLAN_SHA256 (commit 0424e9c), Revision 1 to REVISION_1_PLAN_SHA256 (commit 8f57af9) and
+# the first version to ORIGINAL_PLAN_SHA256 (commit 8900748). A deliberate amendment must change
+# this line, the plan_sha256 in the TERIPHIC config and add a dated section.
+PROMISE = (
+    "The guard catches accidents and casual re-tuning by ordinary commits. It does not stop"
+    " deliberate tampering by someone who controls the repository, and it gives no date proof."
+    " Only an external timestamp can."
+)
+PLAN_SHA256 = "dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535"
+PREVIOUS_PLAN_SHA256 = "45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11"
+REVISION_1_PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
 ORIGINAL_PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
+CRITERION = str(holdout.CRITERION_PATH)
 MD5_B2B = "d7bd6d48bc020a138f4f129bc2ba7312"
 MD5_2KM = "d9e3c533394c53c3575491558ffc35b1"
 MD5_10KM = "3d8774b068deaf50f37892b38953dfd6"
@@ -177,7 +185,8 @@ def test_plan_hash_is_pinned_in_test_and_config():
         "FIT_HOLDOUT_PLAN.md changed: amend with a dated section and a new pin"
     )
     assert load_source_config(TERIPHIC).plan_sha256 == PLAN_SHA256
-    assert len({PLAN_SHA256, PREVIOUS_PLAN_SHA256, ORIGINAL_PLAN_SHA256}) == 3
+    hashes = {PLAN_SHA256, PREVIOUS_PLAN_SHA256, REVISION_1_PLAN_SHA256, ORIGINAL_PLAN_SHA256}
+    assert len(hashes) == 4
 
 
 def test_plan_roles_match_config_splits():
@@ -200,8 +209,9 @@ def test_plan_roles_match_config_splits():
 
 def test_plan_revisions_are_visible_and_truthful():
     text = " ".join(PLAN.read_text().split())
-    assert "## Revision 1 (2026-10-31)" in text and "## Revision 2 (2026-10-31)" in text
-    for previous in (PREVIOUS_PLAN_SHA256, ORIGINAL_PLAN_SHA256):
+    for heading in ("Revision 1", "Revision 2", "Revision 3"):
+        assert f"## {heading} (2026-10-31)" in text
+    for previous in (PREVIOUS_PLAN_SHA256, REVISION_1_PLAN_SHA256, ORIGINAL_PLAN_SHA256):
         assert previous in text  # earlier versions recorded
     assert "no sample of any TERIPHIC capture has been read, decoded, plotted or summarised" in text
     assert "the files have only been hashed" in text
@@ -283,7 +293,35 @@ def test_plan_revision_2_defines_the_metrics_the_schema_and_the_residual_limits(
     ):
         assert needle in text, needle
     schema = holdout.CRITERION_KEYS - {"criterion_version"}
-    assert schema == {"plan_sha256", "limits", "b2b_basis", "multipliers"}
+    assert schema == {"plan_sha256", "limits", "b2b_basis", "multipliers", "estimators"}
+
+
+def test_plan_revision_3_narrows_the_promise_and_says_why():
+    text = " ".join(PLAN.read_text().split())
+    revision = text[text.index("## Revision 3 (2026-10-31)") :]
+    assert PREVIOUS_PLAN_SHA256 in revision and PROMISE in revision
+    assert PROMISE in " ".join(holdout.__doc__.split())  # the same words in both places
+    for needle in (
+        "three independent reviews in a row",
+        "decided to narrow what the guard promises",
+        "no numeric limit is set and no criterion file exists",
+        "one fixed path",
+        "A file at any other path is ignored",
+        "That order is **not checked**",
+        "caller's declarations",
+        "Routes that remain, under the promise",
+    ):
+        assert needle in revision, needle
+    # wording that claimed more is struck through with a Revision 3 note, not left standing
+    unstruck = re.sub(r"~~.+?~~", "", text)
+    for claim in (
+        "A change needs a new revision that is committed before the criterion file is",
+        "a re-commit with other limits is refused",
+        "a new criterion file name",
+        "require_frozen_criterion(asset, criterion_path)",
+    ):
+        assert claim not in unstruck, claim
+    assert "[Revision 3:" in text
 
 
 # ------------------------------------------------------------------ configs
@@ -464,25 +502,30 @@ def committed_text_files():
     return [Path(n) for n in listing.split("\0") if n and Path(n).suffix in suffixes]
 
 
+def removed_windows_in(text: str, removed: frozenset[str]) -> list[str]:
+    return [h for h in word_windows(text) if h in removed]
+
+
 def test_the_removal_detector_detects_a_quoted_sentence():
-    sentence = "[article text removed: CC BY-NC-ND]"
-    assert any(h in REMOVED_ARTICLE_WINDOWS for h in word_windows(sentence + " derived from"))
-    assert not any(
-        h in REMOVED_ARTICLE_WINDOWS for h in word_windows("dispersion -3.99 ps/(nm km)")
-    )
+    # A synthetic sentence: the real removed text is not written here, this file is scanned too.
+    synthetic = "the quick brown fox jumps over the lazy dog while seven owls watch quietly"
+    detector = frozenset(word_windows(synthetic))
+    assert len(detector) == len(synthetic.split()) - WORD_WINDOW + 1
+    assert removed_windows_in(f"Quoted: {synthetic.upper()}, and more.", detector)
+    assert not removed_windows_in("dispersion -3.99 ps/(nm km) at 1271 nm", detector)
+    assert not removed_windows_in("the quick brown fox jumps over", detector)  # under 7 words
     assert len(REMOVED_ARTICLE_WINDOWS) >= 100
 
 
 def test_no_removed_article_sentence_remains_in_committed_text():
-    own = Path(__file__).resolve()
     for path in committed_text_files():
-        if path.resolve() == own or not path.is_file():
+        if not path.is_file():
             continue
         try:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        hits = [h for h in word_windows(text) if h in REMOVED_ARTICLE_WINDOWS]
+        hits = removed_windows_in(text, REMOVED_ARTICLE_WINDOWS)
         assert not hits, f"{path} still carries {len(hits)} windows of a removed article sentence"
     # the carve-out of the register is true: it names what is kept
     register = " ".join(REGISTER.read_text().split())
@@ -1177,6 +1220,9 @@ def test_other_roles_never_validate_whatever_state_is_given():
     }
     assert verdicts(Split.VALIDATION, **good) == OPEN
     assert verdicts(Split.VALIDATION) == OPEN
+    # R.2: a shared sequence marks "the affected holdout" EXPLORATORY, 2 km included
+    shared = verdicts(Split.VALIDATION, **good | {"sequence_check": SequenceCheck.SHARED})
+    assert shared == OPEN | {"EXPLORATORY"}
     assert verdicts(Split.CHARACTERISATION, **good) == {"INCONCLUSIVE", "BLOCKED"}
     assert verdicts(Split.RESERVED, **good) == {"BLOCKED"}
     assert verdicts(Split.UNASSIGNED, **good) == {"BLOCKED"}
@@ -1226,11 +1272,12 @@ def criterion_document(plan: Path, **limits) -> dict:
         for m, v in values.items()
     }
     return {
-        "criterion_version": 2,
+        "criterion_version": 3,
         "plan_sha256": hashlib.sha256(plan.read_bytes()).hexdigest(),
         "limits": values,
         "b2b_basis": basis,
         "multipliers": multipliers,
+        "estimators": dict(holdout.ESTIMATORS),
     }
 
 
@@ -1251,10 +1298,11 @@ def repo(tmp_path):
 
 
 def freeze(root: Path, document: dict, commit: bool = True, env: dict | None = None) -> Path:
-    path = root / "criterion.yaml"
+    path = root / CRITERION
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(document))
     if commit:
-        git(root, "add", "criterion.yaml")
+        git(root, "add", CRITERION)
         git(root, "commit", "-q", "-m", "freeze", env=env)
     return path
 
@@ -1263,7 +1311,7 @@ def holdout_assets():
     return {a.split: a for a in load_source_config(TERIPHIC).assets}
 
 
-def call(repo, path, split=Split.VALIDATION, **extra):
+def call(repo, split=Split.VALIDATION, **extra):
     arguments = {
         "plan_path": repo / "plan.md",
         "repo_root": repo,
@@ -1271,12 +1319,12 @@ def call(repo, path, split=Split.VALIDATION, **extra):
     }
     if split is Split.LOCKED_TEST:
         arguments["validation_stage"] = ValidationStage.NOT_FAILED
-    return require_frozen_criterion(holdout_assets()[split], path, **(arguments | extra))
+    return require_frozen_criterion(holdout_assets()[split], **(arguments | extra))
 
 
-def refuse(repo, path, message, split=Split.VALIDATION, **extra):
+def refuse(repo, message, split=Split.VALIDATION, **extra):
     with pytest.raises(BenchmarkError, match=message):
-        call(repo, path, split, **extra)
+        call(repo, split, **extra)
 
 
 def head(repo) -> str:
@@ -1290,40 +1338,36 @@ def test_holdout_without_a_frozen_criterion_is_refused(tmp_path):
         with pytest.raises(BenchmarkError, match="no frozen criterion"):
             require_frozen_criterion(
                 assets[split],
-                tmp_path / "absent.yaml",
+                repo_root=tmp_path,
                 inputs=inputs,
                 validation_stage=ValidationStage.NOT_FAILED,
             )
     # the characterisation file needs none
-    assert (
-        require_frozen_criterion(assets[Split.CHARACTERISATION], tmp_path / "absent.yaml") is None
-    )
+    assert require_frozen_criterion(assets[Split.CHARACTERISATION], repo_root=tmp_path) is None
     assert holdout.HOLDOUT_SPLITS == {Split.VALIDATION, Split.LOCKED_TEST}
     assert holdout.METRICS == METRIC_NAMES
-    assert holdout.CRITERION_VERSION == 2
+    assert holdout.CRITERION_VERSION == 3
     assert holdout.REQUIRED_INPUTS[Split.VALIDATION] == INPUT_FILES[Split.VALIDATION]
     assert holdout.REQUIRED_INPUTS[Split.LOCKED_TEST] == INPUT_FILES[Split.LOCKED_TEST]
 
 
 def test_reserved_and_unassigned_roles_are_refused_not_allowed(repo):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     for role in (Split.RESERVED, Split.UNASSIGNED):
         asset = dataclasses.replace(holdout_assets()[Split.VALIDATION], split=role)
         with pytest.raises(BenchmarkError, match="is not open"):
-            require_frozen_criterion(
-                asset, path, plan_path=repo / "plan.md", repo_root=repo, inputs={}
-            )
+            require_frozen_criterion(asset, plan_path=repo / "plan.md", repo_root=repo, inputs={})
 
 
 def test_a_committed_complete_criterion_is_returned_with_its_commit(repo):
-    path = freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=0.25))
+    freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=0.25))
     for split in (Split.VALIDATION, Split.LOCKED_TEST):
-        frozen = call(repo, path, split)
+        frozen = call(repo, split)
         assert frozen is not None
         assert frozen.commit == head(repo) == frozen.head_commit
         assert len(frozen.committed_at) >= 20 and len(frozen.authored_at) >= 20
         committed = subprocess.run(
-            ["git", "-C", str(repo), "show", "HEAD:criterion.yaml"],
+            ["git", "-C", str(repo), "show", f"HEAD:{CRITERION}"],
             capture_output=True, check=True,
         ).stdout  # fmt: skip
         assert frozen.file_sha256 == hashlib.sha256(committed).hexdigest()
@@ -1343,7 +1387,8 @@ def test_a_committed_complete_criterion_is_returned_with_its_commit(repo):
 
 
 def test_a_frozen_criterion_cannot_be_constructed_replaced_copied_or_pickled(repo):
-    frozen = call(repo, freeze(repo, criterion_document(repo / "plan.md")))
+    freeze(repo, criterion_document(repo / "plan.md"))
+    frozen = call(repo)
     assert frozen is not None
     fields = {f.name: getattr(frozen, f.name) for f in dataclasses.fields(frozen)}
     with pytest.raises(TypeError, match="issued by require_frozen_criterion"):
@@ -1367,25 +1412,25 @@ def test_a_frozen_criterion_cannot_be_constructed_replaced_copied_or_pickled(rep
 
 def test_an_uncommitted_or_modified_criterion_is_refused(repo):
     path = freeze(repo, criterion_document(repo / "plan.md"), commit=False)
-    refuse(repo, path, "not committed")
-    git(repo, "add", "criterion.yaml")
-    refuse(repo, path, "not committed")  # staged, not committed
+    refuse(repo, "not committed")
+    git(repo, "add", CRITERION)
+    refuse(repo, "not committed")  # staged, not committed
     git(repo, "commit", "-q", "-m", "freeze")
-    assert call(repo, path) is not None
+    assert call(repo) is not None
     path.write_text(path.read_text().replace("0.1", "0.9"))
-    refuse(repo, path, "not committed or modified")
+    refuse(repo, "not committed or modified")
 
 
 def test_a_later_commit_that_changes_the_limits_is_refused(repo):
     # Repro 1a of the second review: edit after the freeze and plain `git commit -am`.
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     first = head(repo)
-    assert call(repo, path).commit == first
+    assert call(repo).commit == first
     freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
     assert head(repo) != first
-    refuse(repo, path, "limits changed after the first commit")
+    refuse(repo, "changed after the first commit")
     for split in (Split.VALIDATION, Split.LOCKED_TEST):
-        refuse(repo, path, first[:12], split)  # names the freeze commit
+        refuse(repo, first[:12], split)  # names the freeze commit
 
 
 def test_a_comment_only_later_commit_keeps_the_first_commit_as_the_freeze(repo):
@@ -1396,39 +1441,156 @@ def test_a_comment_only_later_commit_keeps_the_first_commit_as_the_freeze(repo):
     git(repo, "commit", "-q", "-am", "comment")
     git(repo, "commit", "-q", "--allow-empty", "-m", "empty")
     assert head(repo) != first
-    frozen = call(repo, path)
+    frozen = call(repo)
     assert frozen.commit == first and frozen.head_commit == head(repo)
 
 
 def test_the_freeze_commit_is_the_first_that_holds_non_null_limits(repo):
     document = criterion_document(repo / "plan.md")
-    path = freeze(repo, dict(document, limits=None))
-    refuse(repo, path, "limits must be exactly")  # null limits are not a criterion
+    freeze(repo, dict(document, limits=None))
+    refuse(repo, "limits must be exactly")  # null limits are not a criterion
     placeholder = head(repo)
     freeze(repo, document)
-    frozen = call(repo, path)
+    frozen = call(repo)
     assert frozen.commit == head(repo) != placeholder
 
 
 def test_limits_removed_and_restored_are_a_change(repo):
     document = criterion_document(repo / "plan.md")
-    path = freeze(repo, document)
+    freeze(repo, document)
     freeze(repo, dict(document, limits=None))
     freeze(repo, document)
-    refuse(repo, path, "limits changed after the first commit")
+    refuse(repo, "changed after the first commit")
 
 
-def test_the_history_follows_a_rename_and_still_refuses_a_change(repo):
+def other_criterion(repo, name, document, text=None):
+    path = repo / name
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text if text is not None else yaml.safe_dump(document))
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", f"criterion {name}")
+    return path
+
+
+def test_a_criterion_at_any_other_path_is_ignored_and_cannot_satisfy_the_guard(repo):
+    # Finding 1 of the third review, variants 1 to 3: a re-tuned limit under a new path.
+    retuned = criterion_document(repo / "plan.md", M1_level_spacing=2.0)
+    flow = "{" + ", ".join(f"{k}: {v!r}" for k, v in retuned.items()) + "}"
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    # 1. renamed away and rewritten as one-line flow style: nothing at the fixed path
+    git(repo, "mv", CRITERION, "docs/c3.yaml")
+    other_criterion(repo, "docs/c3.yaml", retuned, flow)
+    refuse(repo, "no frozen criterion")
+    # 2. a JSON-style new file elsewhere
+    other_criterion(repo, "c4.json", retuned, json.dumps(retuned))
+    refuse(repo, "no frozen criterion")
+    assert path.parent.exists() and not path.exists()
+
+
+def test_a_re_tuned_copy_next_to_an_untouched_frozen_file_does_not_replace_it(repo):
     freeze(repo, criterion_document(repo / "plan.md"))
     first = head(repo)
-    git(repo, "mv", "criterion.yaml", "renamed.yaml")
-    git(repo, "commit", "-q", "-m", "rename")
-    moved = repo / "renamed.yaml"
-    assert call(repo, moved).commit == first
-    changed = criterion_document(repo / "plan.md", M1_level_spacing=3.0)
-    moved.write_text(yaml.safe_dump(changed))
-    git(repo, "commit", "-q", "-am", "retune after rename")
-    refuse(repo, moved, "limits changed after the first commit")
+    other_criterion(
+        repo, "docs/benchmarks/TERIPHIC_CRITERION_v2.yaml",
+        criterion_document(repo / "plan.md", M1_level_spacing=2.0),
+    )  # fmt: skip
+    frozen = call(repo)
+    assert frozen.commit == first and frozen.limits["M1_level_spacing"] == 0.1
+
+
+@pytest.mark.parametrize("old", ["draft.yaml", 'we"ird.yaml'])
+def test_a_file_renamed_into_the_fixed_path_is_refused(repo, old):
+    # Variant 4 and the quoted-path variant: a draft with other limits moved to the fixed path.
+    draft = criterion_document(repo / "plan.md")
+    other_criterion(repo, old, draft)
+    (repo / CRITERION).parent.mkdir(parents=True, exist_ok=True)
+    git(repo, "mv", old, CRITERION)
+    (repo / CRITERION).write_text(
+        yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    )
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "move the draft")
+    refuse(repo, "renamed in")
+
+
+def test_a_criterion_first_written_at_the_fixed_path_is_the_freeze_whatever_a_draft_said(repo):
+    # Named under the promise: a draft elsewhere is not a criterion, the freeze is this commit.
+    other_criterion(repo, "draft.yaml", criterion_document(repo / "plan.md"))
+    freeze(
+        repo,
+        criterion_document(repo / "plan.md", M1_level_spacing=2.0, M2_wasserstein1_amplitude=9.0),
+    )
+    frozen = call(repo)
+    assert frozen.commit == head(repo)
+
+
+def test_a_later_plan_change_is_refused_while_a_frozen_criterion_exists(repo):
+    # Finding 2 of the third review: plan rewritten, plan_sha256 re-tied, limits the same.
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    first = head(repo)
+    assert call(repo).commit == first
+    (repo / "plan.md").write_text("Pass rule: three of four metrics. M1 = mean.")
+    freeze(repo, criterion_document(repo / "plan.md"), commit=False)
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", "plan and criterion")
+    refuse(repo, "changed after the first commit")
+    assert path.exists()
+
+
+@pytest.mark.parametrize("part", ["b2b_basis", "multipliers"])
+def test_a_later_change_of_basis_or_multiplier_with_the_same_product_is_refused(repo, part):
+    document = criterion_document(repo / "plan.md")
+    freeze(repo, document)
+    assert call(repo) is not None
+    other = "multipliers" if part == "b2b_basis" else "b2b_basis"
+    halved = {m: v / 2 for m, v in document[part].items()}
+    doubled = {m: v * 2 for m, v in document[other].items()}
+    freeze(repo, dict(document, **{part: halved, other: doubled}))
+    refuse(repo, "changed after the first commit")
+
+
+def test_the_signature_keeps_the_number_type_and_the_estimator_ids():
+    one = holdout._signature(b"limits: {a: 1}\nplan_sha256: x\n")
+    one_float = holdout._signature(b"limits: {a: 1.0}\nplan_sha256: x\n")
+    assert one is not None and one != one_float  # 1 and 1.0 are a change
+    assert holdout._signature(b"limits: {a: 1}\nplan_sha256: y\n") != one
+    assert holdout._signature(b"limits: {a: 1}\nplan_sha256: x\nestimators: {a: e}\n") != one
+    assert holdout._signature(b"limits: {a: [1]}\n") is not None  # non-mapping limits still count
+    assert holdout._signature(b"limits: null\n") is None
+    assert holdout._signature(b"- a\n- list\n") is None
+    assert holdout._signature(b"\xff\xfe") is None
+
+
+def test_a_later_commit_that_only_retypes_a_limit_is_refused(repo):
+    document = criterion_document(repo / "plan.md")
+    document["limits"]["M1_level_spacing"] = 1
+    document["b2b_basis"]["M1_level_spacing"] = 0.5
+    document["multipliers"]["M1_level_spacing"] = 2.0
+    freeze(repo, document)
+    assert call(repo) is not None
+    document["limits"]["M1_level_spacing"] = 1.0
+    freeze(repo, document)
+    refuse(repo, "changed after the first commit")
+
+
+def test_a_later_commit_with_non_mapping_limits_is_a_change(repo):
+    document = criterion_document(repo / "plan.md")
+    freeze(repo, document)
+    freeze(repo, dict(document, limits=[1]))
+    freeze(repo, document)  # restored: the broken version in between is still a change
+    refuse(repo, "changed after the first commit")
+
+
+def test_a_deleted_then_restored_criterion_is_a_change_even_with_the_same_bytes(repo):
+    path = freeze(repo, criterion_document(repo / "plan.md"))
+    saved = path.read_bytes()
+    git(repo, "rm", "-q", CRITERION)
+    git(repo, "commit", "-q", "-m", "delete")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(saved)
+    git(repo, "add", CRITERION)
+    git(repo, "commit", "-q", "-m", "restore")
+    refuse(repo, "changed after the first commit")
 
 
 def test_an_amended_first_commit_is_the_undetectable_case_and_says_so(repo):
@@ -1439,12 +1601,13 @@ def test_an_amended_first_commit_is_the_undetectable_case_and_says_so(repo):
     path.write_text(yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=3.0)))
     git(repo, "commit", "-q", "--amend", "-a", "--no-edit")
     assert head(repo) != original
-    frozen = call(repo, path)
+    frozen = call(repo)
     assert frozen.limits["M1_level_spacing"] == 3.0 and frozen.commit == head(repo)
-    text = " ".join(holdout.__doc__.split())
-    assert "amended or rewritten first commit leaves no trace" in text and "undetectable" in text
-    plan = " ".join(PLAN.read_text().split())
-    assert "An amended or rewritten first commit leaves no trace in the repository" in plan
+    assert PROMISE in " ".join(holdout.__doc__.split())
+    assert "rewriting history (amend, rebase, filter, a new clone)" in " ".join(
+        holdout.__doc__.split()
+    )
+    assert PROMISE in " ".join(PLAN.read_text().split())
 
 
 def test_a_backdated_commit_passes_and_its_date_is_reported_as_stated_and_forgeable(repo):
@@ -1452,8 +1615,8 @@ def test_a_backdated_commit_passes_and_its_date_is_reported_as_stated_and_forgea
         "GIT_COMMITTER_DATE": "2020-01-01T00:00:00+00:00",
         "GIT_AUTHOR_DATE": "2019-06-01T12:00:00+00:00",
     }
-    path = freeze(repo, criterion_document(repo / "plan.md"), env=forged)
-    frozen = call(repo, path)
+    freeze(repo, criterion_document(repo / "plan.md"), env=forged)
+    frozen = call(repo)
     assert frozen.committed_at.startswith("2020-01-01T00:00:00")  # committer date, not author
     assert frozen.authored_at.startswith("2019-06-01T12:00:00")
     assert "forged" in " ".join(holdout.__doc__.split()) or "typed" in holdout.__doc__
@@ -1466,79 +1629,75 @@ def test_a_backdated_commit_passes_and_its_date_is_reported_as_stated_and_forgea
 def test_a_hidden_working_change_is_seen_through_the_index_flags(repo, flag):
     # Repro 1b of the second review: the index flags hide the edit from `git status`.
     path = freeze(repo, criterion_document(repo / "plan.md"))
-    git(repo, "update-index", flag, "criterion.yaml")
+    git(repo, "update-index", flag, CRITERION)
     path.write_text(yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=9.0)))
-    assert git(repo, "status", "--porcelain", "--", "criterion.yaml") == ""  # hidden from status
-    refuse(repo, path, "modified since HEAD")
+    assert git(repo, "status", "--porcelain", "--", CRITERION) == ""  # hidden from status
+    refuse(repo, "modified since HEAD")
     # the returned limits are the committed ones once the working file is back to HEAD
     path.write_text(
         subprocess.run(
-            ["git", "-C", str(repo), "show", "HEAD:criterion.yaml"],
+            ["git", "-C", str(repo), "show", f"HEAD:{CRITERION}"],
             capture_output=True,
             check=True,
             text=True,
         ).stdout  # fmt: skip
     )
-    frozen = call(repo, path)
+    frozen = call(repo)
     assert frozen.limits["M1_level_spacing"] == 0.1
 
 
 def test_an_uncommitted_plan_is_refused_even_when_the_criterion_is_retied(repo):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
-    assert call(repo, path) is not None
+    freeze(repo, criterion_document(repo / "plan.md"))
+    assert call(repo) is not None
     (repo / "plan.md").write_text("plan text, edited after the freeze")
-    refuse(repo, path, "plan.md: not committed or modified since HEAD")
+    refuse(repo, "plan.md: not committed or modified since HEAD")
     # a new criterion tied to the edited plan, committed, still sees the uncommitted plan
     freeze(repo, criterion_document(repo / "plan.md"))
-    refuse(repo, path, "limits changed after the first commit|plan.md")
+    refuse(repo, "changed after the first commit|plan.md")
     git(repo, "add", "plan.md")  # staged is not committed either
-    refuse(repo, path, "plan.md: not committed or modified since HEAD")
+    refuse(repo, "plan.md: not committed or modified since HEAD")
     # plan outside the repository
     with pytest.raises(BenchmarkError, match="outside the repository"):
-        call(repo, path, plan_path=repo.parent / "plan.md")
+        call(repo, plan_path=repo.parent / "plan.md")
 
 
 def test_the_inputs_the_plan_names_must_be_exact_committed_and_unchanged(repo):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     inputs = {name: repo / f"{name}.txt" for name in INPUT_FILES[Split.VALIDATION]}
     for bad in ({}, {"b2b_model": inputs["b2b_model"]}, inputs | {"extra": repo / "plan.md"}):
-        refuse(repo, path, "the inputs must be exactly", inputs=bad)
+        refuse(repo, "the inputs must be exactly", inputs=bad)
     with pytest.raises(BenchmarkError, match="the inputs must be exactly"):
         require_frozen_criterion(
             holdout_assets()[Split.VALIDATION],
-            path,
             plan_path=repo / "plan.md",
             repo_root=repo,
         )  # inputs omitted
     inputs["b2b_model"].write_text("changed after the commit")
-    refuse(repo, path, "b2b_model.*modified since HEAD|b2b_model.txt: not committed or modified")
+    refuse(repo, "b2b_model.*modified since HEAD|b2b_model.txt: not committed or modified")
     inputs["b2b_model"].write_text("content of b2b_model")
     (repo / "late.txt").write_text("never committed")
-    refuse(repo, path, "not committed", inputs=inputs | {"scenario_list": repo / "late.txt"})
+    refuse(repo, "not committed", inputs=inputs | {"scenario_list": repo / "late.txt"})
     (repo / "scenarios_gone.txt").write_text("x")
     git(repo, "add", "scenarios_gone.txt")
-    refuse(
-        repo, path, "not committed", inputs=inputs | {"scenario_list": repo / "scenarios_gone.txt"}
-    )
-    refuse(repo, path, "outside the repository", inputs=inputs | {"scenario_list": repo.parent})
+    refuse(repo, "not committed", inputs=inputs | {"scenario_list": repo / "scenarios_gone.txt"})
+    refuse(repo, "outside the repository", inputs=inputs | {"scenario_list": repo.parent})
 
 
 def test_the_ten_km_file_needs_the_two_km_stage_done(repo):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     for stage in (None, ValidationStage.NOT_DONE):
-        refuse(
-            repo, path, "before the 2 km stage is done", Split.LOCKED_TEST, validation_stage=stage
-        )
+        refuse(repo, "before the 2 km stage is done", Split.LOCKED_TEST, validation_stage=stage)
     for stage in (ValidationStage.FAILED, ValidationStage.NOT_FAILED):
-        assert call(repo, path, Split.LOCKED_TEST, validation_stage=stage) is not None
-    refuse(repo, path, "before the 2 km stage", Split.LOCKED_TEST, validation_stage="NOT_FAILED")
+        assert call(repo, Split.LOCKED_TEST, validation_stage=stage) is not None
+    refuse(repo, "before the 2 km stage", Split.LOCKED_TEST, validation_stage="NOT_FAILED")
     # 2 km does not need a stage
-    assert call(repo, path, Split.VALIDATION) is not None
+    assert call(repo, Split.VALIDATION) is not None
 
 
 def test_a_criterion_for_another_plan_or_with_bad_limits_is_refused(repo):
     other = criterion_document(repo / "plan.md") | {"plan_sha256": "0" * 64}
-    refuse(repo, freeze(repo, other), "another version of the plan")
+    freeze(repo, other)
+    refuse(repo, "another version of the plan")
 
 
 @pytest.mark.parametrize(
@@ -1547,22 +1706,25 @@ def test_a_criterion_for_another_plan_or_with_bad_limits_is_refused(repo):
 )
 def test_bad_limits_are_refused_with_a_typed_error(repo, bad):
     document = criterion_document(repo / "plan.md", M1_level_spacing=bad)
-    refuse(repo, freeze(repo, document), "finite and positive")
+    freeze(repo, document)
+    refuse(repo, "finite and positive")
 
 
 def test_the_limit_must_equal_the_b2b_basis_times_the_stated_multiplier(repo):
     document = criterion_document(repo / "plan.md")
     broken = dict(document, multipliers=document["multipliers"] | {"M3_quantile_error": 3.0})
-    refuse(repo, freeze(repo, broken), "is not b2b_basis x multiplier")
+    freeze(repo, broken)
+    refuse(repo, "is not b2b_basis x multiplier")
     for key in ("multipliers", "b2b_basis"):
-        path = freeze(repo, {k: v for k, v in document.items() if k != key})
-        refuse(repo, path, "must have exactly")
+        freeze(repo, {k: v for k, v in document.items() if k != key})
+        refuse(repo, "must have exactly")
     for name in ("b2b_basis", "multipliers"):
         for bad in (0, -1.0, float("nan"), True, "2"):
             wrong = dict(document, **{name: document[name] | {"M2_wasserstein1_amplitude": bad}})
-            refuse(repo, freeze(repo, wrong), "finite and positive")
+            freeze(repo, wrong)
+            refuse(repo, "finite and positive")
     assert holdout.CRITERION_KEYS == {
-        "criterion_version", "plan_sha256", "limits", "b2b_basis", "multipliers",
+        "criterion_version", "plan_sha256", "limits", "b2b_basis", "multipliers", "estimators",
     }  # fmt: skip
 
 
@@ -1571,72 +1733,79 @@ def test_a_criterion_with_missing_extra_or_malformed_keys_is_refused(repo):
     missing = dict(
         base, limits={k: v for k, v in base["limits"].items() if k != "M3_quantile_error"}
     )
-    refuse(repo, freeze(repo, missing), "limits must be exactly")
-    refuse(
-        repo,
-        freeze(repo, dict(base, limits=base["limits"] | {"M5": 1.0})),
-        "limits must be exactly",
-    )
-    refuse(repo, freeze(repo, dict(base, extra=1)), "must have exactly")
-    refuse(repo, freeze(repo, dict(base, criterion_version=1)), "criterion_version")
-    refuse(repo, freeze(repo, dict(base, criterion_version=2.0)), "criterion_version")
-    refuse(repo, freeze(repo, dict(base, limits=[1])), "limits must be exactly")
-    path = repo / "criterion.yaml"
+    freeze(repo, missing)
+    refuse(repo, "limits must be exactly")
+    freeze(repo, dict(base, limits=base["limits"] | {"M5": 1.0}))
+    refuse(repo, "limits must be exactly")
+    freeze(repo, dict(base, estimators=dict(base["estimators"], M1_level_spacing="mean")))
+    refuse(repo, "estimators must be exactly")
+    freeze(repo, dict(base, extra=1))
+    refuse(repo, "must have exactly")
+    freeze(repo, dict(base, criterion_version=2))
+    refuse(repo, "criterion_version")
+    freeze(repo, dict(base, criterion_version=3.0))
+    refuse(repo, "criterion_version")
+    freeze(repo, dict(base, limits=[1]))
+    refuse(repo, "limits must be exactly")
+    path = repo / CRITERION
     path.write_text("- not\n- a mapping\n")
-    git(repo, "add", "criterion.yaml")
+    git(repo, "add", CRITERION)
     git(repo, "commit", "-q", "-m", "bad")
-    refuse(repo, path, "must have exactly")
-    path.write_text("criterion_version: 2\ncriterion_version: 2\n")
+    refuse(repo, "must have exactly")
+    path.write_text("criterion_version: 3\ncriterion_version: 3\n")
     git(repo, "commit", "-q", "-am", "dup")
-    refuse(repo, path, "not valid YAML")
+    refuse(repo, "not valid YAML")
     path.write_bytes(b"\xff\xfe\x00 not utf-8")
     git(repo, "commit", "-q", "-am", "binary")
-    refuse(repo, path, "not valid UTF-8")
+    refuse(repo, "not valid UTF-8")
 
 
 def test_a_git_ignored_criterion_is_refused(repo):
-    (repo / ".gitignore").write_text("criterion.yaml\n")
-    path = freeze(repo, criterion_document(repo / "plan.md"), commit=False)
-    refuse(repo, path, "no commit contains")
+    (repo / ".gitignore").write_text("TERIPHIC_CRITERION.yaml\n")
+    freeze(repo, criterion_document(repo / "plan.md"), commit=False)
+    refuse(repo, "no commit contains")
 
 
-def test_a_criterion_outside_the_repository_is_refused(repo, tmp_path):
+def test_a_criterion_symlinked_to_a_file_outside_the_repository_is_refused(repo, tmp_path):
     outside = tmp_path / "elsewhere.yaml"
     outside.write_text(yaml.safe_dump(criterion_document(repo / "plan.md")))
-    refuse(repo, outside, "outside the repository")
+    (repo / CRITERION).parent.mkdir(parents=True, exist_ok=True)
+    (repo / CRITERION).symlink_to(outside)
+    refuse(repo, "outside the repository")
 
 
 def test_git_problems_are_typed_errors(repo, tmp_path, monkeypatch):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     # no plan file at all
     with pytest.raises(BenchmarkError, match="plan"):
-        call(repo, path, plan_path=repo / "no_such_plan.md")
+        call(repo, plan_path=repo / "no_such_plan.md")
     # a directory that is not a repository
     plain = tmp_path / "plain"
     plain.mkdir()
     (plain / "plan.md").write_text("p")
-    (plain / "criterion.yaml").write_text("x")
+    (plain / CRITERION).parent.mkdir(parents=True)
+    (plain / CRITERION).write_text("x")
     with pytest.raises(BenchmarkError, match="not committed|cannot establish"):
-        call(plain, plain / "criterion.yaml", plan_path=plain / "plan.md")
+        call(plain, plan_path=plain / "plan.md")
     # git not installed
     monkeypatch.setenv("PATH", str(tmp_path / "empty"))
     with pytest.raises(BenchmarkError, match="git failed"):
-        call(repo, path)
+        call(repo)
 
 
 def test_the_environment_cannot_point_git_at_another_repository(repo, tmp_path, monkeypatch):
-    path = freeze(repo, criterion_document(repo / "plan.md"))
+    freeze(repo, criterion_document(repo / "plan.md"))
     decoy = tmp_path / "decoy"
     decoy.mkdir()
     git(decoy, "init", "-q")
     monkeypatch.setenv("GIT_DIR", str(decoy / ".git"))
-    assert call(repo, path) is not None
+    assert call(repo) is not None
     monkeypatch.delenv("GIT_DIR")
     # a replace ref substitutes a commit locally; the guard reads the real objects
     first = head(repo)
     freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
     git(repo, "replace", head(repo), first)
-    refuse(repo, path, "limits changed after the first commit")
+    refuse(repo, "changed after the first commit")
 
 
 def test_a_shallow_clone_is_refused(repo, tmp_path):
@@ -1651,10 +1820,108 @@ def test_a_shallow_clone_is_refused(repo, tmp_path):
         check=True, capture_output=True,
     )  # fmt: skip
     assert path.exists()
-    refuse(clone, clone / "criterion.yaml", "shallow clone")
+    refuse(clone, "shallow clone")
+
+
+def test_git_runs_without_signature_checks_replace_objects_or_a_hidden_root_commit(repo):
+    # Finding 3 of the third review: hostile repository-local settings change what git reports.
+    marker = repo.parent / "gpg_ran"
+    program = repo.parent / "fake_gpg.sh"
+    program.write_text(f"#!/bin/sh\ntouch {marker}\nexit 1\n")
+    program.chmod(0o755)
+    git(repo, "config", "log.showSignature", "true")
+    git(repo, "config", "gpg.program", str(program))
+    git(repo, "config", "log.showRoot", "false")
+    freeze(repo, criterion_document(repo / "plan.md"))
+    # give the freeze commit a signature header (not a real one); git verifies it only on request
+    body = git(repo, "cat-file", "commit", "HEAD").replace(
+        "\n\n",
+        "\ngpgsig -----BEGIN PGP SIGNATURE-----\n \n AAAA\n -----END PGP SIGNATURE-----\n\n",
+        1,
+    )
+    signed = subprocess.run(
+        ["git", "-C", str(repo), "hash-object", "-t", "commit", "-w", "--stdin"],
+        input=body + "\n", capture_output=True, check=True, text=True,
+    ).stdout.strip()  # fmt: skip
+    git(repo, "reset", "-q", "--soft", signed)
+    git(repo, "log", "-1", "--show-signature", "--format=%H")  # the setting is live in this repo
+    assert marker.exists()
+    marker.unlink()
+    assert call(repo) is not None
+    assert not marker.exists()  # log.showSignature is switched off for every git call
+    # a freeze that sits in a root commit stays visible with log.showRoot=false in .git/config
+    root = repo.parent / "rooted"
+    root.mkdir()
+    git(root, "init", "-q")
+    shutil.copy(repo / "plan.md", root / "plan.md")
+    for names in INPUT_FILES.values():
+        for name in names:
+            shutil.copy(repo / f"{name}.txt", root / f"{name}.txt")
+    git(root, "config", "log.showRoot", "false")
+    (root / holdout.CRITERION_PATH).parent.mkdir(parents=True)
+    (root / holdout.CRITERION_PATH).write_text(
+        yaml.safe_dump(criterion_document(root / "plan.md", M1_level_spacing=2.0))
+    )
+    git(root, "add", ".")
+    git(root, "commit", "-q", "-m", "everything at once")
+    assert call(root).commit == head(root)
+
+
+def test_a_grafts_file_or_a_partial_clone_is_refused(repo):
+    freeze(repo, criterion_document(repo / "plan.md"))
+    assert call(repo) is not None
+    grafts = repo / ".git" / "info" / "grafts"
+    grafts.parent.mkdir(exist_ok=True)
+    grafts.write_text(f"{head(repo)}\n")
+    refuse(repo, "grafts")
+    grafts.unlink()
+    assert call(repo) is not None
+    git(repo, "config", "extensions.partialClone", "origin")
+    refuse(repo, "partial clone")
+
+
+def test_an_empty_input_file_is_refused_but_a_declared_stage_is_only_a_declaration(repo):
+    freeze(repo, criterion_document(repo / "plan.md"))
+    (repo / "b2b_model.txt").write_text("")
+    git(repo, "commit", "-q", "-am", "empty input")
+    refuse(repo, "b2b_model.*is empty")
+    # the stage is what the caller says: a wrong declaration is not detected, and the docs say so
+    git(repo, "checkout", "HEAD~1", "--", "b2b_model.txt")
+    git(repo, "commit", "-q", "-am", "restore input")
+    assert call(repo, Split.LOCKED_TEST, validation_stage=ValidationStage.NOT_FAILED) is not None
+    text = " ".join(holdout.__doc__.split())
+    assert "Stage gating is declared, not established" in text
+    assert (
+        "`validation_stage`, `sequence_check`, `state` and the existence of the input files" in text
+    )
+
+
+def test_a_limit_must_equal_the_basis_times_the_multiplier_within_a_tiny_tolerance(repo):
+    document = criterion_document(repo / "plan.md")
+    document["limits"]["M2_wasserstein1_amplitude"] *= 1 + 1e-6  # 1 ppm: far above 1e-9
+    freeze(repo, document)
+    refuse(repo, "is not b2b_basis x multiplier")
+    document["limits"]["M2_wasserstein1_amplitude"] = 0.1 * (1 + 1e-12)  # rounding noise
+    freeze(repo, document)
+    # history already holds the 1 ppm version, so the later fix is itself a change
+    refuse(repo, "changed after the first commit")
+    assert holdout._LIMIT_RELATIVE_TOLERANCE == 1e-9
+
+
+def test_git_failing_in_a_checked_call_is_a_typed_error(tmp_path):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    git(empty, "init", "-q")
+    with pytest.raises(BenchmarkError, match="rev-parse failed"):
+        holdout._git_ok(empty, "rev-parse", "HEAD")  # no commit yet: a non-zero exit
+    assert holdout._git_ok(empty, "rev-parse", "--git-dir")
 
 
 # ------------------------------------------------------------------ second-review additions
+KNOWN_NC_ND = {"CC-BY-NC-ND-4.0", "CC-BY-NC-ND-3.0", "CC-BY-NC-ND-3.0-DE", "cc-by-nc-nd-4.0",
+               "CC BY-NC-ND 4.0", "CC_BY_NC_ND_4.0", "CC-BYNCND-4.0"}  # fmt: skip
+
+
 @pytest.mark.parametrize(
     "license_id",
     [
@@ -1664,6 +1931,10 @@ def test_a_shallow_clone_is_refused(repo, tmp_path):
         "cc-by-nc-nd-4.0",
         "CC BY-NC-ND 4.0",
         "CC_BY_NC_ND_4.0",
+        "Attribution-NonCommercial-NoDerivatives 4.0 International",
+        "CC-BYNCND-4.0",
+        "CCBYNCND",
+        "CC\u2011BY\u2011NC\u2011ND\u20114.0",
     ],
 )
 def test_an_nc_nd_identifier_cannot_be_typed_as_granting_commercial_use_or_derivatives(license_id):
@@ -1673,8 +1944,9 @@ def test_an_nc_nd_identifier_cannot_be_typed_as_granting_commercial_use_or_deriv
         "derivatives": Permission.NOT_ALLOWED,
         "commercial_use": Permission.NOT_ALLOWED,
     }
-    record = make_licence(scope="article", license_id=license_id, **nc_nd)  # the honest record
-    assert record.commercial_use is Permission.NOT_ALLOWED
+    if license_id in KNOWN_NC_ND:  # the honest record; a spelling the list lacks cannot grant
+        record = make_licence(scope="article", license_id=license_id, **nc_nd)
+        assert record.commercial_use is Permission.NOT_ALLOWED
     for grant in (Permission.ALLOWED, Permission.ALLOWED_WITH_CONDITIONS):
         with pytest.raises(BenchmarkError, match="NonCommercial.*commercial use"):
             make_licence(
@@ -1682,6 +1954,49 @@ def test_an_nc_nd_identifier_cannot_be_typed_as_granting_commercial_use_or_deriv
             )
         with pytest.raises(BenchmarkError, match="NoDerivatives.*adapted material"):
             make_licence(scope="article", license_id=license_id, **(nc_nd | {"derivatives": grant}))
+
+
+@pytest.mark.parametrize(
+    "license_id", ["Creative Commons NonCommercial", "CC BY-NC 4.0", "NC-SA 4.0", "cc by nd 4.0"]
+)
+def test_other_spellings_of_nc_or_nd_are_still_caught(license_id):
+    with pytest.raises(BenchmarkError, match="NonCommercial|NoDerivatives"):
+        make_licence(license_id=license_id)  # the default record grants both
+
+
+def test_an_unknown_identifier_cannot_grant_anything_unless_it_is_on_the_known_list():
+    for license_id in ("Acme Open Data Terms 1", "CC-BY-9.9-ish", "free", "CC BY"):
+        with pytest.raises(BenchmarkError, match="not a known identifier"):
+            make_licence(license_id=license_id)
+        for grant in ("private_research_use", "public_redistribution", "derivatives",
+                      "commercial_use"):  # fmt: skip
+            denied = dict.fromkeys(
+                ("private_research_use", "public_redistribution", "derivatives", "commercial_use"),
+                Permission.NOT_ALLOWED,
+            )
+            with pytest.raises(BenchmarkError, match="not a known identifier"):
+                make_licence(license_id=license_id, **(denied | {grant: Permission.ALLOWED}))
+        denied_all = dict.fromkeys(
+            ("private_research_use", "public_redistribution", "derivatives", "commercial_use"),
+            Permission.NOT_ALLOWED,
+        )
+        assert make_licence(license_id=license_id, **denied_all).license_id == license_id
+    for known_id in ("CC-BY-4.0", "CC BY 4.0", "CC0-1.0", "MIT", "Apache-2.0", "BSD-3-Clause",
+                     "NCSA", "CC-BY-SA-4.0", "CC-BY-NC-ND-3.0-DE"):  # fmt: skip
+        assert make_licence(license_id=known_id, commercial_use=Permission.NOT_ALLOWED
+                            if "NC" in known_id else Permission.ALLOWED,
+                            derivatives=Permission.NOT_ALLOWED if "ND" in known_id
+                            else Permission.ALLOWED)  # fmt: skip
+
+
+def test_the_ran_config_loads_with_its_real_id_and_not_with_the_full_name(tmp_path):
+    document = raw(RAN)
+    parse_source(document["source"])
+    document["source"]["licenses"][0]["license_id"] = (
+        "Attribution-NonCommercial-NoDerivatives 4.0 International"
+    )
+    with pytest.raises(BenchmarkError, match="not a known identifier"):
+        parse_source(document["source"])
 
 
 def test_licence_identifier_terms_are_matched_as_tokens_not_substrings():
@@ -1764,16 +2079,40 @@ def test_the_supplied_md5_of_one_asset_equals_the_local_md5_of_another(tmp_path)
 @pytest.mark.parametrize(
     "text",
     ["TBD", "tbd", "TBA", "?", "??", "???", "n / a", "N/A", "  to do ", "todo", "unspecified",
-     "- - -", "~", "...", "?-"],
+     "- - -", "~", "...", "?-", "nil", "Pending", "tbd.", "TBC", "n/a."],
 )  # fmt: skip
 def test_placeholder_words_are_not_known_text(text):
     with pytest.raises(BenchmarkError, match="not a known value"):
         ParameterValue(text, Provenance.PUBLISHED_MEASUREMENT, source_ref="r")
 
 
+def test_none_is_an_answer_for_the_equalizer_and_a_placeholder_elsewhere():
+    # A source that says it used no equaliser is a known value; an unknown one stays null.
+    document = raw(RAN)
+    parameters = document["source"]["parameters"]
+    parameters["equalizer"] = {
+        "value": "none", "provenance": "PUBLISHED_MEASUREMENT", "source_ref": "article",
+    }  # fmt: skip
+    assert parse_source(document["source"]).parameters["equalizer"].value == "none"
+    for field in ("fibre_type", "detector", "calibration", "raw_format"):
+        parameters = document["source"]["parameters"]
+        parameters[field] = {
+            "value": "none", "provenance": "PUBLISHED_MEASUREMENT", "source_ref": "article",
+        }  # fmt: skip
+        with pytest.raises(BenchmarkError, match="not a known value"):
+            parse_source(document["source"])
+        del parameters[field]
+    with pytest.raises(BenchmarkError, match="not a known value"):
+        ParameterValue("nil", Provenance.PUBLISHED_MEASUREMENT, source_ref="r")
+
+
 def test_real_text_that_resembles_a_placeholder_is_accepted():
     for text in ("TBD-1 board", "what?", "a-b", "N/A type 2", "3.5"):
         assert ParameterValue(text, Provenance.PUBLISHED_MEASUREMENT, source_ref="r").known
+
+
+def check_parameter(field, parameter):
+    provenance._check_parameters({field: parameter}, provenance.SOURCE_FIELDS, "t")
 
 
 @pytest.mark.parametrize(
@@ -1789,13 +2128,15 @@ def test_real_text_that_resembles_a_placeholder_is_accepted():
         ("wavelength_nm", 1.55),  # micrometres typed as nanometres
         ("wavelength_nm", 1e6),
         ("fibre_length_km", 1e6),
+        ("dispersion_ps_per_nm_km", 1e300),
+        ("dispersion_ps_per_nm_km", -(10**400)),
     ],
 )
 def test_implausible_numbers_are_refused_by_a_declared_range(field, value):
     unit = provenance._NUMERIC_FIELDS[field][0]
     parameter = ParameterValue(value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r")
     with pytest.raises(BenchmarkError, match="plausible range"):
-        make_asset(**{field: parameter})
+        check_parameter(field, parameter)
 
 
 def test_plausible_ranges_are_declared_and_accept_the_documented_values():
@@ -1804,19 +2145,26 @@ def test_plausible_ranges_are_declared_and_accept_the_documented_values():
         "baud_bd": (1e6, 1e12),
         "wavelength_nm": (200.0, 20000.0),
         "fibre_length_km": (0.0, 1e5),
+        "dispersion_ps_per_nm_km": (-1e4, 1e4),
     }
     for field in provenance.PLAUSIBLE_RANGES:
         low, high = provenance.PLAUSIBLE_RANGES[field]
         unit = provenance._NUMERIC_FIELDS[field][0]
         for value in (low, high):
-            ParameterValue(value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r")
-            make_asset(
-                **{
-                    field: ParameterValue(
-                        value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r"
-                    )
-                }
+            parameter = ParameterValue(
+                value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r"
             )
+            check_parameter(field, parameter)
+    # the documented values stay accepted
+    for field, value in (
+        ("baud_bd", 50e9), ("sample_rate_hz", 256e9), ("dispersion_ps_per_nm_km", -3.99),
+        ("wavelength_nm", 1271), ("fibre_length_km", 0),
+    ):  # fmt: skip
+        unit = provenance._NUMERIC_FIELDS[field][0]
+        check_parameter(
+            field,
+            ParameterValue(value, Provenance.PUBLISHED_MEASUREMENT, unit=unit, source_ref="r"),
+        )
     make_asset(sample_rate_hz=good("sample_rate_hz"), baud_bd=good("baud_bd"))
 
 
@@ -1855,6 +2203,26 @@ def test_the_verified_result_carries_size_and_mtime_and_goes_stale_when_the_file
     assert not fresh.still_current(tmp_path / "gone.bin")
     # dataclasses.replace drops the local facts together with the hashes
     assert dataclasses.replace(fresh, md5_supplied=MD5_B2B).size_local is None
+
+
+def test_still_current_checks_the_size_and_the_time_each_on_its_own(tmp_path):
+    path = tmp_path / "f.bin"
+    path.write_bytes(b"abcdef")
+    fresh = verify_local_asset(path)
+    stamp = path.stat().st_mtime_ns
+    path.write_bytes(b"abcdefgh")  # another size, the old time put back
+    os.utime(path, ns=(stamp, stamp))
+    assert path.stat().st_mtime_ns == fresh.mtime_ns_local and not fresh.still_current(path)
+    path.write_bytes(b"abcdef")  # the old size, another time
+    os.utime(path, ns=(stamp + 5_000_000_000, stamp + 5_000_000_000))
+    assert not fresh.still_current(path)
+    os.utime(path, ns=(stamp, stamp))
+    assert fresh.still_current(path)
+    # a checksum with only one of the two local facts is never current
+    for missing in ("size_local", "mtime_ns_local"):
+        partial = verify_local_asset(path)
+        object.__setattr__(partial, missing, None)
+        assert partial.still_current(path) is False
 
 
 def test_verify_local_asset_reads_in_chunks_and_opens_read_only(tmp_path, monkeypatch):
