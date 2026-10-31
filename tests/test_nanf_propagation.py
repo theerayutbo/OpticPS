@@ -5,6 +5,7 @@ value), not from the code under test. No paper curve is simulated and nothing is
 """
 
 import math
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -14,10 +15,12 @@ from opticps.optical_channel.fiber import (
     FiberProfileError,
     OutOfValidityRangeError,
     ParameterProvenance,
+    PrecedenceDeclaration,
     ProfileValue,
     ProvenanceCategory,
     SensitivityScenario,
     UnsupportedEffectError,
+    WavelengthTable,
     load_fiber_config,
     resolve_profile,
 )
@@ -43,7 +46,7 @@ def propagate_array(field, sample_rate, resolved):
 C = 299_792_458.0  # m/s, exact
 LAMBDA = 1550e-9
 ZERO_LOSS = {
-    "attenuation_db_per_km": known(0.0, "dB/km"),
+    "attenuation_db_per_km": known(0.0, "dB/km", measurement_wavelength_nm=1550.0),
     "connector_loss_db": known(0.0, "dB"),
     "pigtail_loss_db": known(0.0, "dB"),
     "splice_loss_db": known(0.0, "dB"),
@@ -64,7 +67,9 @@ def power(x):
 
 
 def test_lossless_dispersionless_fiber_is_the_identity():
-    profile = lossless(dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"))
+    profile = lossless(
+        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0)
+    )
     field = random_field()
     out = propagate_array(field, 64e9, resolve_profile(profile, 1550.0))
     assert np.allclose(out, field, rtol=0, atol=1e-12)
@@ -81,8 +86,8 @@ def test_lossless_dispersion_preserves_power_and_changes_the_field():
 @pytest.mark.parametrize("alpha,d,length", [(0.0, 17.0, 5.0), (0.2, 2.04, 5.0), (1.5, 0.0, 0.1)])
 def test_passive_loss_cannot_raise_power(alpha, d, length):
     profile = make_profile(
-        attenuation_db_per_km=known(alpha, "dB/km"),
-        dispersion_ps_per_nm_km=known(d, "ps/(nm km)"),
+        attenuation_db_per_km=known(alpha, "dB/km", measurement_wavelength_nm=1550.0),
+        dispersion_ps_per_nm_km=known(d, "ps/(nm km)", measurement_wavelength_nm=1550.0),
         length_km=known(length, "km"),
     )
     field = random_field()
@@ -94,7 +99,7 @@ def test_power_ratio_follows_ten_to_minus_alpha_l_over_ten():
     field = random_field()
     for alpha, length in ((0.2, 10.0), (0.5, 3.0), (1.0, 7.5)):
         profile = make_profile(
-            attenuation_db_per_km=known(alpha, "dB/km"),
+            attenuation_db_per_km=known(alpha, "dB/km", measurement_wavelength_nm=1550.0),
             length_km=known(length, "km"),
             connector_loss_db=known(0.0, "dB"),
             pigtail_loss_db=known(0.0, "dB"),
@@ -122,7 +127,8 @@ def test_power_ratio_follows_ten_to_minus_alpha_l_over_ten():
 
 def test_amplitude_not_power_is_what_the_loss_exponent_halves():
     profile = lossless(
-        pigtail_loss_db=known(6.0, "dB"), dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)")
+        pigtail_loss_db=known(6.0, "dB"),
+        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
     )
     out = propagate_array(np.ones(8, complex), 64e9, resolve_profile(profile, 1550.0))
     assert np.allclose(np.abs(out), 10 ** (-6.0 / 20))
@@ -133,9 +139,9 @@ def test_amplitude_not_power_is_what_the_loss_exponent_halves():
 
 def test_two_db_lump_is_counted_once():
     profile = make_profile(
-        attenuation_db_per_km=known(0.0, "dB/km"),
+        attenuation_db_per_km=known(0.0, "dB/km", measurement_wavelength_nm=1550.0),
         pigtail_loss_db=known(2.0, "dB"),
-        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"),
+        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
     )
     resolved = resolve_profile(profile, 1550.0)
     assert resolved.total_loss_db == 2.0
@@ -144,11 +150,11 @@ def test_two_db_lump_is_counted_once():
     assert power(out) / power(field) == pytest.approx(10 ** (-0.2), rel=1e-12)
     # three separate components add; none is applied twice
     three = make_profile(
-        attenuation_db_per_km=known(0.0, "dB/km"),
+        attenuation_db_per_km=known(0.0, "dB/km", measurement_wavelength_nm=1550.0),
         connector_loss_db=known(0.5, "dB"),
         pigtail_loss_db=known(2.0, "dB"),
         splice_loss_db=known(0.1, "dB"),
-        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"),
+        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
     )
     out3 = propagate_array(field, 64e9, resolve_profile(three, 1550.0))
     assert power(out3) / power(field) == pytest.approx(10 ** (-0.26), rel=1e-12)
@@ -157,9 +163,9 @@ def test_two_db_lump_is_counted_once():
 def test_through_the_link_the_lump_is_applied_once_and_with_the_length_term():
     profile = make_profile(
         length_km=known(2.0, "km"),
-        attenuation_db_per_km=known(0.25, "dB/km"),
+        attenuation_db_per_km=known(0.25, "dB/km", measurement_wavelength_nm=1550.0),
         pigtail_loss_db=known(2.0, "dB"),
-        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"),
+        dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
     )
     rng = np.random.default_rng(0)
     wave = np.repeat([-1.0, -1 / 3, 1 / 3, 1.0], 64)
@@ -211,7 +217,12 @@ def first_null_ghz(resolved, fs=640e9, n=1 << 15, lo_ghz=5.0, hi_ghz=110.0):
 
 
 def test_zero_dispersion_has_no_fading():
-    resolved = resolve_profile(lossless(dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)")), 1550.0)
+    resolved = resolve_profile(
+        lossless(
+            dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)", measurement_wavelength_nm=1550.0)
+        ),
+        1550.0,
+    )
     for k in (100, 1500, 6000, 12000):
         assert small_signal_response(None, resolved, 640e9, 1 << 15, k) == pytest.approx(
             1.0, abs=2e-3
@@ -220,7 +231,10 @@ def test_zero_dispersion_has_no_fading():
 
 def test_response_follows_cosine_law_of_dispersion():
     resolved = resolve_profile(
-        lossless(length_km=known(4.53, "km"), dispersion_ps_per_nm_km=known(15.95, "ps/(nm km)")),
+        lossless(
+            length_km=known(4.53, "km"),
+            dispersion_ps_per_nm_km=known(15.95, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+        ),
         1550.0,
     )
     fs, n = 640e9, 1 << 15
@@ -236,7 +250,8 @@ def test_response_follows_cosine_law_of_dispersion():
 )
 def test_first_null_matches_the_pre_registered_zero_chirp_values(d, length, pre_registered):
     profile = lossless(
-        length_km=known(length, "km"), dispersion_ps_per_nm_km=known(d, "ps/(nm km)")
+        length_km=known(length, "km"),
+        dispersion_ps_per_nm_km=known(d, "ps/(nm km)", measurement_wavelength_nm=1550.0),
     )
     null = first_null_ghz(resolve_profile(profile, 1550.0))
     analytic = math.sqrt(C / (2 * LAMBDA**2 * d * 1e-6 * length * 1e3)) / 1e9
@@ -266,7 +281,7 @@ def test_sign_of_d_positive_d_delays_longer_wavelengths():
         pulse = np.exp(-((t / 20e-12) ** 2)) * np.exp(-1j * physical_offset * t)
         profile = lossless(
             length_km=known(50.0, "km"),
-            dispersion_ps_per_nm_km=known(d_ps, "ps/(nm km)"),
+            dispersion_ps_per_nm_km=known(d_ps, "ps/(nm km)", measurement_wavelength_nm=1550.0),
         )
         out = propagate_array(pulse, fs, resolve_profile(profile, 1550.0))
         p = np.abs(out) ** 2
@@ -291,7 +306,12 @@ def test_d_to_beta2_matches_an_independent_reference_value():
     k = 300
     omega = 2 * np.pi * k * fs / n
     tone = np.exp(1j * omega * np.arange(n) / fs)
-    resolved = resolve_profile(lossless(dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)")), 1550.0)
+    resolved = resolve_profile(
+        lossless(
+            dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)", measurement_wavelength_nm=1550.0)
+        ),
+        1550.0,
+    )
     out = propagate_array(tone, fs, resolved)
     phase = float(np.angle(out[0] / tone[0]))
     expected = 0.5 * beta2_s2_per_m(LAMBDA, 2.04e-6) * 5e3 * omega**2
@@ -311,8 +331,10 @@ def test_slope_adds_the_third_order_term_with_independent_beta3():
         pulse = np.exp(-((t / 20e-12) ** 2)) * np.exp(-1j * offset * t)
         profile = lossless(
             length_km=known(length_km, "km"),
-            dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)"),
-            dispersion_slope_ps_per_nm2_km=known(slope_ps, "ps/(nm^2 km)"),
+            dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+            dispersion_slope_ps_per_nm2_km=known(
+                slope_ps, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+            ),
         )
         out = propagate_array(pulse, fs, resolve_profile(profile, 1550.0))
         p = np.abs(out) ** 2
@@ -328,11 +350,16 @@ def test_slope_adds_the_third_order_term_with_independent_beta3():
 
 
 def test_slope_does_not_move_the_intensity_null_at_first_order():
-    base = lossless(length_km=known(4.76, "km"), dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)"))
+    base = lossless(
+        length_km=known(4.76, "km"),
+        dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+    )
     sloped = lossless(
         length_km=known(4.76, "km"),
-        dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)"),
-        dispersion_slope_ps_per_nm2_km=known(0.004, "ps/(nm^2 km)"),
+        dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+        dispersion_slope_ps_per_nm2_km=known(
+            0.004, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+        ),
     )
     n0 = first_null_ghz(resolve_profile(base, 1550.0))
     n1 = first_null_ghz(resolve_profile(sloped, 1550.0))
@@ -374,8 +401,8 @@ def test_fixed_launch_power_protocol_received_power_follows_the_loss():
     for length in (1.0, 6.0):
         profile = make_profile(
             length_km=known(length, "km"),
-            attenuation_db_per_km=known(0.4, "dB/km"),
-            dispersion_ps_per_nm_km=known(5.0, "ps/(nm km)"),
+            attenuation_db_per_km=known(0.4, "dB/km", measurement_wavelength_nm=1550.0),
+            dispersion_ps_per_nm_km=known(5.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
         )
         results[length] = transmit_profile(
             wave, 64e9, profile, 1550.0, np.random.default_rng(1), protocol="fixed-launch-power"
@@ -394,9 +421,9 @@ def test_matched_received_power_protocol_hits_the_target_whatever_the_loss():
     for length, lump in ((1.0, 0.0), (6.0, 2.0)):
         profile = make_profile(
             length_km=known(length, "km"),
-            attenuation_db_per_km=known(0.4, "dB/km"),
+            attenuation_db_per_km=known(0.4, "dB/km", measurement_wavelength_nm=1550.0),
             pigtail_loss_db=known(lump, "dB"),
-            dispersion_ps_per_nm_km=known(5.0, "ps/(nm km)"),
+            dispersion_ps_per_nm_km=known(5.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
         )
         res = transmit_profile(
             wave,
@@ -452,10 +479,12 @@ def test_profile_link_equals_the_validated_config_path_bit_for_bit():
     wave = quad_wave()
     profile = make_profile(
         length_km=known(5.0, "km"),
-        attenuation_db_per_km=known(0.3, "dB/km"),
+        attenuation_db_per_km=known(0.3, "dB/km", measurement_wavelength_nm=1550.0),
         pigtail_loss_db=known(1.0, "dB"),
-        dispersion_ps_per_nm_km=known(7.0, "ps/(nm km)"),
-        dispersion_slope_ps_per_nm2_km=known(0.02, "ps/(nm^2 km)"),
+        dispersion_ps_per_nm_km=known(7.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+        dispersion_slope_ps_per_nm2_km=known(
+            0.02, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+        ),
     )
     from opticps.optical_channel.link import transmit
 
@@ -506,23 +535,53 @@ def test_g652d_path_is_unchanged_by_the_profile_code():
 # --- Gate N1 fix round ---------------------------------------------------------------------------
 
 
-def sloped(**over):
-    """D 10 at 1550 nm, valid 1500 to 1600 nm, S 0.06 ps/(nm^2 km): own literal numbers."""
+def sloped(*, wavelength=1550.0, reference=1550.0, **over):
+    """D 10 at `wavelength`, valid 1500 to 1600 nm, S 0.06 ps/(nm^2 km): own literal numbers."""
     return make_profile(
+        reference_wavelength_nm=known(reference, "nm"),
         dispersion_ps_per_nm_km=known(
-            10.0, "ps/(nm km)", measurement_wavelength_nm=1550.0, validity_range_nm=(1500.0, 1600.0)
+            10.0,
+            "ps/(nm km)",
+            measurement_wavelength_nm=wavelength,
+            validity_range_nm=(1500.0, 1600.0),
         ),
-        dispersion_slope_ps_per_nm2_km=known(0.06, "ps/(nm^2 km)"),
+        dispersion_slope_ps_per_nm2_km=known(
+            0.06,
+            "ps/(nm^2 km)",
+            measurement_wavelength_nm=wavelength,
+            validity_range_nm=(1500.0, 1600.0),
+        ),  # fmt: skip
         **over,
     )
 
 
-def test_slope_path_uses_the_reference_wavelength_inside_the_range():
-    resolved = resolve_profile(sloped(), 1590.0)
+@pytest.mark.parametrize("reference", [1500.0, 1550.0, 1560.0, 1310.0])
+def test_d_is_anchored_where_it_is_stated_whatever_the_carrier_reference(reference):
+    profile = sloped(reference=reference)  # D stated at 1550 nm
+    assert resolve_profile(profile, 1550.0).dispersion_ps_per_nm_km == 10.0
+    resolved = resolve_profile(profile, 1590.0)
     assert resolved.dispersion_ps_per_nm_km == pytest.approx(12.4, abs=1e-12)  # 10 + 0.06 * 40
+    assert resolved.dispersion_anchor_nm == 1550.0
     assert "dispersion_ps_per_nm_km" not in resolved.extrapolated  # inside the stated range
-    assert resolve_profile(sloped(), 1510.0).dispersion_ps_per_nm_km == pytest.approx(7.6)
-    assert resolve_profile(sloped(), 1550.0).dispersion_ps_per_nm_km == 10.0
+    assert resolve_profile(profile, 1510.0).dispersion_ps_per_nm_km == pytest.approx(7.6)
+
+
+def test_d_stated_at_1550_only_reads_10_at_1550_for_reference_1560():
+    profile = make_profile(
+        reference_wavelength_nm=known(1560.0, "nm"),
+        dispersion_ps_per_nm_km=known(10.0, "ps/(nm km)", measurement_wavelength_nm=1550.0),
+        dispersion_slope_ps_per_nm2_km=known(
+            0.06, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+        ),
+    )
+    assert resolve_profile(profile, 1550.0).dispersion_ps_per_nm_km == 10.0
+
+
+def test_d_stated_at_another_wavelength_moves_the_anchor_with_it():
+    # D 10 stated at 1530: D(1590) = 10 + 0.06 * 60 = 13.6, whatever the reference says
+    profile = sloped(wavelength=1530.0, reference=1550.0)
+    assert resolve_profile(profile, 1530.0).dispersion_ps_per_nm_km == 10.0
+    assert resolve_profile(profile, 1590.0).dispersion_ps_per_nm_km == pytest.approx(13.6)
 
 
 def test_slope_path_under_requested_extrapolation_is_not_clamped_to_the_range_edge():
@@ -533,22 +592,113 @@ def test_slope_path_under_requested_extrapolation_is_not_clamped_to_the_range_ed
         resolve_profile(sloped(), 1620.0)
 
 
-def test_slope_is_applied_from_the_profile_reference_wavelength_not_the_measurement_one():
-    profile = sloped(reference_wavelength_nm=known(1500.0, "nm"))
-    assert resolve_profile(profile, 1590.0).dispersion_ps_per_nm_km == pytest.approx(15.4)
+def test_a_range_only_d_with_a_slope_raises_because_it_has_no_single_wavelength():
+    profile = make_profile(
+        dispersion_ps_per_nm_km=ProfileValue(
+            10.0,
+            "ps/(nm km)",
+            ParameterProvenance(
+                ProvenanceCategory.USER_ASSUMED, "unit test", validity_range_nm=(1400.0, 1500.0)
+            ),
+        ),
+        dispersion_slope_ps_per_nm2_km=known(
+            0.06, "ps/(nm^2 km)", measurement_wavelength_nm=1450.0
+        ),
+        reference_wavelength_nm=known(1550.0, "nm"),
+    )
+    with pytest.raises(OutOfValidityRangeError, match="no single stated wavelength"):
+        resolve_profile(profile, 1450.0)
+    # without a slope the same D is a plain value over its stated range, held
+    held = replace(profile, dispersion_slope_ps_per_nm2_km=unknown("ps/(nm^2 km)"))
+    assert resolve_profile(held, 1450.0).dispersion_ps_per_nm_km == 10.0
+    assert resolve_profile(held, 1500.0).dispersion_ps_per_nm_km == 10.0
+
+
+def test_a_scenario_slope_places_a_known_d_exactly_like_a_known_slope():
+    profile = sloped(wavelength=1550.0)
+    profile = replace(profile, dispersion_slope_ps_per_nm2_km=unknown("ps/(nm^2 km)"))
+    scenario = SensitivityScenario("slope guess", {"dispersion_slope_ps_per_nm2_km": 0.06})
+    resolved = resolve_profile(profile, 1590.0, scenario=scenario)
+    assert resolved.dispersion_ps_per_nm_km == pytest.approx(12.4, abs=1e-12)
+    assert resolved.dispersion_slope_ps_per_nm2_km == 0.06
+    assert resolved.sources["dispersion_slope_ps_per_nm2_km"] == "scenario: slope guess"
+    assert resolved.to_record()["not_a_benchmark_result"] is True
+    # no slope at all: D is held and the record says so
+    held = resolve_profile(profile, 1590.0)
+    assert held.dispersion_ps_per_nm_km == 10.0
+    assert held.to_record()["slope_omitted_second_order_only"] is True
+
+
+def test_wang_at_1560_extrapolated_with_a_scenario_slope_is_the_arithmetic_value():
+    wang = load_fiber_config("configs/fibers/NANF-WANG-2025-2P032KM.yaml")
+    scenario = SensitivityScenario(
+        "wang slope and losses",
+        {
+            "attenuation_db_per_km": 0.0,
+            "connector_loss_db": 0.0,
+            "pigtail_loss_db": 0.0,
+            "splice_loss_db": 0.0,
+            "dispersion_slope_ps_per_nm2_km": 0.06,
+        },
+    )
+    at_1560 = resolve_profile(wang, 1560.0, scenario=scenario, allow_extrapolation=True)
+    assert at_1560.dispersion_ps_per_nm_km == pytest.approx(5.02, abs=1e-12)  # 4.42 + 0.06 * 10
+    assert "dispersion_ps_per_nm_km" in at_1560.extrapolated
+    at_1550 = resolve_profile(wang, 1550.0, scenario=scenario)
+    assert at_1550.dispersion_ps_per_nm_km == 4.42
+    assert "dispersion_ps_per_nm_km" not in at_1550.extrapolated
+    with pytest.raises(OutOfValidityRangeError):
+        resolve_profile(wang, 1560.0, scenario=scenario)
 
 
 def test_a_dispersion_without_a_stated_wavelength_raises_and_the_reference_is_not_a_stand_in():
     d = ProfileValue(
         10.0, "ps/(nm km)", ParameterProvenance(ProvenanceCategory.USER_ASSUMED, "unit test")
     )
-    for reference in (1310.0, 1550.0):
+    for reference in (1450.0, 1550.0):
         profile = make_profile(
             dispersion_ps_per_nm_km=d, reference_wavelength_nm=known(reference, "nm")
         )
-        for wavelength in (1310.0, 1550.0):
+        for wavelength in (1450.0, 1550.0):
             with pytest.raises(OutOfValidityRangeError, match="states no wavelength"):
                 resolve_profile(profile, wavelength)
+
+
+def test_the_reference_wavelength_is_the_carrier_only_so_an_unknown_one_changes_nothing():
+    profile = sloped(reference=1550.0)
+    unknown_ref = replace(profile, reference_wavelength_nm=unknown("nm"))
+    assert resolve_profile(unknown_ref, 1590.0).dispersion_ps_per_nm_km == pytest.approx(12.4)
+
+
+@pytest.mark.parametrize(
+    ("name", "unit", "value"),
+    [
+        ("attenuation_db_per_km", "dB/km", 0.5),
+        ("dispersion_slope_ps_per_nm2_km", "ps/(nm^2 km)", 0.06),
+        ("dispersion_ps_per_nm_km", "ps/(nm km)", 10.0),
+    ],
+)
+def test_a_wavelength_dependent_value_with_no_stated_wavelength_is_refused(name, unit, value):
+    bare = ProfileValue(
+        value, unit, ParameterProvenance(ProvenanceCategory.USER_ASSUMED, "unit test")
+    )
+    wide_d = known(
+        10.0, "ps/(nm km)", measurement_wavelength_nm=1550.0, validity_range_nm=(1400.0, 1700.0)
+    )
+    profile = make_profile(**{"dispersion_ps_per_nm_km": wide_d, name: bare})
+    for wavelength in (1450.0, 1550.0):
+        with pytest.raises(OutOfValidityRangeError, match=f"{name} states no wavelength"):
+            resolve_profile(profile, wavelength)
+
+
+def test_shipped_profiles_resolve_without_filler_where_they_state_a_wavelength():
+    hong = load_fiber_config("configs/fibers/NANF-HONG-2021-4P76KM.yaml")
+    scenario = SensitivityScenario(
+        "losses", {"attenuation_db_per_km": 0.0, "connector_loss_db": 0.0}
+    )
+    resolved = resolve_profile(hong, 1550.0, scenario=scenario)
+    assert resolved.dispersion_ps_per_nm_km == 2.04
+    assert resolved.dispersion_anchor_nm == 1550.0
 
 
 def test_the_validity_check_applies_to_every_parameter_used():
@@ -560,7 +710,9 @@ def test_the_validity_check_applies_to_every_parameter_used():
         ("group_index", "1", 1.003),
         ("dispersion_slope_ps_per_nm2_km", "ps/(nm^2 km)", 0.06),
     ):
-        wide_d = known(10.0, "ps/(nm km)", validity_range_nm=(1400.0, 1700.0))
+        wide_d = known(
+            10.0, "ps/(nm km)", measurement_wavelength_nm=1550.0, validity_range_nm=(1400.0, 1700.0)
+        )
         profile = make_profile(
             dispersion_ps_per_nm_km=wide_d,
             **{name: known(value, unit, validity_range_nm=(1540.0, 1560.0))},
@@ -680,3 +832,226 @@ def test_matched_power_follows_the_transmitter_filter_in_the_launch_mean():
     total_db = 0.5 * 2.0 + 1.5
     expected_laser = target_w / (mean_filtered * 10 ** (-total_db / 10))
     assert res.config.laser_power_w == pytest.approx(expected_laser, rel=1e-9)
+
+
+# --- Gate N1 fix round 2: table conflicts, route checks, record on the public route ---------------
+
+
+def _d_table(values=(1.0, 3.0), knots=(1500.0, 1600.0), category="measured"):
+    return WavelengthTable(
+        "D(lambda)",
+        knots,
+        values,
+        "ps/(nm km)",
+        ParameterProvenance(ProvenanceCategory(category), "Lab notebook 7, 2024-03-02"),
+    )
+
+
+def _declaration(winner):
+    return PrecedenceDeclaration(
+        winner,
+        ParameterProvenance(
+            ProvenanceCategory.USER_ASSUMED, "Owner decision 2026-10-31 (unit test)"
+        ),
+    )
+
+
+def test_a_table_that_conflicts_with_a_known_scalar_raises_without_a_declared_winner():
+    # table D 2.0 at 1550 (1 + 0.01 * 50), scalar D 10 stated at 1550
+    profile = make_profile(dispersion_table=_d_table())
+    with pytest.raises(FiberProfileError, match="declares no winner"):
+        resolve_profile(profile, 1550.0)
+    assert not profile.precedence
+
+
+def test_a_table_that_agrees_with_the_scalar_is_used_without_a_declaration():
+    profile = make_profile(dispersion_table=_d_table(values=(9.0, 11.0)))  # 10.0 at 1550
+    assert resolve_profile(profile, 1550.0).dispersion_ps_per_nm_km == pytest.approx(10.0)
+
+
+@pytest.mark.parametrize(("winner", "expected"), [("table", 2.0), ("scalar", 10.0)])
+def test_a_declared_winner_is_used_and_recorded_with_provenance(winner, expected):
+    profile = make_profile(
+        dispersion_table=_d_table(),
+        precedence={"dispersion_ps_per_nm_km": _declaration(winner)},
+    )
+    resolved = resolve_profile(profile, 1550.0)
+    assert resolved.dispersion_ps_per_nm_km == pytest.approx(expected)
+    source = resolved.sources["dispersion_ps_per_nm_km"]
+    assert "declared over" in source
+    assert "Owner decision 2026-10-31" in source
+    assert "user-assumed" in source
+
+
+def test_a_loss_table_conflicting_with_a_known_loss_raises_unless_declared():
+    table = WavelengthTable(
+        "loss",
+        (1500.0, 1600.0),
+        (0.1, 0.3),
+        "dB/km",
+        ParameterProvenance(ProvenanceCategory.MEASURED, "Lab notebook 7, 2024-03-02"),
+    )
+    profile = make_profile(loss_table=table)  # table 0.2 at 1550, scalar 0.5
+    with pytest.raises(FiberProfileError, match="attenuation_db_per_km disagree"):
+        resolve_profile(profile, 1550.0)
+    declared = replace(profile, precedence={"attenuation_db_per_km": _declaration("table")})
+    assert resolve_profile(declared, 1550.0).attenuation_db_per_km == pytest.approx(0.2)
+
+
+def test_a_slope_conflicting_with_a_d_table_is_refused_whatever_the_source():
+    table = _d_table(values=(9.0, 11.0))  # local slope 0.02 ps/(nm^2 km), D 10 at 1550
+    known_s = make_profile(
+        dispersion_table=table,
+        dispersion_slope_ps_per_nm2_km=known(
+            0.06, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+        ),
+        dispersion_ps_per_nm_km=unknown("ps/(nm km)"),
+    )
+    with pytest.raises(FiberProfileError, match="conflicts with the local slope"):
+        resolve_profile(known_s, 1550.0)
+    scenario_s = replace(known_s, dispersion_slope_ps_per_nm2_km=unknown("ps/(nm^2 km)"))
+    scenario = SensitivityScenario("slope guess", {"dispersion_slope_ps_per_nm2_km": 0.06})
+    with pytest.raises(FiberProfileError, match="a scenario cannot override a table"):
+        resolve_profile(scenario_s, 1550.0, scenario=scenario)
+    # a table with slope 0 and a known S of 0.06: refused, the beta3 would be 16 times too big
+    flat = replace(known_s, dispersion_table=_d_table(values=(10.0, 10.0)))
+    with pytest.raises(FiberProfileError, match="conflicts with the local slope"):
+        resolve_profile(flat, 1550.0)
+    close = replace(
+        known_s,
+        dispersion_slope_ps_per_nm2_km=known(
+            0.0205, "ps/(nm^2 km)", measurement_wavelength_nm=1550.0
+        ),
+    )
+    assert resolve_profile(close, 1550.0).dispersion_slope_ps_per_nm2_km == 0.0205
+    declared = replace(
+        known_s, precedence={"dispersion_slope_ps_per_nm2_km": _declaration("table")}
+    )
+    assert resolve_profile(declared, 1550.0).dispersion_slope_ps_per_nm2_km == pytest.approx(0.02)
+
+
+def test_a_negative_d_table_is_accepted_and_interpolated():
+    table = _d_table(values=(-4.0, 6.0))  # D passes through zero at 1550
+    profile = make_profile(dispersion_table=table, dispersion_ps_per_nm_km=unknown("ps/(nm km)"))
+    assert resolve_profile(profile, 1500.0).dispersion_ps_per_nm_km == pytest.approx(-4.0)
+    assert resolve_profile(profile, 1550.0).dispersion_ps_per_nm_km == pytest.approx(1.0)
+
+
+def test_precedence_is_loaded_from_yaml_and_refused_for_other_fields(tmp_path):
+    text = open("configs/fibers/NANF-HONG-2021-4P76KM.yaml").read()
+    block = (
+        "precedence:\n  dispersion_ps_per_nm_km:\n    winner: table\n    provenance:\n"
+        "      category: user-assumed\n      citation: Owner decision, unit test\n"
+    )
+    path = tmp_path / "p.yaml"
+    path.write_text(text + block)
+    assert load_fiber_config(path).precedence["dispersion_ps_per_nm_km"].winner == "table"
+    path.write_text(text + block.replace("dispersion_ps_per_nm_km", "length_km"))
+    with pytest.raises(FiberProfileError, match="table fields only"):
+        load_fiber_config(path)
+    path.write_text(text + block.replace("winner: table", "winner: both"))
+    with pytest.raises(FiberProfileError, match="'table' or 'scalar'"):
+        load_fiber_config(path)
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), -5.0, -1e-9])
+def test_the_profile_route_refuses_a_bad_base_extra_attenuation(bad):
+    resolved = resolve_profile(make_profile(), 1550.0)
+    base = LinkConfig(extra_attenuation_db=bad)
+    with pytest.raises(FiberProfileError, match="extra_attenuation_db"):
+        profile_link_config(resolved, base)
+    with pytest.raises(FiberProfileError, match="extra_attenuation_db"):
+        transmit_profile(
+            quad_wave(), 64e9, make_profile(), 1550.0, np.random.default_rng(0), base=base
+        )
+    with pytest.raises(FiberProfileError, match="extra_attenuation_db"):
+        transmit_profile(
+            quad_wave(), 64e9, make_profile(), 1550.0, np.random.default_rng(0), base=base,
+            protocol=PowerProtocol.MATCHED_RECEIVED, received_power_dbm=-5.0,
+        )  # fmt: skip
+
+
+def test_the_g652_route_is_not_touched_by_the_profile_route_checks():
+    config = LinkConfig(fiber_length_km=5.0, extra_attenuation_db=-5.0)  # validated path as before
+    assert config.extra_attenuation_db == -5.0
+    assert "profile_id" not in transmit(quad_wave(), 64e9, config, np.random.default_rng(0)).fiber
+    assert profile_link_config(resolve_profile(make_profile(), 1550.0), LinkConfig()).profile_id
+
+
+def test_the_laser_power_for_matched_received_power_is_bounded():
+    from opticps.optical_channel.link import MAX_MATCHED_LASER_POWER_W
+
+    assert MAX_MATCHED_LASER_POWER_W == 1.0
+    wave, rng = quad_wave(), np.random.default_rng(0)
+    absurd = make_profile(
+        attenuation_db_per_km=known(100.0, "dB/km", measurement_wavelength_nm=1550.0)
+    )  # 500 dB over 5 km
+    with pytest.raises(ValueError, match="sanity limit"):
+        transmit_profile(
+            wave, 64e9, absurd, 1550.0, rng,
+            protocol=PowerProtocol.MATCHED_RECEIVED, received_power_dbm=-5.0,
+        )  # fmt: skip
+    ok = transmit_profile(
+        wave, 64e9, make_profile(), 1550.0, rng,
+        protocol=PowerProtocol.MATCHED_RECEIVED, received_power_dbm=-5.0,
+    )  # fmt: skip
+    assert ok.config.laser_power_w < MAX_MATCHED_LASER_POWER_W
+
+
+@pytest.mark.parametrize("protocol", ["matched-received-power", PowerProtocol.MATCHED_RECEIVED])
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), 10.5])
+def test_the_received_power_bound_holds_for_a_string_protocol_too(protocol, bad):
+    with pytest.raises(ValueError, match="received_power_dbm"):
+        transmit_profile(
+            quad_wave(), 64e9, make_profile(), 1550.0, np.random.default_rng(0),
+            protocol=protocol, received_power_dbm=bad,
+        )  # fmt: skip
+
+
+def test_transmit_through_profile_link_config_keeps_the_extrapolation_and_sources():
+    profile = sloped()
+    resolved = resolve_profile(profile, 1620.0, allow_extrapolation=True)  # D 14.2, extrapolated
+    result = transmit(quad_wave(), 64e9, profile_link_config(resolved), np.random.default_rng(0))
+    assert result.fiber["profile_id"] == "TEST-PROFILE"
+    assert result.fiber["extrapolated"] == list(resolved.extrapolated)
+    assert "dispersion_ps_per_nm_km" in result.fiber["extrapolated"]
+    assert result.fiber["sources"]["dispersion_ps_per_nm_km"] == "user-assumed"
+    assert result.fiber["not_a_benchmark_result"] is True  # extrapolated, no scenario named
+    inside = resolve_profile(profile, 1590.0)
+    plain = transmit(quad_wave(), 64e9, profile_link_config(inside), np.random.default_rng(0))
+    assert plain.fiber["profile_id"] == "TEST-PROFILE"
+    assert plain.fiber["extrapolated"] == []
+    assert "not_a_benchmark_result" not in plain.fiber
+
+
+def test_not_a_benchmark_result_is_set_for_any_filled_or_extrapolated_value():
+    filled = resolve_profile(
+        make_profile(connector_loss_db=unknown("dB")),
+        1550.0,
+        scenario=SensitivityScenario("c", {"connector_loss_db": 0.5}),
+    )
+    assert filled.to_record()["not_a_benchmark_result"] is True
+    extrapolated = resolve_profile(sloped(), 1620.0, allow_extrapolation=True)
+    assert extrapolated.to_record()["not_a_benchmark_result"] is True
+    assert "not_a_benchmark_result" not in resolve_profile(sloped(), 1590.0).to_record()
+    res = transmit_profile(
+        quad_wave(), 64e9, sloped(), 1620.0, np.random.default_rng(0), allow_extrapolation=True
+    )
+    assert res.link.fiber["not_a_benchmark_result"] is True
+
+
+def test_a_label_on_the_base_config_is_not_silently_replaced_and_a_blank_one_is_refused():
+    plain = resolve_profile(make_profile(), 1550.0)
+    kept = profile_link_config(plain, LinkConfig(sensitivity_scenario="my own label"))
+    assert kept.sensitivity_scenario == "my own label"
+    scenario = SensitivityScenario("connector guess", {"connector_loss_db": 0.5})
+    filled = resolve_profile(
+        make_profile(connector_loss_db=unknown("dB")), 1550.0, scenario=scenario
+    )
+    with pytest.raises(FiberProfileError, match="never silently replaced"):
+        profile_link_config(filled, LinkConfig(sensitivity_scenario="my own label"))
+    same = profile_link_config(filled, LinkConfig(sensitivity_scenario="connector guess"))
+    assert same.sensitivity_scenario == "connector guess"
+    for blank in ("", "   "):
+        with pytest.raises(FiberProfileError, match="blank"):
+            profile_link_config(plain, LinkConfig(sensitivity_scenario=blank))

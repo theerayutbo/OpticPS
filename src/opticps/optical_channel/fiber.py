@@ -351,21 +351,26 @@ class ProvenanceCategory(StrEnum):
 
 
 # Words that, alone, are not a citation. A measured or published value needs a citation that has at
-# least 8 non-space characters and at least one word outside this set (form check only: it cannot
-# tell whether the cited place exists).
+# least 6 non-space characters, at least 4 distinct characters and at least one word that holds a
+# letter and is outside this set (a form check only: it cannot tell whether the cited place exists,
+# and it accepts text in any script).
 _PLACEHOLDER_WORDS = frozenset(
-    "none n a na nil null tbd todo unknown unspecified not available applicable given provided "
-    "no citation source sources ref reference see text paper article tba x".split()
+    "none n a na nil null tbd tbc tba todo unknown unspecified not available applicable given "
+    "provided no citation citations cite cited source sources ref refs reference references see "
+    "text paper papers article the a an of and or to be is are will add added later soon "
+    "determined needed required missing data info information detail details pending fill in here "
+    "placeholder lorem ipsum dummy something anything whatever etc x".split()
 )
 _CITED_CATEGORIES = ("measured", "published-experimental", "published-numerical-assumption")
 
 
 def is_real_citation(citation: str) -> bool:
     """Return True if the text is more than a blank or placeholder such as "none" or "n/a"."""
-    if len(citation.replace(" ", "")) < 8:
+    compact = "".join(citation.split())
+    if len(compact) < 6 or len(set(compact.casefold())) < 4:
         return False
-    words = re.findall(r"[a-z0-9]+", citation.casefold())
-    return any(w not in _PLACEHOLDER_WORDS for w in words)
+    words = re.findall(r"\w+", citation.casefold())
+    return any(w not in _PLACEHOLDER_WORDS and not w.isdigit() for w in words)
 
 
 def _finite(value: object, name: str) -> float:
@@ -394,7 +399,7 @@ class ParameterProvenance:
         if self.category.value in _CITED_CATEGORIES and not is_real_citation(self.citation):
             raise FiberProfileError(
                 f"a {self.category.value} value needs a real citation, not {self.citation!r} "
-                "(at least 8 characters and a word that is not a placeholder such as none)"
+                "(at least 6 characters and a word that is not a placeholder such as none)"
             )
         if self.measurement_wavelength_nm is not None and (
             _finite(self.measurement_wavelength_nm, "measurement_wavelength_nm") <= 0
@@ -490,6 +495,12 @@ class WavelengthTable:
         slope = (vals[j] - vals[i]) / (wl[j] - wl[i])
         return vals[j] + slope * (wavelength_nm - wl[j]), True
 
+    def slope_at(self, wavelength_nm: float) -> float:
+        """Return the slope of the segment holding the wavelength (end segment outside)."""
+        wl, vals = self.wavelengths_nm, self.values
+        j = int(np.clip(np.searchsorted(wl, wavelength_nm, side="right"), 1, len(wl) - 1))
+        return (vals[j] - vals[j - 1]) / (wl[j] - wl[j - 1])
+
 
 @dataclass(frozen=True)
 class LossEnvelope:
@@ -551,6 +562,36 @@ class SensitivityScenario:
         object.__setattr__(self, "values", MappingProxyType(checked))
 
 
+# Fields that are a function of wavelength: a known value must say where it holds.
+_WAVELENGTH_BOUND_FIELDS = (
+    "attenuation_db_per_km",
+    "dispersion_ps_per_nm_km",
+    "dispersion_slope_ps_per_nm2_km",
+)
+# A table beats nothing silently: a table and a known scalar at the same wavelength must agree to
+# this relative tolerance, else the profile must declare which wins. A known S and the local slope
+# of a D table must agree to _SLOPE_TOLERANCE_ABS plus _SLOPE_TOLERANCE_REL of the table slope.
+_AGREEMENT_REL_TOL = 1e-6
+_SLOPE_TOLERANCE_ABS = 1e-3  # ps/(nm^2 km)
+_SLOPE_TOLERANCE_REL = 0.1
+
+
+@dataclass(frozen=True)
+class PrecedenceDeclaration:
+    """Which of a table and a known scalar wins where they disagree, with its provenance."""
+
+    winner: str
+    provenance: ParameterProvenance
+
+    def __post_init__(self) -> None:
+        if self.winner not in ("table", "scalar"):
+            raise FiberProfileError("a precedence winner is 'table' or 'scalar'")
+        if self.provenance.category is ProvenanceCategory.UNKNOWN:
+            raise FiberProfileError("a precedence declaration needs a stated provenance")
+        if not is_real_citation(self.provenance.citation):
+            raise FiberProfileError("a precedence declaration needs a real citation")
+
+
 # profile field name -> (unit, minimum, strict minimum?)
 _SCALAR_FIELDS: dict[str, tuple[str, float | None, bool]] = {
     "length_km": ("km", 0.0, True),
@@ -598,8 +639,12 @@ class FiberProfile:
     link_loss_envelope: LossEnvelope | None = None
     measurements: tuple[ContextMeasurement, ...] = ()
     notes: str = ""
+    precedence: Mapping[str, PrecedenceDeclaration] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
+        bad_keys = set(self.precedence) - set(_WAVELENGTH_BOUND_FIELDS)
+        if bad_keys:
+            raise FiberProfileError(f"precedence is declared for table fields only: {bad_keys}")
         if not self.profile_id.strip() or not self.fiber_type.strip():
             raise FiberProfileError("profile_id and fiber_type must be non-blank")
         if self.sample_id is not None and not self.sample_id.strip():
@@ -633,6 +678,7 @@ class FiberProfile:
         object.__setattr__(self, "effects", MappingProxyType(dict(self.effects)))
         object.__setattr__(self, "geometry", MappingProxyType(dict(self.geometry)))
         object.__setattr__(self, "measurements", tuple(self.measurements))
+        object.__setattr__(self, "precedence", MappingProxyType(dict(self.precedence)))
 
     def requested_effects(self) -> tuple[str, ...]:
         return tuple(k for k in UNSUPPORTED_EFFECTS if self.effects[k] == "on")
@@ -657,6 +703,16 @@ class ResolvedFiber:
     sources: Mapping[str, str]
     extrapolated: tuple[str, ...] = ()
     scenario_label: str | None = None
+    dispersion_anchor_nm: float | None = None
+
+    @property
+    def not_a_benchmark_result(self) -> bool:
+        """True if any value was filled by a scenario or extrapolated beyond its stated range."""
+        return (
+            self.scenario_label is not None
+            or bool(self.extrapolated)
+            or any(v.startswith("scenario") for v in self.sources.values())
+        )
 
     @property
     def lumped_loss_db(self) -> float:
@@ -691,8 +747,9 @@ class ResolvedFiber:
             "gamma_per_w_km_stored_not_active": self.gamma_per_w_km,
             "sources": dict(self.sources),
             "extrapolated": list(self.extrapolated),
+            "dispersion_anchor_nm": self.dispersion_anchor_nm,
             "sensitivity_scenario": self.scenario_label,
-            **({"not_a_benchmark_result": True} if self.scenario_label is not None else {}),
+            **({"not_a_benchmark_result": True} if self.not_a_benchmark_result else {}),
             "kerr_intermodal_gas_absorption_amplifier_noise": "off (unsupported)",
             "units": {
                 "wavelength": "nm",
@@ -704,6 +761,48 @@ class ResolvedFiber:
                 "gamma": "1/(W km)",
             },
         }
+
+
+def _check_slope_against_table(
+    profile: FiberProfile,
+    out: dict[str, float | None],
+    sources: dict[str, str],
+    table_value: dict[str, float],
+    wavelength_nm: float,
+    label: str | None,
+) -> None:
+    """Refuse an S that disagrees with the local slope of the D table in force."""
+    name = "dispersion_slope_ps_per_nm2_km"
+    table = profile.dispersion_table
+    slope = out[name]
+    if (
+        table is None
+        or slope is None
+        or "dispersion_ps_per_nm_km" not in table_value
+        or "declared over table" in sources["dispersion_ps_per_nm_km"]
+    ):
+        return
+    local = table.slope_at(wavelength_nm)
+    if abs(slope - local) <= _SLOPE_TOLERANCE_ABS + _SLOPE_TOLERANCE_REL * abs(local):
+        return
+    from_scenario = sources[name].startswith("scenario")
+    decl = None if from_scenario else profile.precedence.get(name)
+    if decl is None:
+        raise FiberProfileError(
+            f"S={slope:g} conflicts with the local slope {local:g} ps/(nm^2 km) of the D table "
+            f"{table.name!r} at {wavelength_nm:g} nm"
+            + (
+                "; a scenario cannot override a table"
+                if from_scenario
+                else "; the profile declares no winner (`precedence` with provenance)"
+            )
+        )
+    note = f"{decl.provenance.category.value}: {decl.provenance.citation}"
+    if decl.winner == "table":
+        out[name] = local
+        sources[name] = f"table slope (declared over scalar); {note}"
+    else:
+        sources[name] += f" (declared over table slope); {note}"
 
 
 def resolve_profile(
@@ -745,7 +844,7 @@ def resolve_profile(
                 f"scenario {label!r} would override the known value of {name}; a scenario "
                 "may fill unknown values only"
             )
-    # Tables first: they replace the scalar for loss and for D.
+    # Tables first: they replace the scalar for loss and for D (unless a conflict is declared).
     table_value: dict[str, float] = {}
     for name, table in (
         ("attenuation_db_per_km", profile.loss_table),
@@ -758,14 +857,15 @@ def resolve_profile(
             if extr:
                 extrapolated.append(name)
     slope_pv = profile.dispersion_slope_ps_per_nm2_km
-    slope_known = slope_pv.known
+    # S in force for placing D: the profile's, else the scenario's (a scenario fills unknowns only)
+    slope_value = slope_pv.value if slope_pv.known else values.get("dispersion_slope_ps_per_nm2_km")
+    anchor_nm: float | None = None
     for name in _SCENARIO_FIELDS:
         pv = getattr(profile, name)
-        if name in table_value:
-            out[name] = table_value[name]
-            continue
         if not pv.known:
-            if name in values:
+            if name in table_value:
+                out[name] = table_value[name]
+            elif name in values:
                 out[name] = values[name]
                 sources[name] = f"scenario: {label}"
             elif name in (
@@ -779,33 +879,58 @@ def resolve_profile(
                 missing.append(name)
             continue
         assert pv.value is not None
-        sources[name] = pv.provenance.category.value
         value = pv.value
-        is_d = name == "dispersion_ps_per_nm_km"
-        if is_d and pv.stated_range_nm is None:
+        if name in _WAVELENGTH_BOUND_FIELDS and pv.stated_range_nm is None:
             raise OutOfValidityRangeError(
-                "dispersion_ps_per_nm_km states no wavelength (neither a measurement wavelength "
-                "nor a validity range), so it cannot be placed on the wavelength axis; state one"
+                f"{name} states no wavelength (neither a measurement wavelength nor a validity "
+                "range), so it cannot be placed on the wavelength axis; state one"
             )
-        if not pv.covers(wavelength_nm):
-            if not allow_extrapolation:
-                span = pv.stated_range_nm
+        scalar_extrapolated = not pv.covers(wavelength_nm)
+        if scalar_extrapolated and not (allow_extrapolation or name in table_value):
+            raise OutOfValidityRangeError(
+                f"{name} is stated for {pv.stated_range_nm} nm only; {wavelength_nm:g} nm needs "
+                "an explicit extrapolation request or a table"
+            )
+        if name == "dispersion_ps_per_nm_km" and slope_value is not None:
+            # D(lambda) = D_stated + S (lambda - lambda_stated), lambda_stated the wavelength D was
+            # stated at (never the carrier or reference wavelength), inside the stated range and,
+            # under requested extrapolation, beyond it (no clamp).
+            anchor_nm = pv.provenance.measurement_wavelength_nm
+            if anchor_nm is None:
                 raise OutOfValidityRangeError(
-                    f"{name} is stated for {span} nm only; {wavelength_nm:g} nm needs an explicit "
-                    "extrapolation request or a table"
+                    f"{name} has no single stated wavelength (only a validity range), so a "
+                    "dispersion slope cannot be applied to it; state the wavelength D was "
+                    "measured or stated at"
                 )
+            value = value + slope_value * (wavelength_nm - anchor_nm)
+        if name in table_value:
+            tab = table_value[name]
+            if scalar_extrapolated:
+                # the scalar does not hold here, so it cannot conflict with the table
+                out[name] = tab
+                continue
+            if not math.isclose(value, tab, rel_tol=_AGREEMENT_REL_TOL, abs_tol=1e-12):
+                decl = profile.precedence.get(name)
+                if decl is None:
+                    raise FiberProfileError(
+                        f"table and known scalar {name} disagree at {wavelength_nm:g} nm "
+                        f"({tab:g} from the table, {value:g} from the scalar) and the profile "
+                        "declares no winner; declare one in `precedence` with its provenance"
+                    )
+                out[name] = tab if decl.winner == "table" else value
+                sources[name] = (
+                    f"{pv.provenance.category.value} (declared over table)"
+                    if decl.winner == "scalar"
+                    else f"{sources[name]} (declared over scalar)"
+                ) + f"; {decl.provenance.category.value}: {decl.provenance.citation}"
+            else:
+                out[name] = tab
+            continue
+        sources[name] = pv.provenance.category.value
+        if scalar_extrapolated:
             extrapolated.append(name)
-        if is_d and slope_known:
-            # D(lambda) = D_ref + S (lambda - lambda_ref), from the profile's reference wavelength,
-            # inside the stated range and, when extrapolation was requested, beyond it (no clamp).
-            ref_pv = profile.reference_wavelength_nm
-            if not ref_pv.known:
-                raise MissingFiberPropertyError(
-                    "reference_wavelength_nm is unknown; a dispersion slope needs it"
-                )
-            assert slope_pv.value is not None and ref_pv.value is not None
-            value = pv.value + slope_pv.value * (wavelength_nm - ref_pv.value)
         out[name] = value
+    _check_slope_against_table(profile, out, sources, table_value, wavelength_nm, label)
     if missing:
         raise MissingFiberPropertyError(
             f"profile {profile.profile_id!r} has unknown {missing}; supply a measurement, or an "
@@ -839,6 +964,7 @@ def resolve_profile(
         sources=MappingProxyType(sources),
         extrapolated=tuple(extrapolated),
         scenario_label=label,
+        dispersion_anchor_nm=anchor_nm,
     )
 
 
@@ -885,6 +1011,7 @@ _PROFILE_REQUIRED = {
 _PROFILE_OPTIONAL = {"loss_table", "dispersion_table", "geometry", "link_loss_envelope"} | {
     "measurements",
     "notes",
+    "precedence",
 }
 
 
@@ -933,6 +1060,11 @@ def _parse_table(node: object, where: str) -> WavelengthTable:
         d["unit"],
         _parse_provenance(d["provenance"], where),
     )
+
+
+def _parse_precedence(node: object, where: str) -> PrecedenceDeclaration:
+    d = _mapping(node, where, {"winner", "provenance"}, set())
+    return PrecedenceDeclaration(d["winner"], _parse_provenance(d["provenance"], where))
 
 
 def profile_from_mapping(data: object) -> FiberProfile:
@@ -991,6 +1123,10 @@ def profile_from_mapping(data: object) -> FiberProfile:
         link_loss_envelope=envelope,
         measurements=tuple(measurements),
         notes=d.get("notes", ""),
+        precedence={
+            k: _parse_precedence(v, f"precedence.{k}")
+            for k, v in (d.get("precedence") or {}).items()
+        },
         **scalars,
     )
 

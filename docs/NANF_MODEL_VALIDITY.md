@@ -55,28 +55,45 @@ D > 0 delays the longer wavelength (tested with two carriers; it reverses for D 
 ## 5. Validity and refusal rules
 
 - Every scalar is valid at its stated validity range, else at its measurement wavelength only, else (neither stated)
-  at any wavelength, except D: a D with no stated wavelength raises, because it has no place on the wavelength axis.
-  The check applies to every parameter a run uses. A wavelength outside raises `OutOfValidityRangeError`. Tables are
-  valid between their first and last knot. Extrapolation happens only if requested; then tables continue their end
-  segment and the names are listed in `extrapolated` (truthful: only names outside their range are listed).
-- With a known S, D(lambda) = D_ref + S (lambda - lambda_ref), lambda_ref being the profile's
-  `reference_wavelength_nm`, inside the stated range and, under requested extrapolation, beyond it (no clamp to the
-  range edge). Example (own numbers): D 10 at 1550, range 1500 to 1600, S 0.06 gives 12.4 at 1590 and, extrapolated,
-  14.2 at 1620. Without S, D is held (recorded as second order only). A scenario D is taken as D at the requested
-  wavelength.
+  at any wavelength, except the wavelength-dependent ones: D, S and the attenuation raise `OutOfValidityRangeError`
+  when they state no wavelength at all, because applying them at an unknown wavelength is a guess. The check applies
+  to every parameter a run uses. A wavelength outside raises. Tables are valid between their first and last knot.
+  Extrapolation happens only if requested; then tables continue their end segment and the names are listed in
+  `extrapolated` (truthful: only names outside their range are listed).
+- Dispersion law, one rule for every source of S (profile or scenario): D(lambda) = D_stated + S (lambda - lambda_stated),
+  where lambda_stated is the `measurement_wavelength_nm` D was measured or stated at. `reference_wavelength_nm` is the
+  carrier or nominal wavelength only and never anchors D (an unknown reference changes nothing). It holds inside the
+  stated range and, under requested extrapolation, beyond it (no clamp). Example (own numbers): D 10 stated at 1550,
+  range 1500 to 1600, S 0.06 gives 10.0 at 1550 and 12.4 at 1590 for any reference wavelength, and, extrapolated, 14.2
+  at 1620. A scenario S places a known D the same way (Wang, D 4.42 stated at 1550, scenario S 0.06, 1560 extrapolated:
+  5.02). A D that has a validity range but no single measurement wavelength cannot take an S: that raises. Without S, D
+  applies only at its stated wavelength or inside its stated range and is held there (recorded as second order only);
+  D is never held across wavelength when an S is known. A scenario D is taken as D at the requested wavelength.
+- Table against scalar: where a table and a known scalar both hold at the requested wavelength they must agree (relative
+  1e-6), else the profile must declare which wins in `precedence` (per field: `table` or `scalar`, with a real citation
+  and provenance); the result records the declared winner and its provenance in `sources`. Without a declaration it
+  raises. A known S (or a scenario S) that disagrees with the local slope of the D table in force (beyond 1e-3 plus 10%
+  of the table slope, ps/(nm^2 km)) is refused; only a known S may be declared the winner, and a scenario can never
+  override a table.
 - An unknown value raises `MissingFiberPropertyError` and the message says no default is substituted. The only way to
   run is a `SensitivityScenario` with a label; it may fill unknown values only, never override a known one, and it is
   recorded in the result. Scenario values obey the same physical minima as known values (losses not negative,
   group index at least 1). The label travels with the numbers: `profile_link_config` carries it into `LinkConfig`,
-  `transmit` metadata, `propagate_profile_field` (a `ProfileField` with the record) and `transmit_profile`, and a
-  scenario record has `not_a_benchmark_result: true`.
+  `transmit` metadata, `propagate_profile_field` (a `ProfileField` with the record) and `transmit_profile`. The
+  `transmit` metadata also keeps `profile_id`, `sources` and `extrapolated`. `not_a_benchmark_result: true` is set for
+  any profile run that used a scenario-filled or an extrapolated value, whether or not a scenario was named. A label
+  already on the base `LinkConfig` is kept, never silently replaced (a different scenario label raises) and a blank one
+  raises. The profile route also refuses a base `extra_attenuation_db` that is not finite or is negative; the G.652.D
+  route is unchanged.
 - Loader: a table must be in dB/km (loss) or ps/(nm km) (D). A `measured` or `published-*` value needs a real
-  citation: at least 8 non-space characters and at least one word that is not a placeholder (none, n/a, tbd, todo,
-  unknown, unspecified, not available, no citation, see paper and similar). This is a form check; it cannot tell
-  whether the cited place exists.
+  citation: at least 6 non-space characters, at least 4 distinct characters, and at least one word that is not a
+  placeholder or filler (none, n/a, tbd, to be determined, citation needed, see the paper, missing data, will add later,
+  digits only and similar), in any script. This is a form check only; it cannot tell whether the cited place exists.
 - matched-received-power refuses a non-finite target and a target above 10 dBm (a sanity limit: above it the laser and
   detector would be outside anything modelled, so the number is taken to be a mistake). It is not the owner's -5 dBm
-  Hong receiver limit, which is not enforced here. The refusal does not depend on any scenario.
+  Hong receiver limit, which is not enforced here. The refusal does not depend on any scenario. The laser power the
+  matched protocol then needs is bounded too: above 1 W (30 dBm) it raises, so a huge loss is refused instead of
+  returning an absurd power.
 - Kerr, inter-modal coupling, gas absorption and amplifier (EDFA) noise are unsupported. A profile that sets one `on`,
   or a call that lists one in `effects`, raises `UnsupportedEffectError`. `gamma` is stored and never active.
 - Chirp is not part of this gate. A transmitter chirp parameter is a separate question (plan Amendment 1, A1).

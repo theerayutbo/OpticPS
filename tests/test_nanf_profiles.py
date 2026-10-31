@@ -76,7 +76,7 @@ def test_profile_rejects_wrong_units_and_unphysical_values():
     with pytest.raises(FiberProfileError, match="length_km"):
         make_profile(length_km=known(5.0, "m"))
     with pytest.raises(FiberProfileError, match="physical range"):
-        make_profile(attenuation_db_per_km=known(-0.1, "dB/km"))
+        make_profile(attenuation_db_per_km=known(-0.1, "dB/km", measurement_wavelength_nm=1550.0))
     with pytest.raises(FiberProfileError, match="physical range"):
         make_profile(group_index=known(0.9, "1"))
     with pytest.raises(FiberProfileError, match="effects"):
@@ -413,7 +413,8 @@ def test_table_units_are_enforced():
     "citation",
     ["none", "None", "NONE.", "n/a", "N/A", "na", "tbd", "TODO", "unknown", "-", "--", "?", "",
      "  ", "not available", "none given", "no citation", "see paper", "x", "12345", "null",
-     "unspecified"],
+     "unspecified", "to be determined", "citation needed", "see the paper", "missing data",
+     "will add later", "xxxxxxxxxx", "12345678", "TBD TBD TBD", "pending, fill in here"],
 )  # fmt: skip
 @pytest.mark.parametrize("category", ["measured", "published-experimental",
                                       "published-numerical-assumption"])  # fmt: skip
@@ -457,3 +458,26 @@ def test_the_yaml_loader_refuses_a_table_in_the_wrong_unit(tmp_path):
     path.write_text(text + table)
     with pytest.raises(FiberProfileError, match="must be in dB/km"):
         load_fiber_config(path)
+
+
+@pytest.mark.parametrize(
+    "citation",
+    [
+        "中国光学快报 2025",
+        "中国光学快报",
+        "光学学报 第3期",
+        "Журнал 2021 стр. 3",
+        "ΙΕΕΕ Φωτονική 2020",
+    ],
+)
+def test_a_real_citation_in_another_script_is_accepted(citation):
+    assert ParameterProvenance(ProvenanceCategory.MEASURED, citation).citation == citation
+
+
+def test_the_citation_length_boundary_is_six_non_space_characters():
+    for category in ("measured", "published-experimental"):
+        with pytest.raises(FiberProfileError, match="citation"):
+            ParameterProvenance(ProvenanceCategory(category), "Hong 1")  # 5 characters
+        ParameterProvenance(ProvenanceCategory(category), "Hong 21")  # 6 characters
+        with pytest.raises(FiberProfileError, match="citation"):
+            ParameterProvenance(ProvenanceCategory(category), "  aaa bbb ")  # 2 distinct letters

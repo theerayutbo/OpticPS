@@ -90,6 +90,10 @@ class LinkConfig:
     timing_offset_samples: float = 0.0
     predistort: bool = False
     sensitivity_scenario: str | None = None
+    # Set only by profile_link_config: what produced the fiber numbers, kept with the result.
+    profile_id: str | None = None
+    profile_sources: tuple[tuple[str, str], ...] = ()
+    profile_extrapolated: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if self.fiber is not None:
@@ -270,8 +274,17 @@ def fiber_metadata(config: LinkConfig) -> dict[str, Any]:
         if slope is None:
             record["dispersion_slope_ps_per_nm2_km"] = None
     record["fiber_length_km"] = config.fiber_length_km
+    if config.profile_id is not None:
+        record["profile_id"] = config.profile_id
+        record["sources"] = dict(config.profile_sources)
+        record["extrapolated"] = list(config.profile_extrapolated)
     if config.sensitivity_scenario is not None:
         record["sensitivity_scenario"] = config.sensitivity_scenario
+    if (
+        config.sensitivity_scenario is not None
+        or config.profile_extrapolated
+        or any(v.startswith("scenario") for _, v in config.profile_sources)
+    ):
         record["not_a_benchmark_result"] = True
     return record
 
@@ -406,6 +419,19 @@ def profile_link_config(resolved: ResolvedFiber, base: LinkConfig | None = None)
             "the base LinkConfig already describes a fiber; leave fiber, length and fiber "
             "fields unset"
         )
+    if not math.isfinite(base.extra_attenuation_db) or base.extra_attenuation_db < 0:
+        raise FiberProfileError(
+            f"base extra_attenuation_db must be finite and not negative, got "
+            f"{base.extra_attenuation_db!r}"
+        )
+    label = base.sensitivity_scenario
+    if label is not None and not label.strip():
+        raise FiberProfileError("the base sensitivity_scenario label is blank")
+    if label is not None and resolved.scenario_label not in (None, label):
+        raise FiberProfileError(
+            f"the base label {label!r} differs from the scenario {resolved.scenario_label!r}; "
+            "a label is never silently replaced"
+        )
     return replace(
         base,
         fiber_length_km=resolved.length_km,
@@ -414,7 +440,10 @@ def profile_link_config(resolved: ResolvedFiber, base: LinkConfig | None = None)
         dispersion_slope_ps_per_nm2_km=resolved.dispersion_slope_ps_per_nm2_km,
         wavelength_m=resolved.wavelength_nm * 1e-9,
         extra_attenuation_db=base.extra_attenuation_db + resolved.lumped_loss_db,
-        sensitivity_scenario=resolved.scenario_label,
+        sensitivity_scenario=label if resolved.scenario_label is None else resolved.scenario_label,
+        profile_id=resolved.profile_id,
+        profile_sources=tuple(sorted(resolved.sources.items())),
+        profile_extrapolated=resolved.extrapolated,
     )
 
 
@@ -474,6 +503,12 @@ def group_delay_s(resolved: ResolvedFiber) -> float:
 # (for example dBm entered as mW). The owner's -5 dBm Hong receiver limit is a different thing and
 # is not enforced here.
 MAX_MATCHED_RECEIVED_POWER_DBM = 10.0
+
+
+# Upper bound of the laser power the matched protocol may need: 1 W (+30 dBm). Above it the target
+# cannot come from a laser feeding a modulator, so the loss (or a unit mistake) is refused instead
+# of returning an absurd power.
+MAX_MATCHED_LASER_POWER_W = 1.0
 
 
 def check_matched_received_power_dbm(received_power_dbm: float) -> None:
@@ -550,6 +585,11 @@ def transmit_profile(
         mean_unit = launch_mean_per_watt(normalized, sample_rate, config)
         target_w = dbm_to_watt(received_power_dbm)
         laser_w = target_w / (mean_unit * 10 ** (-span_loss_db(config) / 10))
+        if not math.isfinite(laser_w) or laser_w > MAX_MATCHED_LASER_POWER_W:
+            raise ValueError(
+                f"matched-received-power would need a laser of {laser_w:g} W, above the sanity "
+                f"limit {MAX_MATCHED_LASER_POWER_W:g} W; check the loss and the target"
+            )
         config = replace(config, laser_power_w=laser_w)
     elif received_power_dbm is not None:
         raise ValueError("received_power_dbm is only used by matched-received-power")
