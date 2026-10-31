@@ -39,7 +39,7 @@ Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts ab
 | Command | Result |
 |---|---|
 | `uv run pytest -o addopts="-q -rN"` | `493 passed in 238.89s` after the C2 review fixes (383 after the C1 fix commit, plus 110 in `tests/test_mpam_rates.py`; 469 before the review fixes); anchor included and green |
-| Gauss-Hermite convergence | equal sigma: 120 nodes are 1.9e-8 to 4.1e-8 from the 320-node value at 8-30 dB, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (4.2e-10 vs 320 nodes, 6.7e-10 vs an independent integrator) and 120 for M = 4. Unequal per-level sigma converges more slowly (see ALGORITHM_PROVENANCE); the 1e-9 claim is for equal sigma only |
+| Quadrature | equal sigma: 120 nodes are 1.9e-8 to 4.1e-8 from the 320-node value at 8-30 dB, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (within 4.2e-10 of 320 nodes, 3.9e-10 of independent integrators, 8-30 dB, 3 PMFs) and 120 for M = 4. Unequal sigma: per-level Gauss-Hermite is unreliable (M = 4 at 120 nodes 2.0e-4 at spread 4, 6.3e-3 at 9); M != 4 now uses a common-grid Gauss-Legendre integrator (1.0e-13 vs `quad_vec`, 8-30 dB, spreads 2-64, 10 ms per call at M = 16); M = 4 stays legacy and warns above spread 3.0. See ALGORITHM_PROVENANCE |
 | Lint, format, mypy | pass |
 
 ## Byte anchor

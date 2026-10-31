@@ -2,10 +2,13 @@
 
 Every reference here is derived separately from src/opticps/optimization/rates.py:
 the closed-form symbol error rate of a uniform minimum-distance detector, a
-binary-AWGN capacity integral, and a trapezoid integrator with its own posteriors.
+binary-AWGN capacity integral, a trapezoid integrator and an adaptive Gauss-Kronrod
+integrator (scipy.integrate.quad_vec), each with its own posteriors and hand-written
+Gray tables. None of them uses the production integrators.
 """
 
 import math
+import warnings
 
 import numpy as np
 import pytest
@@ -159,6 +162,7 @@ def test_pam4_on_pam16_indices_has_equal_smd_but_not_bmd(psnr_db):
 
 # Gray labels written out by hand (binary-reflected), not taken from the package.
 GRAY_TABLES = {
+    2: ["0", "1"],
     4: ["00", "01", "11", "10"],
     8: ["000", "001", "011", "010", "110", "111", "101", "100"],
     16: [
@@ -174,7 +178,8 @@ def reference_rates(
     """Trapezoid integration over the mixture with its own posteriors and Gray tables.
 
     Returns smd, bmd_raw, and the GMI at s = 1 of two bit metrics: `gmi_over_px`
-    (q = prod_k P(b_k|y) / P_X(x)) and `gmi_plain` (q = prod_k P(b_k|y)).
+    (q = prod_k P(b_k|y) / P_X(x)) and `gmi_plain` (q = prod_k P(b_k|y)). Requires
+    P_X(x) > 0 for every level (the metric divides by it).
     """
     order = len(pmf)
     table = np.array([[int(c) for c in word] for word in GRAY_TABLES[order]])
@@ -203,14 +208,23 @@ def reference_rates(
             for bit in (0, 1):
                 members = np.flatnonzero(table[:, k] == bit)
                 log_bits[:, members] += np.log(posterior[:, members].sum(axis=1))[:, None]
-        log_px = np.where(pmf > 0, np.log(np.where(pmf > 0, pmf, 1.0)), 0.0)
-        denominator = np.log((pmf * np.exp(log_bits)).sum(axis=1))
         entropy = float(-(pmf[pmf > 0] * np.log2(pmf[pmf > 0])).sum())
+
+        def gmi(q: np.ndarray) -> float:
+            """GMI at s = 1 of a decoding metric q(x, y), shape (points, order).
+
+            The denominator sum_x' P_X(x') q(x', y) is summed explicitly for each metric.
+            """
+            denominator = (pmf[None, :] * q).sum(axis=1)
+            return expect(np.log(q) - np.log(denominator)[:, None])
+
+        q_over_px = np.exp(log_bits) / pmf[None, :]  # prod_k P(b_k|y) / P_X(x)
+        q_plain = np.exp(log_bits)  # prod_k P(b_k|y)
         return {
             "smd": entropy + expect(log_post),
             "bmd_raw": entropy + expect(log_bits),
-            "gmi_over_px": expect(log_bits - log_px),
-            "gmi_plain": expect(log_bits - denominator[:, None]),
+            "gmi_over_px": gmi(q_over_px),
+            "gmi_plain": gmi(q_plain),
         }
 
 
@@ -301,23 +315,264 @@ def unequal_sigmas(order: int, seed: int) -> tuple[np.ndarray, np.ndarray, np.nd
     return pmf, np.arange(order, dtype=float), sigma
 
 
-@pytest.mark.parametrize("order", [4, 8, 16])
-@pytest.mark.parametrize("seed", [1, 2, 3])
-def test_per_level_sigma_matches_independent_integrator(order, seed):
-    """Unequal sigma (ratio 0.7 to 1.4). The tolerance is looser than for equal sigma.
+def quad_reference(pmf: np.ndarray, means: np.ndarray, sigmas: np.ndarray) -> dict[str, float]:
+    """smd and bmd_raw by adaptive Gauss-Kronrod (scipy quad_vec) with hand-written Gray tables.
 
-    The quadrature converges more slowly here (measured, spread 0.7-1.4, M = 4/8/16):
-    120 nodes 1e-7 to 2e-7, 240 nodes 2e-9, 320 nodes 5e-10. The M = 4 default (120) is
-    therefore only good to about 1e-6 with unequal sigma.
+    A different rule from both production integrators: adaptive, not fixed-node. The
+    integrand is the vector (p(x, y) log P(x|y), p(x, y) sum_k log P(b_k|y)) summed over x
+    on one y axis, with its own posteriors and break points at mean +- {0, 1, 3, 6} sd.
+    """
+    order = len(pmf)
+    table = np.array([[int(c) for c in word] for word in GRAY_TABLES[order]])
+    live = np.flatnonzero(pmf > 0)
+
+    def integrand(y: float) -> np.ndarray:
+        log_q = np.full(order, -np.inf)
+        log_q[live] = (
+            np.log(pmf[live])
+            - (y - means[live]) ** 2 / (2 * sigmas[live] ** 2)
+            - np.log(sigmas[live] * math.sqrt(2 * math.pi))
+        )
+        total = np.log(np.exp(log_q - log_q.max()).sum()) + log_q.max()
+        log_post = log_q - total
+        log_bits = np.zeros(order)
+        for k in range(table.shape[1]):
+            for bit in (0, 1):
+                members = table[:, k] == bit
+                member_mass = np.exp(log_post[members]).sum()
+                log_bits[members] += math.log(max(member_mass, 1e-300))
+        weight = np.exp(log_q[live])
+        return np.array([(weight * log_post[live]).sum(), (weight * log_bits[live]).sum()])
+
+    lo = float((means[live] - 12 * sigmas[live]).min())
+    hi = float((means[live] + 12 * sigmas[live]).max())
+    breaks = sorted(
+        {
+            float(b)
+            for t in (-6, -3, -1, 0, 1, 3, 6)
+            for b in means[live] + t * sigmas[live]
+            if lo < b < hi
+        }
+    )
+    value, _ = integrate.quad_vec(
+        integrand, lo, hi, epsabs=1e-13, epsrel=0, limit=2000, points=breaks, norm="max"
+    )
+    entropy = float(-(pmf[live] * np.log2(pmf[live])).sum())
+    return {
+        "smd": entropy + float(value[0]) / math.log(2),
+        "bmd_raw": entropy + float(value[1]) / math.log(2),
+    }
+
+
+def sigma_pattern(
+    order: int, psnr_db: float, low: float, high: float, pattern: int
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """PMF, levels and per-level sigma with a sigma ratio spanning exactly [low, high].
+
+    Patterns 0-3 draw log-uniform factors with the extremes forced onto two random levels;
+    pattern 4 ramps the sigma up with the level, pattern 5 ramps it down. The base is the
+    equal-sigma PSNR sigma, so the spread is high / low.
+    """
+    rng = np.random.default_rng(1000 * order + pattern)
+    factors = np.exp(rng.uniform(math.log(low), math.log(high), order))
+    i, j = rng.choice(order, 2, replace=False)
+    factors[i], factors[j] = low, high
+    if pattern == 4:
+        factors = np.geomspace(low, high, order)
+    elif pattern == 5:
+        factors = np.geomspace(high, low, order)
+    pmf = rng.dirichlet(np.ones(order) * 2)
+    sigma = noise_sigma_from_psnr_db(psnr_db, order) * factors
+    return pmf, np.arange(order, dtype=float), sigma
+
+
+# (low, high) sigma-factor ranges: sigma spread max/min = 2, 4, 9, 16, 64.
+SIGMA_RANGES = [(0.7, 1.4), (0.5, 2.0), (1 / 3, 3.0), (0.25, 4.0), (0.125, 8.0)]
+
+# Common grid against the adaptive reference. Measured worst disagreement (SMD and bmd_raw)
+# over M = 4, 8, 16, the five ranges above, 8-30 dB in 2 dB steps and six sigma patterns
+# (1080 cases): 1.04e-13 (M = 4, spread 4); per M and spread 1e-15 to 1e-13. The reference
+# itself is only converged to its epsabs of 1e-13. The tolerance 1e-11 is 100 times the
+# measured worst and 1e-8 times the legacy Gauss-Hermite error at the same spreads.
+COMMON_GRID_TOL = 1e-11
+
+
+@pytest.mark.parametrize("order", [4, 8, 16])
+@pytest.mark.parametrize(("low", "high"), SIGMA_RANGES)
+def test_common_grid_matches_adaptive_reference_at_every_spread(order, low, high):
+    for psnr_db in (8.0, 19.0, 30.0):
+        for pattern in (0, 4):  # a random pattern and an ascending sigma ramp
+            pmf, means, sigmas = sigma_pattern(order, psnr_db, low, high, pattern)
+            ref = quad_reference(pmf, means, sigmas)
+            r = gaussian_rates(pmf, means, sigmas, quadrature="common_grid")
+            assert r.quadrature == "common_grid"
+            assert r.sigma_spread == pytest.approx(high / low, rel=1e-12)
+            assert abs(r.smd - ref["smd"]) < COMMON_GRID_TOL
+            assert abs(r.bmd_raw - ref["bmd_raw"]) < COMMON_GRID_TOL
+
+
+def test_common_grid_is_an_integral_of_the_whole_joint_density():
+    pmf, means, sigmas = sigma_pattern(16, 20.0, 0.125, 8.0, 5)
+    ref = quad_reference(pmf, means, sigmas)
+    r = gaussian_rates(pmf, means, sigmas, quadrature="common_grid")
+    # Mutation guard: dropping the sd-scaled panels or the +-12 sd range moves the result.
+    assert abs(r.smd - ref["smd"]) < COMMON_GRID_TOL
+    assert r.nodes > 1000  # y points actually used, recorded in `nodes`
+    narrow = rates_module._common_grid(pmf, means, sigmas, sd_steps=np.zeros(1))
+    assert narrow[0].size < r.nodes / 5  # panels at the means alone are far fewer
+
+
+def test_common_grid_rejects_a_grid_that_misses_probability_mass():
+    # Panels at the means only (no sd-scaled edges) lose most of the mass: the guard raises.
+    pmf, means, sigmas = sigma_pattern(16, 20.0, 0.125, 8.0, 5)
+    with pytest.raises(ValueError, match="not 1"):
+        rates_module._conditional_entropies_common_grid(
+            pmf, means, sigmas, label_bits(16), sd_steps=np.zeros(1)
+        )
+
+
+def test_common_grid_with_zero_mass_levels_matches_reference():
+    pmf = np.array([0.0, 0.4, 0.0, 0.2, 0.1, 0.0, 0.3, 0.0])
+    means = np.arange(8.0)
+    sigmas = noise_sigma_from_psnr_db(16.0, 8) * np.geomspace(0.4, 2.5, 8)
+    ref = quad_reference(pmf, means, sigmas)
+    r = gaussian_rates(pmf, means, sigmas)
+    assert r.quadrature == "common_grid"
+    assert abs(r.smd - ref["smd"]) < COMMON_GRID_TOL
+    assert abs(r.bmd_raw - ref["bmd_raw"]) < COMMON_GRID_TOL
+
+
+@pytest.mark.parametrize("order", [2, 4, 8, 16])
+def test_common_grid_agrees_with_gauss_hermite_at_equal_sigma(order):
+    # Equal sigma, 320-node Gauss-Hermite (converged to about 4e-10 at M != 4).
+    for pmf in (uniform(order), mb_pmf(order, 0.05)):
+        for psnr_db in (8.0, 20.0, 30.0):
+            grid = achievable_rates(pmf, psnr_db, quadrature="common_grid")
+            ghq = achievable_rates(pmf, psnr_db, nodes=320, quadrature="gauss_hermite")
+            assert abs(grid.smd - ghq.smd) < 1e-9
+            assert abs(grid.bmd_raw - ghq.bmd_raw) < 1e-9
+
+
+def test_auto_routing_and_recorded_fields():
+    equal = np.full(8, 0.6)
+    pmf, means = mb_pmf(8, 0.05), np.arange(8.0)
+    r = gaussian_rates(pmf, means, equal)
+    assert (r.quadrature, r.nodes, r.sigma_spread) == ("gauss_hermite", 240, 1.0)
+    # Equal-sigma M != 4 numbers do not change: auto is bit-identical to forced GH.
+    assert r == gaussian_rates(pmf, means, equal, quadrature="gauss_hermite")
+    # A spread of 1 + 1e-13 is treated as equal; 1 + 1e-11 is not.
+    nearly = equal.copy()
+    nearly[3] = 0.6 * (1 + 1e-13)
+    assert gaussian_rates(pmf, means, nearly).quadrature == "gauss_hermite"
+    nearly[3] = 0.6 * (1 + 1e-11)
+    assert gaussian_rates(pmf, means, nearly).quadrature == "common_grid"
+    for order in (2, 8, 16):
+        p, m, s = sigma_pattern(order, 18.0, 0.7, 1.4, 1)
+        auto = gaussian_rates(p, m, s)
+        assert auto.quadrature == "common_grid" and auto.sigma_spread == pytest.approx(2.0)
+        assert auto == gaussian_rates(p, m, s, quadrature="common_grid")
+    # M = 4 stays on the legacy kernel for every spread, and equals it exactly.
+    p, m, s = sigma_pattern(4, 18.0, 0.7, 1.4, 1)
+    legacy = gaussian_rates(p, m, s)
+    assert (legacy.quadrature, legacy.nodes) == ("gauss_hermite", 120)
+    nodes_x, weights = rates_module._quadrature(120)
+    cx, cb = rates_module._conditional_entropies_direct(p, m, s, label_bits(4), weights, nodes_x)
+    h = float(-(p * np.log2(p)).sum())
+    assert (legacy.smd, legacy.bmd_raw) == (h - cx, h - cb)
+    # ... unless the common grid is forced.
+    forced = gaussian_rates(p, m, s, quadrature="common_grid")
+    assert forced.quadrature == "common_grid"
+    assert abs(forced.smd - quad_reference(p, m, s)["smd"]) < COMMON_GRID_TOL
+    with pytest.raises(ValueError):
+        gaussian_rates(p, m, s, nodes=240, quadrature="common_grid")
+    with pytest.raises(ValueError):
+        gaussian_rates(p, m, s, quadrature="trapezoid")
+    assert achievable_rates(uniform(4), 12.0, quadrature="common_grid").quadrature == "common_grid"
+    assert psnr_for_rate(uniform(8), 1.5, quadrature="common_grid") == pytest.approx(
+        psnr_for_rate(uniform(8), 1.5), abs=1e-3
+    )
+
+
+def no_warning(*args, **kwargs):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        return gaussian_rates(*args, **kwargs)
+
+
+def test_pam4_legacy_warns_above_the_spread_threshold_and_not_below():
+    threshold = rates_module._GH_SPREAD_THRESHOLD
+    assert threshold == 3.0
+    for spread in (1.005, 2.0, 2.99):  # 1.005 is the committed-path size
+        p, m, s = sigma_pattern(4, 12.0, spread**-0.5, spread**0.5, 2)
+        r = no_warning(p, m, s)
+        assert r.quadrature == "gauss_hermite" and r.sigma_spread == pytest.approx(spread)
+    for spread in (3.01, 4.0, 9.0, 64.0):
+        p, m, s = sigma_pattern(4, 12.0, spread**-0.5, spread**0.5, 2)
+        with pytest.warns(UserWarning, match="unreliable") as caught:
+            r = gaussian_rates(p, m, s)
+        assert r.quadrature == "gauss_hermite"  # still the legacy result, never silent
+        text = str(caught[0].message)
+        assert f"{spread:.4g}" in text and "1e-4" in text and "common_grid" in text
+        assert "3.4" in text and "bit at spread" in text
+        # warning is attributed to the caller, not to rates.py
+        assert caught[0].filename == __file__
+    # The measured error quoted at spread 4 is the table entry for spread 4.
+    p, m, s = sigma_pattern(4, 12.0, 0.5, 2.0, 2)
+    with pytest.warns(UserWarning, match=r"3\.5e-04 bit at spread 4"):
+        gaussian_rates(p, m, s)
+    # The common grid never warns, at any spread and any order.
+    for order in (4, 8, 16):
+        p, m, s = sigma_pattern(order, 12.0, 0.125, 8.0, 2)
+        assert no_warning(p, m, s, quadrature="common_grid").quadrature == "common_grid"
+    p, m, s = sigma_pattern(8, 12.0, 0.125, 8.0, 2)
+    assert no_warning(p, m, s).quadrature == "common_grid"  # M = 8 auto routes to the grid
+    # Forced Gauss-Hermite above the threshold at M != 4 warns as well.
+    with pytest.warns(UserWarning, match="unreliable"):
+        gaussian_rates(p, m, s, quadrature="gauss_hermite")
+    # Equal sigma never warns.
+    assert no_warning(uniform(4), np.arange(4.0), np.full(4, 0.4)).sigma_spread == 1.0
+
+
+def test_the_pam4_warning_threshold_sits_below_the_1e_4_crossing():
+    """Legacy 120-node PAM4 error against the independent adaptive reference.
+
+    Measured worst (8, 18, 30 dB, six patterns) 2.3e-5 at spread 3 and 2.0e-4 at spread 4; the
+    first spread with an error above 1e-4 is 3.4 on the wider 0-45 dB, 26 pattern scan.
+    """
+    worst = {}
+    for spread in (3.0, 4.0):
+        errors = []
+        for psnr_db in (8.0, 18.0, 30.0):
+            for pattern in range(6):
+                p, m, s = sigma_pattern(4, psnr_db, spread**-0.5, spread**0.5, pattern)
+                ref = quad_reference(p, m, s)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", UserWarning)
+                    r = gaussian_rates(p, m, s, quadrature="gauss_hermite")
+                errors.append(max(abs(r.smd - ref["smd"]), abs(r.bmd_raw - ref["bmd_raw"])))
+        worst[spread] = max(errors)
+    assert worst[3.0] < 1e-4  # at the threshold the legacy path is inside 1e-4
+    assert worst[4.0] > 1e-4  # a little above it, it is not
+    assert worst[4.0] > 3 * worst[3.0]
+
+
+@pytest.mark.parametrize("order", [2, 4, 8, 16])
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_default_with_per_level_sigma_matches_adaptive_reference(order, seed):
+    """Default routing with sigma factors in 0.7-1.4 (spreads 1.08 to 1.97 for these seeds).
+
+    M != 4 goes to the common grid: measured worst 6.2e-14 over these cases, tolerance
+    1e-11 (the common-grid tolerance). M = 4 stays on the legacy 120-node rule, whose
+    measured worst here is 5.5e-9 (3 PMFs at spreads up to 1.7), so its tolerance is 2e-8,
+    not tighter; at spread 2 the legacy worst is 1.0e-6 over 8-30 dB and six patterns.
     """
     pmf, means, sigmas = unequal_sigmas(order, seed)
-    ref = reference_rates(pmf, means, sigmas)
+    ref = quad_reference(pmf, means, sigmas)
     r = gaussian_rates(pmf, means, sigmas)
-    assert abs(r.smd - ref["smd"]) < 1e-6
-    assert abs(r.bmd_raw - ref["bmd_raw"]) < 1e-6
-    fine = gaussian_rates(pmf, means, sigmas, nodes=320)
-    assert abs(fine.smd - ref["smd"]) < 1e-8
-    assert abs(fine.bmd_raw - ref["bmd_raw"]) < 1e-8
+    tolerance = 2e-8 if order == 4 else COMMON_GRID_TOL
+    assert r.quadrature == ("gauss_hermite" if order == 4 else "common_grid")
+    assert abs(r.smd - ref["smd"]) < tolerance
+    assert abs(r.bmd_raw - ref["bmd_raw"]) < tolerance
 
 
 def test_direct_and_log_kernels_agree_with_unequal_sigma_on_pam4():
@@ -334,7 +589,7 @@ def test_direct_and_log_kernels_agree_with_unequal_sigma_on_pam4():
 @pytest.mark.parametrize("psnr_db", [6.0, 14.0, 20.0])
 def test_bmd_raw_is_the_gmi_of_the_px_normalised_bit_metric_only(psnr_db):
     pmf = mb_pmf(8, 0.1)
-    ref = equal_sigma_reference(pmf, psnr_db)
+    ref = equal_sigma_reference(pmf, psnr_db)  # denominators summed explicitly per metric
     r = achievable_rates(pmf, psnr_db, nodes=320)
     # H(X) - sum_k H(B_k|Y) is the GMI at s = 1 of q = prod_k P(b_k|y) / P_X(x) ...
     assert ref["gmi_over_px"] == pytest.approx(ref["bmd_raw"], abs=1e-9)
@@ -343,6 +598,15 @@ def test_bmd_raw_is_the_gmi_of_the_px_normalised_bit_metric_only(psnr_db):
     assert abs(ref["gmi_plain"] - r.bmd_raw) > 1e-3
     uniform_ref = equal_sigma_reference(uniform(8), psnr_db)
     assert uniform_ref["gmi_plain"] == pytest.approx(uniform_ref["bmd_raw"], abs=1e-9)
+
+
+def test_gmi_values_quoted_in_the_provenance_note():
+    """M = 8, exp(-0.1 x^2), 20 dB: 1.43647 for q / P_X and 1.40726 for plain q."""
+    ref = equal_sigma_reference(mb_pmf(8, 0.1), 20.0)
+    assert ref["gmi_over_px"] == pytest.approx(1.43647, abs=5e-6)
+    assert ref["gmi_plain"] == pytest.approx(1.40726, abs=5e-6)
+    r = achievable_rates(mb_pmf(8, 0.1), 20.0)
+    assert r.bmd_raw == pytest.approx(1.43647, abs=5e-6)
 
 
 def test_pam4_falls_back_to_the_log_domain_kernel_when_the_direct_one_underflows():
