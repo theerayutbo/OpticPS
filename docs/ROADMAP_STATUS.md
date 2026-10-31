@@ -127,7 +127,7 @@ Points to carry, none a gate failure:
 | Base HEAD at E0 start | `8129eca77e71ea712c20c124e7a75bad4b32bac8` (`v1.3-mpam`; tracked tree clean except the pre-existing `docs/orchestration/opticps-v2/CHECKPOINT.md` edit, which E0 did not touch) |
 | E0 deliverables | `docs/benchmarks/{SOURCE_REGISTER,MISSING_PARAMETERS,FIT_HOLDOUT_PLAN}.md`, `src/opticps/benchmarks/{provenance,catalog}.py`, `configs/benchmarks/*.yaml`, `tests/test_benchmark_provenance.py`, `.gitignore` rule `data/external/` |
 | Plan hash | `6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a`, committed before any other E0 file (commit 8900748) |
-| Baseline and final test counts | see the entry at the end of this section, filled at the end of the gate |
+| Baseline and final test counts | `853 passed` at 8129eca (`-o addopts="-q -rN"`, 23 min under load); `905 passed` with E0 (+52, all in `tests/test_benchmark_provenance.py`); anchor 15 passed; ruff check, ruff format --check, mypy clean; `scripts/license_audit.py` 34 packages, 0 flagged (no dependency change) |
 | Downloads, push, merge, tag, hardware | none by E0 |
 
 ## Byte anchor
