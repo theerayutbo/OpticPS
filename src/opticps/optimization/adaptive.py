@@ -7,20 +7,24 @@ one-parameter grid over P(+-3) with the unchanged PAM4 draw order. Its output is
 byte anchor and is left exactly as it was.
 
 Generic path (`optimise_symmetric`, `select_on_acquisitions`): M = 4, 8, 16 over the pair
-probabilities q_j = P(+-x_j), sum q_j = 1/2, with every q_j in [1/(4n), 1/2], n the block
-length. The generic
+probabilities q_j = P(+-x_j), sum q_j = 1/2, with every q_j in [1/n, 1/2], n the block
+length (so every pair can quantise to a nonzero count; a bound that neither PLAN nor the
+roadmap states). The generic
 path forces `quadrature="common_grid"` in `gaussian_rates` whenever the channel estimate has
 unequal per-level sigma, M = 4 included (a fitted channel never has exactly equal sigma). The
 legacy path does not: at M = 4 it keeps the Gauss-Hermite kernel, so a legacy and a generic
 result at M = 4 agree to the Gauss-Hermite error (about 1e-8 bit at the committed spread
 1.005), not bit for bit.
 
-What the generic optimiser claims, and no more:
+What the generic optimiser claims, and no more. Every optimum below is an optimum over the
+constrained set q_j >= 1/n, not over the whole simplex; the selection reports when the floor is
+active at the continuous optimum (`parameters["floor_active_pairs"]`).
 - metric "smd": I(X;Y) at fixed channel is concave in P and the symmetric box is a linear image
-  of a convex set, so a local maximum of the continuous objective is global. The continuous
-  optimum is therefore "global for the unquantised SMD objective, on this channel estimate",
-  and only that. Concavity is checked numerically on midpoints in the tests, and a multistart
-  agreement check is run and logged.
+  of a convex set, so a local maximum of the continuous objective over that set is global
+  (concavity holds on the convex subset). The continuous
+  optimum is therefore "global for the unquantised SMD objective over the constrained set, on
+  this channel estimate", and only that. Concavity is checked numerically on midpoints in the
+  tests, and a multistart agreement check is run and logged.
 - metric "bmd": R_BMD is not shown to be concave. The continuous optimum is "best of N starts",
   where N and every start (start point, final q, objective, iterations, status) are logged.
 - The deliverable objective is rate(P) - rate_loss(quantize_symmetric_composition(P, n)). The
@@ -31,6 +35,12 @@ What the generic optimiser claims, and no more:
   best of the candidates tried, not a proven optimum of the staircase. A candidate whose
   quantisation gives a positive probability a zero count raises in the matcher; it is logged
   as infeasible and is never selected.
+- The uniform candidate is the direct (unshaped) mapping at M a power of two: it maps bits
+  straight onto labels as `frame.py` `direct_uniform` does and pays no matcher loss, so its
+  objective is its rate. This holds for every uniform PMF seen by the generic path
+  (candidates, `evaluate_menu`, `fixed_menu`, `best_fixed`). The legacy `select_distribution`
+  is not changed and still charges its uniform member the CCDM loss, a known limitation of the
+  committed v1.x PAM4 result (see docs/ROADMAP_STATUS.md).
 
 Seed streams. The legacy path uses `np.random.default_rng(seed)` directly (training capture)
 and `[seed, 77]` in demo.py. The generic path draws only from `SeedSequence([seed, key])`:
@@ -40,8 +50,12 @@ Dirichlet starts. Equal seeds across these streams are therefore independent.
 Simulated acquisitions are noise realisations of ONE payload (the symbol sequence is drawn once
 and shared); any interval computed over them reflects noise only, not payload variation.
 
-Test captures can never enter selection: `select_on_acquisitions` takes training data plus
-only the identifiers of held-out acquisitions, and refuses overlapping ids or content hashes.
+Leakage guard: `select_on_acquisitions` takes training acquisitions plus only the identifiers of
+held-out acquisitions. It recomputes the SHA-256 of every training acquisition's samples and
+raises when it differs from the declared `content_sha256`, then refuses overlapping ids or
+content hashes. What it cannot see: a truncated, re-exported or re-acquired copy of a test
+capture has different bytes and passes; that is a documented limit of the guard, not a
+guarantee that no test-derived samples enter selection.
 """
 
 # SPDX-License-Identifier: MIT
@@ -300,6 +314,26 @@ class Acquisition:
     label: str = ""
 
 
+def verify_acquisition(acquisition: Acquisition) -> AcquisitionId:
+    """Return the acquisition's id after recomputing the digest of its samples.
+
+    Raises DataLeakageError if `content_digest(indices, received)` differs from the declared
+    `content_sha256`. A truncated or re-exported copy has a different digest under its own
+    (honest) declaration and is not detectable here.
+    """
+    actual = content_digest(acquisition.indices, acquisition.received)
+    if actual != acquisition.id.content_sha256:
+        raise DataLeakageError(
+            f"Acquisition {acquisition.id.id!r}: declared content_sha256 "
+            f"{acquisition.id.content_sha256[:12]}... does not match its samples ({actual[:12]}...)"
+        )
+    return acquisition.id
+
+
+def _identity(item: AcquisitionId | Acquisition) -> AcquisitionId:
+    return verify_acquisition(item) if isinstance(item, Acquisition) else item
+
+
 def _assert_unique(ids: Sequence[AcquisitionId], name: str) -> None:
     """One acquisition must not be listed twice, under one id or under several."""
     seen_id: dict[str, AcquisitionId] = {}
@@ -317,17 +351,24 @@ def _assert_unique(ids: Sequence[AcquisitionId], name: str) -> None:
         seen_hash[item.content_sha256] = item
 
 
-def assert_independent(train: Iterable[AcquisitionId], test: Iterable[AcquisitionId]) -> None:
+def assert_independent(
+    train: Iterable[AcquisitionId | Acquisition], test: Iterable[AcquisitionId | Acquisition]
+) -> None:
     """Raise DataLeakageError unless the training and test acquisitions are independent.
 
-    Checked: the split labels are training and test respectively; no acquisition is listed
-    twice within a set (by id, or by content under different ids); no id is in both sets
-    (the id alone, whatever the source, as in the capture registry of `uxr_ingest`); and no
-    content hash is in both sets even under distinct ids. Identical hashes mean identical
-    samples. A re-export or re-acquisition of the same signal has different bytes and cannot
-    be detected here. `assert_disjoint` is the legacy id-only check.
+    Items may be `AcquisitionId` (declared hash trusted) or `Acquisition`; for an `Acquisition`
+    the digest is recomputed from its samples and a mismatch with the declared
+    `content_sha256` raises. Checked: the split labels are training and test respectively; no
+    acquisition is listed twice within a set (by id, or by content under different ids); no id
+    is in both sets (the id alone, whatever the source, as in the capture registry of
+    `uxr_ingest`); and no content hash is in both sets even under distinct ids. Identical
+    hashes mean identical samples. Not detectable: an `AcquisitionId` whose declared hash does
+    not describe its samples (pass the `Acquisition` to have it verified), and a truncated,
+    re-exported or re-acquired copy, which has different bytes. `assert_disjoint` is the legacy
+    id-only check.
     """
-    training, held_out = list(train), list(test)
+    training = [_identity(item) for item in train]
+    held_out = [_identity(item) for item in test]
     for item in training:
         if item.split != "training":
             raise DataLeakageError(f"{item.id!r} is labelled {item.split!r}, not training")
@@ -388,19 +429,29 @@ DEFAULT_GRID_DEFICITS = (0.04, 0.08, 0.12, 0.2, 0.28, 0.4, 0.55, 0.7, 0.85, 0.95
 DEFAULT_FIXED_DEFICITS = (0.12, 0.28)
 _AGREEMENT_RATE_TOL = 1e-6  # bit; concave-objective multistart agreement
 _BOUND_TOL = 1e-9
+_UNIFORM_TOL = 1e-12  # a PMF this close to 1/M is the direct uniform mapping
+_FLOOR_TOL = 1e-5  # a pair within this of the floor 1/n counts as at the floor
 
 
 def pair_bounds(order: int, block_length: int) -> tuple[float, float]:
-    """Return (lower, upper) of every pair probability q_j: [1/(4n), 1/2], n the block length.
+    """Return (lower, upper) of every pair probability q_j: [1/n, 1/2], n the block length.
 
-    The lower bound keeps every level live; a q_j near it can still quantise to a zero count,
-    which the matcher rejects, and such a candidate is logged as infeasible.
+    The lower bound 1/n is the smallest probability whose composition count can be nonzero, so
+    an optimum at the floor is representable (a floor of 1/(4n) quantised to a zero count and
+    made every endpoint infeasible). Needs n >= M so that the box is not empty (n = M leaves
+    only the uniform PMF). Neither PLAN nor the roadmap states this bound; it is a recorded
+    decision (docs/ROADMAP_STATUS.md).
     """
     if order not in SUPPORTED_ORDERS or order < 4:
         raise ValueError(f"optimise_symmetric supports M = 4, 8, 16, got {order}")
     if block_length <= 0:
         raise ValueError(f"block_length must be positive, got {block_length}")
-    return 1.0 / (4.0 * block_length), 0.5
+    if block_length < order:
+        raise ValueError(
+            f"block_length {block_length} is below M = {order}: the box q_j >= 1/n is empty; "
+            "increase block_length"
+        )
+    return 1.0 / block_length, 0.5
 
 
 def _quadrature_for(channel: ChannelEstimate) -> str:
@@ -436,6 +487,10 @@ class _Problem:
         self.quadrature = _quadrature_for(channel)
         self.calls = 0
 
+    def is_direct_uniform(self, p: NDArray[np.float64]) -> bool:
+        """True for the uniform PMF, which is sent unshaped (bits to labels, no matcher)."""
+        return bool(np.max(np.abs(p - 1.0 / self.order)) <= _UNIFORM_TOL)
+
     def rates(self, p: NDArray[np.float64]) -> Any:
         self.calls += 1
         return gaussian_rates(
@@ -464,6 +519,19 @@ class _Problem:
             "rate": rate,
             "in_bounds": bool(np.all(q >= self.lower - _BOUND_TOL) and np.all(q <= self.upper)),
         }
+        if self.is_direct_uniform(p):
+            # M is a power of two: bits map straight onto labels, exactly log2 M bits per
+            # symbol, no composition constraint and so no matcher loss (frame.py direct_uniform)
+            record.update(
+                status="ok",
+                reason="direct uniform mapping: no matcher",
+                direct=True,
+                matcher_loss=0.0,
+                counts=None,
+                objective=rate,
+            )
+            return record
+        record["direct"] = False
         try:
             matcher = ConstantCompositionMatcher.from_symmetric_probabilities(p, self.n)
         except DistributionMatcherError as error:
@@ -546,7 +614,7 @@ def optimise_symmetric(
     grid_deficits: Sequence[float] = DEFAULT_GRID_DEFICITS,
     multistart_check: bool = True,
 ) -> Selection:
-    """Choose a symmetric PMF for M = 4, 8, 16, q_j in [1/(4n), 1/2] (n the block length).
+    """Choose a symmetric PMF for M = 4, 8, 16, q_j in [1/n, 1/2] (n the block length).
 
     Quadrature: `gaussian_rates(..., quadrature="common_grid")` whenever the estimate has
     unequal sigma, M = 4 included (otherwise "auto"). The legacy `select_distribution` is not
@@ -556,7 +624,8 @@ def optimise_symmetric(
     (default) also from Maxwell-Boltzmann PMFs of both signs at `start_deficits` bits below
     log2 M and `dirichlet_starts` seeded Dirichlet draws. For "smd" the continuous objective is
     concave on this set, so the continuous optimum is global for the unquantised SMD
-    objective, on this channel estimate, and the other starts are an agreement check. For "bmd"
+    objective over the constrained set q_j >= 1/n, on this channel estimate, and the other
+    starts are an agreement check. For "bmd"
     (optimised as the smooth bmd_raw, reported clipped) the claim is "best of N starts".
     Every start is logged: start q, final q, objective, iterations, evaluations, status.
 
@@ -617,26 +686,44 @@ def optimise_symmetric(
         "max_q_gap_to_best_start": q_gap,
         "best_start": start_log[best_start]["name"],
     }
+    floor_continuous = [
+        i for i, v in enumerate(finals[best_start][0]) if v <= problem.lower + _FLOOR_TOL
+    ]
+    q_selected = np.asarray(best["q"])
+    floor_selected = [i for i, v in enumerate(q_selected) if v <= problem.lower + _FLOOR_TOL]
+    floor_text = (
+        f"floor q_j >= 1/n = {problem.lower:.3g} active at pair(s) {floor_continuous} "
+        "(inner first) of the continuous optimum"
+        if floor_continuous
+        else f"floor q_j >= 1/n = {problem.lower:.3g} inactive at the continuous optimum"
+    )
+    domain = "over the constrained set q_j >= 1/n"
     if metric == "smd" and multistart_check and gap <= _AGREEMENT_RATE_TOL:
         claim = (
-            "global for the unquantised SMD objective, on this channel estimate "
-            f"({len(finals)} starts agree to {gap:.1e} bit); the selected PMF maximises the "
-            "quantised objective over the logged candidates only"
+            f"global for the unquantised SMD objective {domain}, on this channel estimate "
+            f"({len(finals)} starts agree to {gap:.1e} bit); {floor_text}; the selected PMF "
+            "maximises the quantised objective over the logged candidates only"
         )
     elif metric == "smd" and multistart_check:
         claim = (
-            f"best of {len(finals)} starts: the SMD starts disagree by {gap:.1e} bit although "
-            "the objective is concave; treat as a numerical failure"
+            f"best of {len(finals)} starts {domain}: the unquantised SMD starts disagree by "
+            f"{gap:.1e} bit although the objective is concave; treat as a numerical failure; "
+            f"{floor_text}"
         )
     elif metric == "smd":
-        claim = "one start only (uniform); global for SMD by concavity but not cross-checked"
+        claim = (
+            f"one start only (uniform), unquantised SMD {domain}: concavity makes a converged "
+            "local maximum global on this channel estimate, but no multistart cross-check was "
+            f"run and convergence is not confirmed; {floor_text}"
+        )
     else:
         claim = (
-            f"best of {len(finals)} starts for the continuous rate; the selected PMF is the "
-            f"argmax of the exact quantised objective over {len(eligible)} feasible candidates"
+            f"best of {len(finals)} starts for the continuous rate {domain}; {floor_text}; the "
+            f"selected PMF is the argmax of the exact quantised objective over {len(eligible)} "
+            "feasible candidates"
         )
 
-    q_best = np.asarray(best["q"])
+    q_best = q_selected
     p_outer = float(q_best[-1]) if order == 4 else None
     return Selection(
         p_outer=p_outer,
@@ -653,6 +740,8 @@ def optimise_symmetric(
         parameters={
             "pair_probabilities": q_best.tolist(),
             "pair_bounds": [problem.lower, problem.upper],
+            "floor_active_pairs": floor_continuous,
+            "floor_active_selected_pairs": floor_selected,
             "quadrature": problem.quadrature,
             "selected": best["name"],
             "continuous_optimum": {
@@ -707,7 +796,11 @@ def fixed_menu(
 
 @dataclass(frozen=True)
 class BestFixed:
-    """The fixed PMF with the highest TRAINING objective, chosen from a declared menu."""
+    """The fixed PMF with the highest objective on checked training acquisitions.
+
+    `selected_on` is built from the acquisitions that were checked (split and content hash),
+    never asserted: see `best_fixed`.
+    """
 
     name: str
     probabilities: list[float]
@@ -716,7 +809,7 @@ class BestFixed:
     block_length: int
     order: int
     table: list[dict[str, Any]]
-    selected_on: str = "training"
+    selected_on: str
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -729,7 +822,10 @@ def evaluate_menu(
     block_length: int,
     menu: Mapping[str, Sequence[float]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Exact objective of every menu entry on one channel estimate, infeasible ones logged."""
+    """Exact objective of every menu entry on one channel estimate, infeasible ones logged.
+
+    The uniform entry is the direct mapping and is charged no matcher loss.
+    """
     problem = _Problem(channel, order, metric, block_length)
     entries = fixed_menu(order) if menu is None else menu
     return [
@@ -737,19 +833,15 @@ def evaluate_menu(
     ]
 
 
-def best_fixed(
-    training_channel: ChannelEstimate,
+def _argmax_menu(
+    channel: ChannelEstimate,
     order: int,
     metric: str,
     block_length: int,
-    menu: Mapping[str, Sequence[float]] | None = None,
+    menu: Mapping[str, Sequence[float]] | None,
+    selected_on: str,
 ) -> BestFixed:
-    """BestFixed = argmax of the training objective over the declared menu.
-
-    Only a channel estimated from training data can be passed. Values computed on test data
-    are an oracle and are reported with `oracle_not_a_baseline`, never as this baseline.
-    """
-    table = evaluate_menu(training_channel, order, metric, block_length, menu)
+    table = evaluate_menu(channel, order, metric, block_length, menu)
     feasible = [row for row in table if row["status"] == "ok"]
     if not feasible:
         raise ValueError("No feasible entry in the fixed menu; increase block_length")
@@ -762,7 +854,48 @@ def best_fixed(
         block_length=block_length,
         order=order,
         table=table,
+        selected_on=selected_on,
     )
+
+
+def _training_channel(training: Sequence[Acquisition], order: int) -> tuple[ChannelEstimate, str]:
+    """Check split labels and digests of the training acquisitions; fit the channel on them."""
+    if not training:
+        raise ValueError("At least one training acquisition is required")
+    for acquisition in training:
+        ident = verify_acquisition(acquisition)
+        if ident.split != "training":
+            raise DataLeakageError(f"{ident.id!r} is labelled {ident.split!r}, not training")
+    _assert_unique([a.id for a in training], "training")
+    channel = estimate_channel(
+        np.concatenate([a.indices for a in training]),
+        np.concatenate([a.received for a in training]),
+        order,
+    )
+    label = "training acquisitions (split and content hash checked): " + ", ".join(
+        a.id.id for a in training
+    )
+    return channel, label
+
+
+def best_fixed(
+    training: Sequence[Acquisition],
+    order: int,
+    metric: str,
+    block_length: int,
+    menu: Mapping[str, Sequence[float]] | None = None,
+) -> BestFixed:
+    """BestFixed = argmax of the objective over the declared menu, on training acquisitions.
+
+    The input is a set of `Acquisition`s, not a bare channel: every one must carry
+    split "training" and a digest that matches its samples, else DataLeakageError. The channel
+    is fitted here and `selected_on` names the checked acquisitions. This makes the label a
+    consequence of the check rather than a default; it does not prove the samples are not
+    test-derived under an honest-looking label. The uniform member is charged no matcher loss.
+    Values computed on test data are an oracle and are reported by `oracle_not_a_baseline`.
+    """
+    channel, label = _training_channel(training, order)
+    return _argmax_menu(channel, order, metric, block_length, menu, label)
 
 
 def oracle_not_a_baseline(
@@ -777,13 +910,20 @@ def oracle_not_a_baseline(
     Choosing the fixed PMF with knowledge of the evaluation data is optimistic for the
     baseline and is not what a deployed system can do. The key says so.
     """
-    chosen = best_fixed(evaluation_channel, order, metric, block_length, menu)
+    chosen = _argmax_menu(
+        evaluation_channel,
+        order,
+        metric,
+        block_length,
+        menu,
+        "evaluation data; not a baseline",
+    )
     return {
         "oracle_not_a_baseline": {
             "name": chosen.name,
             "objective": chosen.objective,
             "table": chosen.table,
-            "selected_on": "evaluation data; not a baseline",
+            "selected_on": chosen.selected_on,
         }
     }
 
@@ -809,22 +949,21 @@ def select_on_acquisitions(
 ) -> AdaptiveOutcome:
     """Select the adaptive PMF and the best-fixed baseline from training acquisitions only.
 
-    `held_out` carries identifiers only, so test samples cannot reach the optimiser; they are
-    used to refuse overlap by id or by content hash (`assert_independent`).
+    `held_out` carries identifiers only, so test samples cannot reach the optimiser. The digest
+    of every training acquisition is recomputed from its samples and must equal the declared
+    `content_sha256`; the independence check then refuses overlap by id or by content hash
+    (`assert_independent`). Declared hashes of held-out identifiers are trusted, and a
+    truncated or re-exported copy of a test capture is not detectable: those are documented
+    limits, not guarantees.
     """
     if not training:
         raise ValueError("At least one training acquisition is required")
-    training_ids = [a.id for a in training]
     held_out_ids = list(held_out)
-    assert_independent(training_ids, held_out_ids)
-    channel = estimate_channel(
-        np.concatenate([a.indices for a in training]),
-        np.concatenate([a.received for a in training]),
-        order,
-    )
+    assert_independent(training, held_out_ids)  # recomputes the training digests
+    channel, label = _training_channel(training, order)
     source = f"{len(training)} training acquisitions: " + "; ".join(
         sorted({a.id.source for a in training})
     )
     selection = optimise_symmetric(channel, order, metric, block_length, seed, source=source)
-    fixed = best_fixed(channel, order, metric, block_length, menu)
-    return AdaptiveOutcome(selection, fixed, training_ids, held_out_ids)
+    fixed = _argmax_menu(channel, order, metric, block_length, menu, label)
+    return AdaptiveOutcome(selection, fixed, [a.id for a in training], held_out_ids)

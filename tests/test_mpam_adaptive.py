@@ -10,6 +10,7 @@ declared in the tests: nothing here is fitted to the result it checks.
 import json
 import math
 import time
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -23,7 +24,7 @@ from opticps.modulation.pam import pam_levels
 from opticps.optimization import adaptive
 from opticps.optimization.adaptive import (
     ChannelEstimate,
-    best_fixed,
+    DataLeakageError,
     estimate_channel,
     evaluate_menu,
     fixed_menu,
@@ -31,6 +32,7 @@ from opticps.optimization.adaptive import (
     oracle_not_a_baseline,
     pair_bounds,
     select_distribution,
+    simulate_acquisitions,
     simulate_training_capture,
 )
 from opticps.optimization.rates import (
@@ -50,6 +52,12 @@ def awgn_channel(order: int, psnr_db: float, wobble: float = 0.0) -> ChannelEsti
     sigma = 2.0 * noise_sigma_from_psnr_db(psnr_db, order)
     sigmas = [sigma * (1.0 + wobble * (i % 3 - 1)) for i in range(order)]
     return ChannelEstimate([float(x) for x in pam_levels(order)], sigmas, 10**6)
+
+
+def best_fixed_on(order, metric, block_length, psnr_db, seed=3, menu=None):
+    """best_fixed on simulated training acquisitions (the only accepted input)."""
+    train, _ = simulate_acquisitions(psnr_db, order, 20000 * order // 4, seed, 2, 0)
+    return adaptive.best_fixed(train, order, metric, block_length, menu), train
 
 
 def independent_matcher_loss(p, n: int) -> float:
@@ -206,7 +214,8 @@ def test_m4_fixed_peak_awgn_matches_the_existing_exhaustive_optimum(psnr, metric
 
 def test_smd_multistart_agrees_and_claim_is_the_limited_one():
     sel = optimise_symmetric(awgn_channel(8, 22.0, 0.03), 8, "smd", 1024, 5)
-    assert sel.claim.startswith("global for the unquantised SMD objective, on this channel")
+    assert sel.claim.startswith("global for the unquantised SMD objective over the constrained set")
+    assert "q_j >= 1/n" in sel.claim and "on this channel estimate" in sel.claim
     assert "11 starts agree" in sel.claim
     agree = sel.parameters["agreement"]
     assert agree["n_starts"] == 11 and agree["max_objective_gap_bit"] < 1e-6
@@ -290,11 +299,61 @@ def test_every_candidate_is_stored_and_the_selection_is_the_exact_argmax():
         p = np.array(c["probabilities"])
         rate = gaussian_rates(p, channel.means, channel.sigmas, 8, quadrature="common_grid").bmd
         assert c["rate"] == pytest.approx(rate, abs=1e-12)
+        if c["status"] == "infeasible":
+            continue
+        if c["direct"]:  # direct uniform: no matcher, so no composition and no loss
+            assert c["kind"] == "uniform" and c["counts"] is None and c["matcher_loss"] == 0.0
+            assert c["objective"] == pytest.approx(rate, abs=1e-12)
+            continue
         assert c["matcher_loss"] == pytest.approx(independent_matcher_loss(p, 1024), abs=1e-12)
         assert c["objective"] == pytest.approx(rate - c["matcher_loss"], abs=1e-12)
         assert sum(c["counts"]) == 1024 and c["counts"] == c["counts"][::-1]
     json.dumps(sel.to_dict())  # fully serialisable
     assert sel.order == 8 and sel.p_outer is None and sel.lambda_value is None
+
+
+@pytest.mark.parametrize("order", [4, 8, 16])
+def test_uniform_is_the_direct_mapping_with_zero_matcher_loss(order):
+    """frame.py direct_uniform sends bits straight onto labels: no composition, no loss."""
+    channel = awgn_channel(order, 20.0, 0.02)
+    problem = adaptive._Problem(channel, order, "smd", 1024)
+    uniform = problem.evaluate(np.full(order, 1.0 / order), "u", "uniform")
+    assert uniform["direct"] is True and uniform["matcher_loss"] == 0.0
+    assert uniform["objective"] == uniform["rate"] and uniform["counts"] is None
+    # the old accounting (CCDM on the uniform composition) would have charged a real loss
+    ccdm_loss = ConstantCompositionMatcher.from_probabilities(
+        np.full(order, 1.0 / order), 1024
+    ).rate_loss
+    assert ccdm_loss > 0.01
+    # anything not exactly uniform pays the matcher
+    half = np.array([1e-4, -1e-4] * (order // 4))
+    near = np.full(order, 1.0 / order) + np.concatenate([half, half[::-1]])
+    other = problem.evaluate(near, "n", "x")
+    assert other["direct"] is False and other["matcher_loss"] > 0.0
+    # evaluate_menu charges the menu's uniform member nothing and its shaped members the matcher
+    rows = {r["name"]: r for r in evaluate_menu(channel, order, "smd", 1024)}
+    assert rows[f"PAM{order}_Uniform"]["matcher_loss"] == 0.0
+    assert all(r["matcher_loss"] > 0.0 for k, r in rows.items() if not k.endswith("Uniform"))
+
+
+def test_legacy_m4_path_still_charges_its_uniform_the_ccdm_loss():
+    """Documented limit of the committed v1.x result: select_distribution is not changed."""
+    indices, received = simulate_training_capture(13.0, 40000, 42)
+    sel = select_distribution(indices, received, "ref", "bmd", 1024, 0.02)
+    loss = ConstantCompositionMatcher.from_probabilities(np.full(4, 0.25), 1024).rate_loss
+    assert loss == pytest.approx(0.0146484375, abs=1e-12)  # 2 - 2033 / 1024
+    uniform = next(c for c in sel.candidates if c["p_outer"] == 0.25)  # the uniform member
+    assert uniform["matcher_loss"] == pytest.approx(loss, abs=1e-15)
+
+
+def test_selection_picks_the_direct_uniform_when_it_is_best():
+    channel = awgn_channel(8, 40.0, 0.01)  # shaping cannot help near saturation
+    sel = optimise_symmetric(channel, 8, "smd", 1024, 2, multistart_check=False)
+    # the uniform start may end exactly where it began; that endpoint is the same PMF
+    assert sel.parameters["selected"] in ("uniform", "endpoint:uniform")
+    assert sel.probabilities == [1 / 8] * 8
+    chosen = next(c for c in sel.candidates if c["name"] == sel.parameters["selected"])
+    assert chosen["direct"] and sel.objective == chosen["objective"] == chosen["rate"]
 
 
 def test_same_seed_gives_identical_logs_and_other_seed_changes_only_the_dirichlet_starts():
@@ -320,7 +379,7 @@ def test_matcher_term_is_a_staircase_so_the_exact_objective_is_evaluated_after_t
 
 
 def test_zero_count_quantisation_is_an_infeasible_candidate_never_selected():
-    sel = optimise_symmetric(awgn_channel(8, 22.0, 0.02), 8, "smd", 8, 1, multistart_check=False)
+    sel = optimise_symmetric(awgn_channel(8, 22.0, 0.02), 8, "smd", 16, 1, multistart_check=False)
     bad = [c for c in sel.candidates if c["status"] == "infeasible"]
     assert bad and sel.parameters["infeasible_candidates"] == len(bad)
     for c in bad:
@@ -328,8 +387,8 @@ def test_zero_count_quantisation_is_an_infeasible_candidate_never_selected():
         assert "cannot represent" in c["reason"] and "DistributionMatcherError" in c["reason"]
     chosen = next(c for c in sel.candidates if c["name"] == sel.parameters["selected"])
     assert chosen["status"] == "ok" and chosen["objective"] == sel.objective
-    # a block too short for any candidate: refused outright, not a silent pick
-    with pytest.raises(ValueError, match="No feasible"):
+    # a block shorter than M leaves no box (q_j >= 1/n for every pair): refused, not a silent pick
+    with pytest.raises(ValueError, match="box q_j >= 1/n is empty"):
         optimise_symmetric(awgn_channel(4, 14.0), 4, "smd", 2, 1, multistart_check=False)
 
 
@@ -341,24 +400,207 @@ def test_bad_arguments_are_rejected():
         optimise_symmetric(ch, 4, "gmi", 1024, 1)
     with pytest.raises(ValueError, match="M = 4, 8, 16"):
         pair_bounds(2, 1024)
+    assert pair_bounds(8, 1024) == (1 / 1024, 0.5)  # the floor is 1/n, not 1/(4n)
     with pytest.raises(ValueError, match="8 levels"):
         optimise_symmetric(ch, 8, "smd", 1024, 1)
+
+
+# --------------------------------------------------------------------------- documented numbers
+
+
+def shaped_minus_direct_uniform(sel):
+    uniform = next(c for c in sel.candidates if c["name"] == "uniform")
+    shaped = [c for c in sel.candidates if c["status"] == "ok" and not c["direct"]]
+    return max(c["objective"] for c in shaped) - uniform["objective"], uniform["objective"]
+
+
+def test_m8_22db_numbers_in_the_note_with_the_uniform_at_zero_loss():
+    """Equal-sigma peak-limited AWGN, n = 1024, seed 7 (docs/notes/mpam_adaptive_constraints.md)."""
+    channel = awgn_channel(8, 22.0)
+    expected = {  # metric: (continuous rate, selected objective, direct uniform objective)
+        "smd": (1.99584, 1.96391, 1.95468),
+        "bmd": (1.97325, 1.94119, 1.93579),
+    }
+    for metric, (cont, selected, uniform) in expected.items():
+        sel = optimise_symmetric(channel, 8, metric, 1024, 7)
+        assert sel.parameters["continuous_optimum"]["objective"] == pytest.approx(cont, abs=5e-6)
+        assert sel.objective == pytest.approx(selected, abs=5e-6)
+        margin, direct = shaped_minus_direct_uniform(sel)
+        assert direct == pytest.approx(uniform, abs=5e-6) and margin > 0
+        assert sel.objective - direct == pytest.approx(selected - uniform, abs=1e-5)
+        # every start agrees to a measured 3.4e-13 bit and 2.7e-7 in q
+        assert sel.parameters["agreement"]["max_objective_gap_bit"] < 1e-12
+        assert sel.parameters["agreement"]["max_q_gap_to_best_start"] < 5e-7
+        best = max(
+            (r for r in evaluate_menu(channel, 8, metric, 1024) if r["status"] == "ok"),
+            key=lambda r: r["objective"],
+        )
+        assert best["name"] == "PAM8_Uniform"  # best fixed is the direct uniform, not Outer_H288
+        assert sel.objective - best["objective"] == pytest.approx(selected - uniform, abs=1e-5)
+
+
+@pytest.mark.slow
+def test_m16_28db_adaptive_loses_to_the_direct_uniform_and_selection_says_so():
+    channel = awgn_channel(16, 28.0)
+    for metric, uniform, shaped in (("smd", 2.78194, 2.75057), ("bmd", 2.75102, 2.71668)):
+        sel = optimise_symmetric(channel, 16, metric, 1024, 7)
+        margin, direct = shaped_minus_direct_uniform(sel)
+        assert direct == pytest.approx(uniform, abs=5e-6)
+        assert direct + margin == pytest.approx(shaped, abs=5e-6)
+        assert margin == pytest.approx(shaped - uniform, abs=1e-5) and margin < -0.03
+        assert sel.objective == direct and sel.probabilities == [1 / 16] * 16  # uniform wins
+        assert sel.parameters["agreement"]["max_objective_gap_bit"] < 1e-12
+
+
+# --------------------------------------------------------------------------- the floor 1/n
+
+
+def mb_grid_best(sel):
+    return max(
+        c["objective"] for c in sel.candidates if c["kind"] == "mb_grid" and c["status"] == "ok"
+    )
+
+
+def endpoints_feasible(sel):
+    ends = [c for c in sel.candidates if c["kind"] == "endpoint"]
+    return sum(c["status"] == "ok" for c in ends), len(ends)
+
+
+def test_floor_one_over_n_makes_endpoints_representable_at_m8():
+    """With a floor of 1/(4n) the optimum at the floor quantised to a zero count and 11 of 11
+    endpoints were infeasible over this sweep (n = 1024, equal-sigma AWGN); with 1/n none are."""
+    for psnr in (8.0, 12.0, 18.0):
+        sel = optimise_symmetric(awgn_channel(8, psnr), 8, "smd", 1024, 7)
+        feasible, total = endpoints_feasible(sel)
+        assert (feasible, total) == (11, 11)
+        assert sel.parameters["infeasible_candidates"] <= 20  # only MB-grid points can be
+        assert sel.objective > mb_grid_best(sel) + 0.02  # the fallback the old floor forced
+        assert sel.parameters["floor_active_pairs"]  # the floor binds at low PSNR ...
+        assert "active at pair(s)" in sel.claim and "q_j >= 1/n" in sel.claim
+    # M = 8, 16 dB, BMD: 1.2652 against the MB-grid fallback 1.1545 (values computed here)
+    sel = optimise_symmetric(awgn_channel(8, 16.0), 8, "bmd", 1024, 7)
+    assert endpoints_feasible(sel) == (11, 11)
+    assert sel.objective == pytest.approx(1.2652, abs=5e-5)
+    assert mb_grid_best(sel) == pytest.approx(1.1545, abs=5e-5)
+    assert sel.parameters["floor_active_pairs"] == [1, 2]
+
+
+def test_floor_is_reported_inactive_when_the_optimum_is_interior():
+    sel = optimise_symmetric(awgn_channel(8, 22.0), 8, "smd", 1024, 7)
+    assert sel.parameters["floor_active_pairs"] == []
+    assert "inactive at the continuous optimum" in sel.claim
+    assert "over the constrained set q_j >= 1/n" in sel.claim
+
+
+@pytest.mark.slow
+def test_floor_one_over_n_makes_endpoints_representable_at_m16():
+    for psnr, metric in ((10.0, "smd"), (16.0, "smd"), (22.0, "smd"), (22.0, "bmd")):
+        sel = optimise_symmetric(awgn_channel(16, psnr), 16, metric, 1024, 7)
+        feasible, total = endpoints_feasible(sel)
+        assert feasible >= total - 1  # measured 11 of 11
+        assert sel.objective > mb_grid_best(sel) + 0.003
+
+
+# --------------------------------------------------------------------------- claim strings
+
+
+def test_single_start_smd_claim_says_unquantised_and_names_the_channel_caveat():
+    sel = optimise_symmetric(awgn_channel(8, 16.0), 8, "smd", 512, 1, multistart_check=False)
+    assert "unquantised" in sel.claim and "this channel estimate" in sel.claim
+    assert "one start only" in sel.claim and "not confirmed" in sel.claim
+    assert "global for SMD by concavity" not in sel.claim  # the old, unqualified wording
+
+
+def test_smd_starts_that_disagree_are_not_called_global(monkeypatch):
+    real = adaptive._run_start
+    calls = []
+
+    def sabotaged(problem, q0):
+        q, result = real(problem, q0)
+        calls.append(1)
+        if len(calls) == 3:  # one start reports a far-off point as its endpoint
+            q = np.array([0.5 - 3 * problem.lower] + [problem.lower] * 3)
+        return q, result
+
+    monkeypatch.setattr(adaptive, "_run_start", sabotaged)
+    sel = optimise_symmetric(awgn_channel(8, 16.0), 8, "smd", 512, 1)
+    assert sel.parameters["agreement"]["max_objective_gap_bit"] > 1e-3
+    assert sel.claim.startswith("best of 11 starts")
+    assert "disagree" in sel.claim and "numerical failure" in sel.claim
+    assert "global" not in sel.claim.split(";")[0] and "agree to" not in sel.claim
+    assert "unquantised" in sel.claim
+
+
+def test_agreeing_starts_state_their_measured_gap():
+    sel = optimise_symmetric(awgn_channel(4, 14.0), 4, "smd", 512, 1)
+    gap = sel.parameters["agreement"]["max_objective_gap_bit"]
+    assert gap <= adaptive._AGREEMENT_RATE_TOL and sel.claim.startswith("global")
+    assert f"{gap:.1e} bit" in sel.claim
+
+
+# --------------------------------------------------------------------------- smooth fit, bounds
+
+
+def test_bmd_is_fitted_as_the_unclipped_bmd_raw_and_reported_clipped():
+    """Where BMD is below 0 the clipped value is a flat zero; the fit must use bmd_raw."""
+    channel = awgn_channel(8, 0.0)
+    problem = adaptive._Problem(channel, 8, "bmd", 1024)
+    q = np.array([0.3, 0.2 / 3, 0.2 / 3, 0.2 / 3])  # a poor PMF at 0 dB
+    p = symmetric_from_pairs(q)
+    rates = gaussian_rates(p, channel.means, channel.sigmas, 8, quadrature="common_grid")
+    assert rates.bmd_raw < -0.04 and rates.bmd == 0.0
+    assert problem.smooth_rate(q) == rates.bmd_raw  # not the clipped 0
+    assert problem.evaluate(p, "x", "x")["rate"] == 0.0  # the reported rate is clipped
+    # a gradient start in the clipped region climbs only because the fit sees the raw value
+    q_end, _ = adaptive._run_start(problem, q)
+    assert problem.smooth_rate(q_end) > 0.04 and q_end[0] < 0.2
+    sel = optimise_symmetric(channel, 8, "bmd", 1024, 1, multistart_check=False)
+    assert sel.starts[0]["objective_metric"] == "bmd_raw"
+
+
+def test_out_of_bounds_candidates_are_flagged_and_never_selected(monkeypatch):
+    problem = adaptive._Problem(awgn_channel(4, 14.0), 4, "smd", 1024)
+    below = np.array([0.4995, 0.0005, 0.0005, 0.4995])  # inner pair below 1/n = 0.000977
+    assert problem.evaluate(below, "b", "x")["in_bounds"] is False
+    assert problem.evaluate(np.full(4, 0.25), "u", "x")["in_bounds"] is True
+    real = adaptive._Problem.evaluate
+
+    def tempting(self, p, name, kind):
+        record = real(self, p, name, kind)
+        if kind == "mb_grid" and record["status"] == "ok":
+            record["in_bounds"] = False
+            record["objective"] += 10.0  # would win by far if bounds were ignored
+        return record
+
+    monkeypatch.setattr(adaptive._Problem, "evaluate", tempting)
+    sel = optimise_symmetric(awgn_channel(4, 14.0), 4, "smd", 1024, 1, multistart_check=False)
+    assert not sel.parameters["selected"].startswith("mb_")
+    assert sel.objective < 5.0
 
 
 # --------------------------------------------------------------------------- negative case
 
 
 @pytest.mark.parametrize("psnr", [36.0, 40.0, 45.0])
-def test_high_snr_pam16_uniform_or_near_uniform_wins_because_matcher_loss_exceeds_gain(psnr):
-    """Negative case: at high PSNR shaping cannot repay the finite-block matcher loss."""
+def test_high_snr_pam16_direct_uniform_wins_because_every_composition_costs_more_than_the_gain(
+    psnr,
+):
+    """Negative case, stated as measured: the unquantised gain of shaping over uniform is at most
+    2.1e-4 bit here, while every non-uniform candidate is a quantised composition that pays a
+    matcher loss. The direct uniform pays none, so it is selected. (An earlier text said the
+    matcher loss exceeds the continuous gain; that compared against a uniform that was wrongly
+    charged the same loss.)"""
     channel = awgn_channel(16, psnr, 0.02)
     sel = optimise_symmetric(channel, 16, "smd", 1024, 1, multistart_check=False)
     uniform = next(c for c in sel.candidates if c["name"] == "uniform")
+    assert uniform["direct"] and uniform["matcher_loss"] == 0.0
     gain = sel.parameters["continuous_optimum"]["objective"] - uniform["rate"]
-    assert uniform["matcher_loss"] > gain  # loss of the matcher exceeds the unquantised gain
-    assert sel.objective - uniform["objective"] < 1e-5  # nothing beats uniform by a real margin
-    assert np.abs(np.array(sel.probabilities) - 1 / 16).sum() < 5e-3  # uniform or near-uniform
-    assert gain < 5e-3
+    assert -1e-9 <= gain < 5e-4
+    shaped = [c for c in sel.candidates if c["status"] == "ok" and not c["direct"]]
+    assert shaped and all(c["matcher_loss"] > 10 * max(gain, 1e-4) for c in shaped)
+    assert all(c["objective"] < uniform["objective"] - 1e-3 for c in shaped)
+    assert sel.parameters["selected"] == "uniform" or sel.objective == uniform["objective"]
+    assert np.abs(np.array(sel.probabilities) - 1 / 16).sum() < 1e-9  # exactly uniform
 
 
 # --------------------------------------------------------------------------- best fixed
@@ -399,28 +641,47 @@ def test_fixed_menu_names_entropies_and_exact_pam4_members():
 
 
 def test_best_fixed_is_the_argmax_of_the_training_objective_and_oracle_is_labelled():
-    train = awgn_channel(4, 14.0)  # outer-heavy territory
-    chosen = best_fixed(train, 4, "bmd", 1024)
+    chosen, train = best_fixed_on(4, "bmd", 1024, 14.0)  # outer-heavy territory
     table = {r["name"]: r["objective"] for r in chosen.table}
-    assert chosen.name == max(table, key=table.get) and chosen.selected_on == "training"
+    assert chosen.name == max(table, key=table.get)
+    assert chosen.selected_on.startswith("training acquisitions (split and content hash checked)")
+    assert all(a.id.id in chosen.selected_on for a in train)
     assert chosen.objective == table[chosen.name]
     assert "oracle_not_a_baseline" not in json.dumps(chosen.to_dict())
     assert chosen.name == "PAM4_Fixed_Outer70"  # derived from the numbers, see the table
     assert table["PAM4_Fixed_Outer70"] > table["PAM4_Uniform"] > table["PAM4_Fixed_PS70"]
     # a different evaluation channel has a different best member; the baseline does not follow it
-    test_channel = awgn_channel(4, 30.0)
-    oracle = oracle_not_a_baseline(test_channel, 4, "bmd", 1024)
+    oracle = oracle_not_a_baseline(awgn_channel(4, 30.0), 4, "bmd", 1024)
     assert list(oracle) == ["oracle_not_a_baseline"]
     assert oracle["oracle_not_a_baseline"]["name"] == "PAM4_Uniform"
     assert "not a baseline" in oracle["oracle_not_a_baseline"]["selected_on"]
-    assert best_fixed(train, 4, "bmd", 1024).name == chosen.name  # unaffected by the oracle call
+    assert adaptive.best_fixed(train, 4, "bmd", 1024).name == chosen.name  # unaffected
+
+
+def test_best_fixed_provenance_is_checked_not_asserted():
+    """A channel cannot be passed, a test-split acquisition is refused and a wrong digest too."""
+    train, test = simulate_acquisitions(14.0, 4, 8000, 3, 2, 1)
+    with pytest.raises(DataLeakageError, match="not training"):
+        adaptive.best_fixed([train[0], test[0]], 4, "bmd", 1024)
+    forged = replace(train[0], id=replace(train[0].id, content_sha256="a" * 64))
+    with pytest.raises(DataLeakageError, match="does not match its samples"):
+        adaptive.best_fixed([forged], 4, "bmd", 1024)
+    with pytest.raises(ValueError, match="At least one"):
+        adaptive.best_fixed([], 4, "bmd", 1024)
+    with pytest.raises((TypeError, AttributeError)):
+        adaptive.best_fixed(awgn_channel(4, 14.0), 4, "bmd", 1024)  # type: ignore[arg-type]
+    # the oracle path never carries the training label
+    label = oracle_not_a_baseline(awgn_channel(4, 14.0), 4, "bmd", 1024)["oracle_not_a_baseline"]
+    assert "training" not in label["selected_on"]
 
 
 def test_best_fixed_logs_infeasible_members_and_excludes_them():
     rows = evaluate_menu(awgn_channel(8, 22.0), 8, "smd", 8)
     assert any(r["status"] == "infeasible" for r in rows)
+    shaped_only = {k: v for k, v in fixed_menu(8).items() if not k.endswith("Uniform")}
+    train, _ = simulate_acquisitions(22.0, 8, 20000, 3, 1, 0)
     with pytest.raises(ValueError, match="No feasible"):
-        best_fixed(awgn_channel(8, 22.0), 8, "smd", 2)
+        adaptive.best_fixed(train, 8, "smd", 8, shaped_only)  # no composition fits n = 8
 
 
 # --------------------------------------------------------------------------- runtime

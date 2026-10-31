@@ -229,9 +229,12 @@ class FixedOMA:
 
     With all extreme levels in use the OMA is the fixed-peak value, so this is INACTIVE (the
     same protocol as FixedPeak, no separate comparison). It differs when the outer levels have
-    zero mass: the OMA is smaller and restoring it needs a larger drive swing, reported in
-    `adjustments["drive_vpp"]`, FEASIBLE only with `allow_drive_rescale` and a reachable target
-    (swing up to 2 V_pi); INFEASIBLE otherwise. The drive is never rescaled silently.
+    zero mass: the OMA is smaller and restoring it needs a larger drive swing. A declared
+    target can also be below the current OMA, which needs a smaller swing. The swing is
+    reported in `adjustments["drive_vpp"]` and is the smallest one on the first rising branch of
+    OMA against swing (OMA folds over beyond its first maximum). FEASIBLE only with
+    `allow_drive_rescale` and a reachable target (swing up to 2 V_pi); INFEASIBLE otherwise.
+    The drive is never rescaled silently.
     """
 
     target_oma_w: float | None = None
@@ -259,28 +262,41 @@ class FixedOMA:
         def gap(vpp: float) -> float:
             return oma_w(_with_drive(config, vpp), p) - target
 
-        grid = np.linspace(config.drive_vpp, 2 * config.v_pi, 4001)
+        # OMA rises from 0 with the swing up to a first maximum and then folds over. The swing
+        # wanted is the smallest one, on that first rising branch, whether the target is above
+        # or below the current OMA (a search that only went upward from the current swing
+        # reached the fold-over branch for a lower target).
+        grid = np.linspace(0.0, 2 * config.v_pi, 8001)[1:]
         values = np.array([gap(v) for v in grid])
-        crossing = np.flatnonzero(np.sign(values[:-1]) * np.sign(values[1:]) <= 0)
+        crossing = np.flatnonzero((values[:-1] < 0) & (values[1:] >= 0))
+        direction = "below" if oma < target else "above"
         if crossing.size == 0:
+            best = float(values.max() + target)
             return Feasibility(
                 FeasibilityStatus.INFEASIBLE,
-                f"OMA {oma:.4g} W is below the fixed {target:.4g} W and no drive swing up to "
-                f"2 V_pi = {2 * config.v_pi:g} V restores it",
+                f"OMA {oma:.4g} W is {direction} the fixed {target:.4g} W and no drive swing up "
+                f"to 2 V_pi = {2 * config.v_pi:g} V reaches it (largest reachable OMA "
+                f"{best:.4g} W)",
             )
         i = int(crossing[0])
         vpp = float(brentq(gap, grid[i], grid[i + 1], xtol=1e-12))
         needed = {"drive_vpp": vpp, "drive_vpp_factor": vpp / config.drive_vpp}
+        step = "increased" if vpp > config.drive_vpp else "reduced"
+        cause = (
+            "outer levels carry no mass"
+            if self.target_oma_w is None
+            else "the declared target differs from the OMA at this set-point"
+        )
         if not self.allow_drive_rescale:
             return Feasibility(
                 FeasibilityStatus.INFEASIBLE,
-                f"OMA {oma:.4g} W differs from the fixed {target:.4g} W (outer levels unused); "
-                f"restoring it needs drive_vpp {vpp:.4g} V, which was not declared",
+                f"OMA {oma:.4g} W is {direction} the fixed {target:.4g} W ({cause}); the swing "
+                f"would be {step} to drive_vpp {vpp:.4g} V, which was not declared",
                 needed,
             )
         return Feasibility(
             FeasibilityStatus.FEASIBLE,
-            f"drive_vpp must change to {vpp:.4g} V (outer levels unused; declared)",
+            f"drive_vpp must be {step} to {vpp:.4g} V ({cause}; declared)",
             needed,
         )
 
@@ -356,7 +372,7 @@ class EqualRealizedUserRate:
         needed_rate = self.nominal_sample_rate_hz * ratio
         needed = {"sample_rate_hz": needed_rate, "sample_rate_hz_factor": ratio}
         low, high = self.min_sample_rate_hz, self.max_sample_rate_hz
-        if not (low <= needed_rate <= high):
+        if not (low * (1 - _REL_TOL) <= needed_rate <= high * (1 + _REL_TOL)):
             return Feasibility(
                 FeasibilityStatus.INFEASIBLE,
                 f"matching {self.target_rate_bps / 1e9:.4g} Gb/s needs {needed_rate / 1e9:.4g} "

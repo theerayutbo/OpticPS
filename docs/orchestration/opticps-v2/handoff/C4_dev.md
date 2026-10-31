@@ -21,3 +21,16 @@ Base 5a851dd, branch v1.3-mpam. Two local commits: C4a (rates.py minors), C4. No
 - 11 starts agree to 6e-13 bit and 3e-7 in q. Runtime M=16 13-23 s per call, M=8 2-3 s (i5-8259U).
 - 678 passed (604 before); new files about 20 s excluding the slow M=16 run. ruff, format, mypy clean; anchor green.
 - M=4 compressed outer spacing alone never made inner-heavy win; it does at M=8 (+0.025 bit).
+
+## Fix round (after Loki FAIL at 2b9e1fe)
+Results: 698 passed (anchor green), ruff check, ruff format --check, mypy clean. Numbers below are from code run at this tip; details in docs/notes/mpam_adaptive_constraints.md. Lines above that disagree (bound 1/(4n), "6e-13", "+0.025 bit") are superseded.
+1. Floor: bounds [1/n, 1/2] (n >= M). 11/11 endpoints feasible in all 26 sweep runs (M=8 8-18 dB, M=16 10-22 dB, SMD and BMD); with 1/(4n) re-applied 0/11 in 9 re-run points. M=8 16 dB BMD 1.2652 vs MB-grid fallback 1.1545. Claims say "over the constrained set", floor-active pairs reported. Recorded as decision in ROADMAP_STATUS (deviation 6).
+2. Uniform direct, zero loss, new family only; legacy select_distribution unchanged (anchor green), limitation disclosed (deviation 7). M=8 22 dB: SMD sel 1.96391 vs uniform 1.95468 (+0.00923), BMD +0.00539; best fixed is the uniform. M=16 28 dB: selection IS the uniform (SMD 2.78194, BMD 2.75102); best shaped -0.03137 / -0.03434. Rate equalisation PS80 +17.2 %, PS70 +7.1 % (verified). Sine M=8 g=1.55 sigma=0.8: -0.0075. Scan 8x8: no inner win for g<=pi/2; test channel is now g=1.8 sigma=0.8 (+0.075), found by scan. PAM16 negative case restated (shaped loss 0.0526-0.0622 vs gain <=2.1e-4).
+3. Hash recomputed in assert_independent and select_on_acquisitions (QA repro tested); truncation limit documented; false docstring sentence replaced.
+4. best_fixed takes training Acquisitions; selected_on is built from checked ones; channel input rejected; negative tests.
+5. FixedOMA: first rising branch, 0.9202 V for half OMA (fold-over 7.0798 V not reported), true reason text, unreachable target quotes reachable max. Also range edge tolerance 1e-9 in EqualRealizedUserRate (256 GSa/s edge failed on float rounding).
+6. SMD single-start claim says "unquantised" and the channel caveat; "starts disagree" branch tested (sabotaged start).
+7. Mutants agreement tol 1e9, clipped bmd fit, ignored in_bounds each fail a test (checked by mutating).
+8. M=4: scan 64 channels x 2 metrics; inner never wins g<=2.2; wins at g=2.6 sigma 2.0/3.0 (0.0122/0.0543 BMD vs direct uniform; Loki's case was 0.026 vs CCDM uniform). Tested.
+10. 5e-13 -> 6.3e-13 bit, 2.7e-7 in q. ROADMAP_STATUS tracks C5 (pin menu and deficits, no run-time override) and C7 (assert_disjoint id-only; migrate compare, uxr_compare, demo).
+Also corrected: docs/ALGORITHM_PROVENANCE.md, docs/engineering_log/LOG.md (entries annotated, fix-round entry added).

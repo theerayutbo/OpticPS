@@ -184,6 +184,51 @@ def test_selection_refuses_overlap_by_id_and_by_hash():
     assert outcome.training_ids == [a.id for a in train]
 
 
+def test_a_renamed_test_acquisition_with_a_made_up_hash_is_refused():
+    """QA repro: test samples passed as 'training' under a new name and a made-up hash used to
+    enter selection (the declared hash was never recomputed)."""
+    train, test = simulate_acquisitions(14.0, 4, 8000, 5, 2, 1)
+    te = test[0]
+    disguised = Acquisition(
+        AcquisitionId("lab", "renamed", "training", "a" * 64), te.indices, te.received
+    )
+    with pytest.raises(DataLeakageError, match="does not match its samples"):
+        select_on_acquisitions([train[0], disguised], [te.id], 4, "smd", 1024, 1)
+    # a hash taken over other bytes is refused the same way
+    other_bytes = content_digest(te.indices, te.received + 1.0)
+    wrong = Acquisition(
+        AcquisitionId("lab", "renamed", "training", other_bytes), te.indices, te.received
+    )
+    with pytest.raises(DataLeakageError, match="does not match its samples"):
+        select_on_acquisitions([train[0], wrong], [te.id], 4, "smd", 1024, 1)
+    # the honest declaration of the same samples carries the test hash and is caught by overlap
+    honest = Acquisition(
+        AcquisitionId("lab", "renamed", "training", te.id.content_sha256), te.indices, te.received
+    )
+    with pytest.raises(DataLeakageError, match="Identical content"):
+        select_on_acquisitions([train[0], honest], [te.id], 4, "smd", 1024, 1)
+    # assert_independent verifies Acquisition items too, and trusts bare ids (documented)
+    with pytest.raises(DataLeakageError, match="does not match its samples"):
+        assert_independent([train[0], disguised], [te.id])
+    assert_independent([train[0].id, disguised.id], [te.id])  # an id alone cannot be checked
+    assert_independent(train, test)  # genuine acquisitions on both sides pass
+
+
+def test_the_documented_limit_a_truncated_copy_passes_the_guard():
+    """Not a guarantee: one sample fewer changes the bytes, so the copy is a different
+    acquisition to the guard. The docstring says so; this test pins the limit."""
+    train, test = simulate_acquisitions(14.0, 4, 8000, 5, 2, 1)
+    te = test[0]
+    idx, rx = te.indices[:-1], te.received[:-1]
+    copy = Acquisition(AcquisitionId("lab", "trunc", "training", content_digest(idx, rx)), idx, rx)
+    outcome = select_on_acquisitions([train[0], copy], [te.id], 4, "smd", 1024, 1)
+    assert outcome.training_ids[1].id == "trunc"  # accepted: nothing detects the re-export
+    assert "truncated" in (adaptive.__doc__ or "") and "documented limit" in (
+        adaptive.__doc__ or ""
+    )
+    assert "can never enter" not in (adaptive.__doc__ or "")
+
+
 def test_a_test_split_acquisition_cannot_be_passed_as_training():
     train, test = simulate_acquisitions(14.0, 4, 8000, 5, 2, 1)
     with pytest.raises(DataLeakageError, match="not training"):

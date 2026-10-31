@@ -174,6 +174,46 @@ def test_fixed_oma_unreachable_target_is_infeasible_even_when_rescale_is_declare
     too_big = 10 * oma_w(CONFIG, np.full(4, 0.25))
     result = FixedOMA(target_oma_w=too_big, allow_drive_rescale=True).check(CONFIG, p)
     assert result.status is FeasibilityStatus.INFEASIBLE and "V_pi" in result.reason
+    assert result.adjustments == {} and "below the fixed" in result.reason  # direction is true
+    # the largest OMA reachable is at V_pp = 2 V_pi: inner drive (1/3) V_pi, sin(pi / 3), quoted
+    ceiling = CONFIG.laser_power_w * LOSS * VIS * math.sin(math.pi / 3)
+    assert f"{ceiling:.4g}" in result.reason
+
+
+def test_fixed_oma_target_below_the_current_oma_reduces_the_swing_on_the_rising_branch():
+    """Target 0.5 x OMA: OMA = P L V sin(pi V_pp / (2 V_pi)) a_max, so V_pp = (8 / pi) asin(1/2 x
+    sin(pi / 4)) = 0.9202 V, not the fold-over swing 7.08 V that an upward-only search finds."""
+    p = np.full(4, 0.25)
+    target = 0.5 * oma_w(CONFIG, p)
+    expected = (2 * CONFIG.v_pi / math.pi) * math.asin(0.5 * math.sin(math.pi / 4))
+    assert expected == pytest.approx(0.9202, abs=5e-5)
+    undeclared = FixedOMA(target_oma_w=target).check(CONFIG, p)
+    assert undeclared.status is FeasibilityStatus.INFEASIBLE
+    assert undeclared.adjustments["drive_vpp"] == pytest.approx(expected, rel=1e-9)
+    assert "above the fixed" in undeclared.reason and "reduced" in undeclared.reason
+    assert "outer levels" not in undeclared.reason  # the old, false cause
+    declared = FixedOMA(target_oma_w=target, allow_drive_rescale=True).check(CONFIG, p)
+    assert declared.status is FeasibilityStatus.FEASIBLE
+    assert declared.adjustments["drive_vpp"] == pytest.approx(expected, rel=1e-9)
+    assert declared.adjustments["drive_vpp_factor"] < 1.0 and "reduced" in declared.reason
+    # applying the reported swing, and only then, reaches the target
+    assert oma_w(replace(CONFIG, drive_vpp=declared.adjustments["drive_vpp"]), p) == pytest.approx(
+        target, rel=1e-9
+    )
+    # the fold-over swing is a second solution of the same equation, and is not the one reported
+    fold = 2 * CONFIG.v_pi - expected  # sin(pi V_pp / 8) is symmetric about V_pp = V_pi = 4 V
+    assert fold == pytest.approx(7.0798, abs=5e-4)
+    assert oma_w(replace(CONFIG, drive_vpp=fold), p) == pytest.approx(target, rel=1e-9)
+    assert declared.adjustments["drive_vpp"] < CONFIG.drive_vpp < fold
+    # a target above the current OMA still increases the swing, from the same rising branch
+    up = FixedOMA(target_oma_w=1.3 * oma_w(CONFIG, p), allow_drive_rescale=True).check(CONFIG, p)
+    assert up.status is FeasibilityStatus.FEASIBLE and "increased" in up.reason
+    assert up.adjustments["drive_vpp"] > CONFIG.drive_vpp
+    assert oma_w(replace(CONFIG, drive_vpp=up.adjustments["drive_vpp"]), p) == pytest.approx(
+        1.3 * oma_w(CONFIG, p), rel=1e-9
+    )
+    # a target below the current OMA is always reachable (OMA is 0 at no swing), so the
+    # unreachable case is the one above the ceiling, covered in the test before this one
 
 
 def test_fixed_peak_rescale_needs_a_declaration():
@@ -199,6 +239,9 @@ def test_drive_voltages_are_odd_and_span_the_configured_peak():
 
 
 def accounting(p, head=1024, payload=8192, block=1024, sps=4) -> FrameAccounting:
+    """Uniform PMFs are sent direct (2 bits per symbol at PAM4, as frame.py direct_uniform)."""
+    if np.allclose(p, 1.0 / len(p)):
+        return FrameAccounting(head, payload, block, int(math.log2(len(p)) * block), sps)
     matcher = ConstantCompositionMatcher.from_symmetric_probabilities(p, block)
     return FrameAccounting(head, payload, block, matcher.k, sps)
 
@@ -206,10 +249,11 @@ def accounting(p, head=1024, payload=8192, block=1024, sps=4) -> FrameAccounting
 def test_user_rate_accounting_matches_hand_arithmetic():
     p = np.full(4, 0.25)
     acc = accounting(p)
-    k = ConstantCompositionMatcher.from_symmetric_probabilities(p, 1024).k
-    expected = 224e9 / 4 * (8 * k) / (1024 + 8192)
+    expected = 224e9 / 4 * (8 * 2048) / (1024 + 8192)  # direct uniform: 2 bits per symbol
     assert acc.user_rate_bps(224e9) == pytest.approx(expected, rel=1e-14)
-    assert acc.information_bits == 8 * k and acc.frame_symbols == 9216
+    assert acc.information_bits == 8 * 2048 and acc.frame_symbols == 9216
+    ps70 = ConstantCompositionMatcher.from_symmetric_probabilities([0.15, 0.35, 0.35, 0.15], 1024)
+    assert accounting(np.array([0.15, 0.35, 0.35, 0.15])).block_bits == ps70.k == 1912
     # head symbols are overhead: with none the same blocks give a rate higher by 9216 / 8192
     bare = accounting(p, head=0)
     assert bare.user_rate_bps(224e9) / acc.user_rate_bps(224e9) == pytest.approx(9216 / 8192)
@@ -232,19 +276,22 @@ def test_equal_rate_matches_by_sample_rate_and_reports_infeasible_when_out_of_ra
             assert result.adjustments["sample_rate_hz"] == pytest.approx(224e9 * ratio, rel=1e-12)
     assert rows["PAM4_Uniform"][1].status is FeasibilityStatus.FEASIBLE
     assert rows["PAM4_Uniform"][1].adjustments == {}
-    # PS80 carries so few bits that +14.3 % of sample rate cannot make up the difference
+    # against the direct uniform (2048 bits per block): PS80 carries 1747 and needs +17.2 %, which
+    # +14.3 % of sample rate cannot make up; PS70 carries 1912 and needs +7.1 %
     ratio80, result80 = rows["PAM4_Fixed_PS80"]
+    assert ratio80 == pytest.approx(2048 / 1747, rel=1e-12) and round(ratio80 - 1, 3) == 0.172
     assert ratio80 > 256 / 224 and result80.status is FeasibilityStatus.INFEASIBLE
     assert "GSa/s" in result80.reason and "outside 200 to 256" in result80.reason
     # PS70 is inside the range
     ratio70, result70 = rows["PAM4_Fixed_PS70"]
+    assert ratio70 == pytest.approx(2048 / 1912, rel=1e-12) and round(ratio70 - 1, 3) == 0.071
     assert 1.0 < ratio70 < 256 / 224 and result70.status is FeasibilityStatus.FEASIBLE
 
 
 def test_no_per_waveform_rescale_without_the_declared_flag():
     uniform = np.full(4, 0.25)
     target = accounting(uniform).user_rate_bps(224e9)
-    acc = accounting(np.array([0.15, 0.35, 0.35, 0.15]))  # PS70: needs about +6 %, in range
+    acc = accounting(np.array([0.15, 0.35, 0.35, 0.15]))  # PS70: needs about +7 %, in range
     rate_before = acc.user_rate_bps(224e9)
     refused = EqualRealizedUserRate(target).check(acc)  # no flag
     assert refused.status is FeasibilityStatus.INFEASIBLE
@@ -302,32 +349,77 @@ def objective_of(rows, suffix_free: str) -> float:
     return next(r["objective"] for r in rows if r["name"].endswith(suffix_free))
 
 
-def test_inner_heavy_can_beat_uniform_with_compressed_outer_spacing_and_loses_at_fixed_peak_awgn():
-    """No winner is assumed: both outcomes come from the same code and the same menu."""
-    compressed = sine_compressed_channel(8, 0.8)
-    gaps = np.diff(compressed.means)
-    assert gaps[0] < 0.5 * gaps[3]  # the outermost spacing really is compressed
-    awgn = awgn_channel(8, 22.0)
-    results = {}
-    for label, channel in (("compressed", compressed), ("awgn", awgn)):
-        rows = evaluate_menu(channel, 8, "bmd", 1024)
-        uniform = objective_of(rows, "Uniform")
-        inner = max(r["objective"] for r in rows if "Inner" in r["name"])
-        outer = max(r["objective"] for r in rows if "Outer" in r["name"])
-        results[label] = (inner - uniform, outer - uniform)
-    assert results["compressed"][0] > 0.01  # inner-heavy beats uniform here
-    assert results["compressed"][0] > results["compressed"][1]  # and outer-heavy
-    assert results["awgn"][0] < -0.05  # the reverse at fixed-peak AWGN
-    # the optimiser, free over the whole symmetric family, also leaves uniform in the compressed
-    # channel and moves the mass inward (outermost pair below its uniform share)
-    sel = optimise_symmetric(compressed, 8, "bmd", 1024, 4, multistart_check=False)
+SCAN_GS = (0.6, 1.0, 1.3, 1.55, math.pi / 2, 1.8, 2.2, 2.6)  # drive g = pi V_pp / (2 V_pi)
+SCAN_SIGMAS = (0.15, 0.3, 0.5, 0.8, 1.2, 1.6, 2.0, 3.0)
+INNER_NAMES = ("Inner", "PS")
+
+
+def inner_minus_uniform(order: int, channel: ChannelEstimate, metric: str = "bmd") -> float:
+    """Best inner-heavy member of the declared menu minus the DIRECT uniform (no matcher)."""
+    rows = evaluate_menu(channel, order, metric, 1024)
+    uniform = objective_of(rows, "Uniform")
+    return max(r["objective"] for r in rows if any(t in r["name"] for t in INNER_NAMES)) - uniform
+
+
+def test_inner_heavy_versus_direct_uniform_over_a_declared_sine_compression_scan_at_m8():
+    """The earlier claim "inner-heavy beats uniform by 0.025 bit at g = 1.55, sigma = 0.8" came from
+    charging the uniform a CCDM loss it does not pay. Against the direct uniform that margin is
+    -0.0075. The scan below (8 drive gains g x 8 sigmas = 64 channels, BMD, n = 1024, the menu
+    of fixed_menu) was run to find, honestly, where inner-heavy does win: nowhere for g <= pi/2
+    (monotone, unfolded means), and in 5 of the 8 channels at g = 1.8, 7 of 8 at g = 2.2 and 2 of 8 at g = 2.6.
+    g = 1.8 is the least overdriven winning gain (means still monotone, outer spacing compressed)."""
+    base = sine_compressed_channel(8, 0.8, 1.55)
+    assert inner_minus_uniform(8, base) == pytest.approx(-0.0075, abs=5e-4)
+    for g in SCAN_GS:
+        wins = [
+            s for s in SCAN_SIGMAS if inner_minus_uniform(8, sine_compressed_channel(8, s, g)) > 0
+        ]
+        if g <= math.pi / 2 + 1e-9:
+            assert wins == [], (g, wins)  # no inner-heavy win for any g <= pi/2
+        elif g == 1.8:
+            assert wins == [0.15, 0.3, 0.5, 0.8, 1.2]
+        elif g == 2.2:
+            assert wins == list(SCAN_SIGMAS[:7])
+        else:
+            assert wins == [2.0, 3.0]
+    declared = sine_compressed_channel(8, 0.8, 1.8)  # found by the scan above, not tuned to a claim
+    gaps = np.diff(declared.means)
+    assert gaps[0] < 0.1 * gaps[3] and np.all(gaps > 0)  # monotone, outermost spacing compressed
+    rows = evaluate_menu(declared, 8, "bmd", 1024)
+    uniform = objective_of(rows, "Uniform")
+    inner = max(r["objective"] for r in rows if "Inner" in r["name"])
+    outer = max(r["objective"] for r in rows if "Outer" in r["name"])
+    assert inner - uniform == pytest.approx(0.075, abs=2e-3) and outer < uniform - 0.1
+    # at fixed-peak AWGN, 22 dB, the inner-heavy members lose (BMD, direct uniform)
+    awgn = evaluate_menu(awgn_channel(8, 22.0), 8, "bmd", 1024)
+    assert max(r["objective"] for r in awgn if "Inner" in r["name"]) < objective_of(awgn, "Uniform")
+    # the optimiser, free over the symmetric family, moves mass inward in the declared channel
+    sel = optimise_symmetric(declared, 8, "bmd", 1024, 4, multistart_check=False)
     uniform_obj = next(c for c in sel.candidates if c["name"] == "uniform")["objective"]
-    assert sel.objective > uniform_obj + 0.01
+    assert sel.objective > uniform_obj + 0.05
     assert sel.probabilities[0] < 1 / 8 and sel.probabilities[3] > 1 / 8
     # and the winning PMF is not explained by average optical power: that constraint is
     # INACTIVE for it (and for uniform) at quadrature
     for p in (sel.probabilities, [1 / 8] * 8):
         assert FixedAverageOpticalPower().check(CONFIG, p).status is FeasibilityStatus.INACTIVE
+
+
+def test_m4_inner_heavy_never_beats_direct_uniform_in_the_declared_scan_except_when_overdriven():
+    """Scope of the M = 4 statement, as scanned: g in SCAN_GS x SIGMAS (64 channels), both
+    metrics, n = 1024, PS70 and PS80 against the direct PAM4 uniform. Inner-heavy never wins
+    for g <= 2.2 (all monotone-compressed and moderately folded means). It wins at g = 2.6, the
+    overdriven class (means folded over), at sigma 2.0 and 3.0: by 0.012 and 0.054 bit (BMD),
+    with the P(+-3) share of PS80 = 0.10 and PS70 = 0.15. Not scanned: other mean shapes."""
+    wins = {}
+    for metric in ("bmd", "smd"):
+        for g in SCAN_GS:
+            for sigma in SCAN_SIGMAS:
+                if inner_minus_uniform(4, sine_compressed_channel(4, sigma, g), metric) > 0:
+                    wins.setdefault(metric, []).append((round(g, 3), sigma))
+    assert wins == {"bmd": [(2.6, 2.0), (2.6, 3.0)], "smd": [(2.6, 2.0), (2.6, 3.0)]}
+    overdriven = sine_compressed_channel(4, 2.0, 2.6)
+    assert inner_minus_uniform(4, overdriven) == pytest.approx(0.0122, abs=5e-4)
+    assert np.diff(overdriven.means)[0] < 0  # the outermost mean folds back: not monotone
 
 
 def test_outer_heavy_wins_at_m4_fixed_peak_awgn_and_not_in_a_wide_open_channel():
