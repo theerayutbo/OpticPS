@@ -55,12 +55,28 @@ D > 0 delays the longer wavelength (tested with two carriers; it reverses for D 
 ## 5. Validity and refusal rules
 
 - Every scalar is valid at its stated validity range, else at its measurement wavelength only, else (neither stated)
-  at any wavelength. A wavelength outside raises `OutOfValidityRangeError`. Tables are valid between their first and
-  last knot. Extrapolation happens only if requested; then tables continue their end segment, D continues with S if S
-  is known (else it is held), and the names are listed in `extrapolated`. A scored run does not request it.
+  at any wavelength, except D: a D with no stated wavelength raises, because it has no place on the wavelength axis.
+  The check applies to every parameter a run uses. A wavelength outside raises `OutOfValidityRangeError`. Tables are
+  valid between their first and last knot. Extrapolation happens only if requested; then tables continue their end
+  segment and the names are listed in `extrapolated` (truthful: only names outside their range are listed).
+- With a known S, D(lambda) = D_ref + S (lambda - lambda_ref), lambda_ref being the profile's
+  `reference_wavelength_nm`, inside the stated range and, under requested extrapolation, beyond it (no clamp to the
+  range edge). Example (own numbers): D 10 at 1550, range 1500 to 1600, S 0.06 gives 12.4 at 1590 and, extrapolated,
+  14.2 at 1620. Without S, D is held (recorded as second order only). A scenario D is taken as D at the requested
+  wavelength.
 - An unknown value raises `MissingFiberPropertyError` and the message says no default is substituted. The only way to
   run is a `SensitivityScenario` with a label; it may fill unknown values only, never override a known one, and it is
-  recorded in the result.
+  recorded in the result. Scenario values obey the same physical minima as known values (losses not negative,
+  group index at least 1). The label travels with the numbers: `profile_link_config` carries it into `LinkConfig`,
+  `transmit` metadata, `propagate_profile_field` (a `ProfileField` with the record) and `transmit_profile`, and a
+  scenario record has `not_a_benchmark_result: true`.
+- Loader: a table must be in dB/km (loss) or ps/(nm km) (D). A `measured` or `published-*` value needs a real
+  citation: at least 8 non-space characters and at least one word that is not a placeholder (none, n/a, tbd, todo,
+  unknown, unspecified, not available, no citation, see paper and similar). This is a form check; it cannot tell
+  whether the cited place exists.
+- matched-received-power refuses a non-finite target and a target above 10 dBm (a sanity limit: above it the laser and
+  detector would be outside anything modelled, so the number is taken to be a mistake). It is not the owner's -5 dBm
+  Hong receiver limit, which is not enforced here. The refusal does not depend on any scenario.
 - Kerr, inter-modal coupling, gas absorption and amplifier (EDFA) noise are unsupported. A profile that sets one `on`,
   or a call that lists one in `effects`, raises `UnsupportedEffectError`. `gamma` is stored and never active.
 - Chirp is not part of this gate. A transmitter chirp parameter is a separate question (plan Amendment 1, A1).
@@ -71,7 +87,7 @@ D > 0 delays the longer wavelength (tested with two carriers; it reverses for D 
 |---|---|---|
 | NANF-HONG-2021-4P76KM | L 4.76 km; D 2.04 at 1550 (`published-numerical-assumption`); S 0.004 (`derived`); n 1.003; pigtails ~2 dB; NANF-NANF splice ~0.1 dB; geometry; total link-loss envelope 6.45 to 8.33 dB over S+C+L (informational, not assigned to 1550) | distributed attenuation (pending the N2 gate), connector loss, gamma |
 | NANF-ALTUNA-2024-3P1KM, -11P1KM | length and the 1480 nm PoF transmission (37.2%, 3.6%) as `user-assumed`, kept only as a context measurement | 1550 attenuation, D, S, all lumped losses, group index. No geometry values were supplied to this gate |
-| NANF-WANG-2025-2P032KM | L 2.032 km, D 4.42, gamma 0.007 at 1550, all `user-assumed` | attenuation, lumped losses, S, group index; separate sample, no coherent workflow |
+| NANF-WANG-2025-2P032KM | L 2.032 km, D 4.42, gamma 0.007 at 1550, all `user-assumed` | attenuation, lumped losses, S, group index; separate record; sample identity unknown; no coherent workflow |
 | ITU-G652D-REFERENCE | the existing `g652d_preset`, unchanged | none |
 
 Altuna and Wang values come from the owner brief; only the Crossref identity of each paper was read. They are tagged
@@ -80,6 +96,9 @@ read. Which physical spool any record used is not asserted: the 11.1 km Altuna r
 share one, and each record stays separate.
 
 ## 7. Limits
+
+- N2 must not count a scenario `connector_loss_db` together with the Hong pigtail figure of about 2 dB: that figure
+  already covers the connectorisation, so a connector scenario on top would count the same loss twice.
 
 - The Hong D is one assumed value at 1550 nm with a derived slope; it is not a measurement of the spool and it is not
   a wavelength curve. A wavelength sweep (plan B2, C5) needs a D(lambda) table, which is N2 work.

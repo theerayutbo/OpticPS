@@ -22,7 +22,19 @@ No fit, scoring, paper-curve simulation, push, merge, tag, hardware. Fig.4, Fig.
 
 ## Physics checks
 - First null (model, small-signal tone, square law): 29.386, 27.970, 80.158 GHz vs 29.39, 27.97, 80.2.
-- beta2(17 ps/nm/km, 1550) = -21.68 ps^2/km. Group delay NANF 4.76 km = 15.926 us; saving at 5 km 7.759 us (Sources said ~7.8).
+- beta2(17 ps/nm/km, 1550) = -21.68 ps^2/km. Group delay NANF 4.76 km = 15.926 us [corrected in fix round: 15.925 us (15.92528), see Fix round]; saving at 5 km 7.759 us (Sources said ~7.8).
 
 ## Honest limits
 - No NANF attenuation known; Hong D is one assumed value; the guard cross-check of a digest corrupted in both test and doc needs data/external present.
+
+## Fix round (N1 QA, 12 findings; the text above is not rewritten)
+- 1 MAJOR: D(lambda) = D_ref + S (lambda - reference_wavelength_nm), also under requested extrapolation (no clamp); `extrapolated` truthful; D with no stated wavelength raises; validity tested for every used parameter. Own literals 12.4 (1590) and 14.2 (1620, extrapolated).
+- 2: scenario values obey the known-value minima (losses >= 0, group index >= 1, length > 0).
+- 3: label carried by `LinkConfig.sensitivity_scenario` -> `transmit` metadata; `propagate_profile_field` now returns `ProfileField(field, record)` (profile API only); scenario records have `not_a_benchmark_result: true`.
+- 4: table units enforced (dB/km, ps/(nm km)); measured/published-* need a real citation (>= 8 chars, a non-placeholder word). Table-beats-scalar conflict left as disclosed.
+- 5: matched-ROP refuses NaN/inf and > 10 dBm (sanity limit, scenario-free, before resolve); -5 dBm Hong limit is not the bound.
+- 6: Wang YAML and validity section 6 read "separate record; sample identity unknown"; test extended.
+- 7: group delay 15.925 us (15.92528); test abs=1e-5; the 15.926 in this file is annotated, not rewritten.
+- 8: plan Amendment 3 (previous pin ec0f325a, new pin in test_nanf_benchmark.py): C1 rule for 1e-2, 1e-3, 6e-3, 0; B5.3-N note; no tolerance changed; prefix hash test for text before "## Amendment 2" (92b20966) and before "## Amendment 3".
+- 9: test that fails if the Tx filter is dropped from `launch_mean_per_watt` (mutant run: killed); validity doc notes N2 must not double count scenario `connector_loss_db` with the ~2 dB pigtail figure.
+- 10 to 12: observations covered by items 8 and 9. G.652.D paths, anchor, goldens untouched. No fit, no Fig.4/6/8 values read.

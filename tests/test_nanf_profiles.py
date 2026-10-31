@@ -52,9 +52,11 @@ def test_value_is_null_if_and_only_if_unknown():
     with pytest.raises(FiberProfileError, match="null if and only if"):
         ProfileValue(1.0, "km", ParameterProvenance(ProvenanceCategory.UNKNOWN, "none"))
     with pytest.raises(FiberProfileError, match="null if and only if"):
-        ProfileValue(None, "km", ParameterProvenance(ProvenanceCategory.MEASURED, "x"))
+        ProfileValue(None, "km", ParameterProvenance(ProvenanceCategory.MEASURED, "unit test"))
     with pytest.raises(FiberProfileError):
-        ProfileValue(float("nan"), "km", ParameterProvenance(ProvenanceCategory.MEASURED, "x"))
+        ProfileValue(
+            float("nan"), "km", ParameterProvenance(ProvenanceCategory.MEASURED, "unit test")
+        )
 
 
 def test_a_known_value_needs_an_exact_citation_and_valid_fields():
@@ -63,9 +65,11 @@ def test_a_known_value_needs_an_exact_citation_and_valid_fields():
     with pytest.raises(ValueError):
         ParameterProvenance("invented-category", "x")
     with pytest.raises(FiberProfileError):
-        ParameterProvenance(ProvenanceCategory.MEASURED, "x", uncertainty=-0.1)
+        ParameterProvenance(ProvenanceCategory.MEASURED, "unit test", uncertainty=-0.1)
     with pytest.raises(FiberProfileError):
-        ParameterProvenance(ProvenanceCategory.MEASURED, "x", validity_range_nm=(1600, 1500))
+        ParameterProvenance(
+            ProvenanceCategory.MEASURED, "unit test", validity_range_nm=(1600, 1500)
+        )
 
 
 def test_profile_rejects_wrong_units_and_unphysical_values():
@@ -217,6 +221,11 @@ def test_no_secondary_profile_mentions_a_shared_or_separate_spool_claim():
     for name in ("NANF-HONG-2021-4P76KM", "NANF-ALTUNA-2024-3P1KM", "NANF-WANG-2025-2P032KM"):
         text = (FIBERS / f"{name}.yaml").read_text().lower()
         assert "no shared spool" not in text and "different spool" not in text
+        assert "separate sample" not in text and "separate spool" not in text
+    wang = (FIBERS / "NANF-WANG-2025-2P032KM.yaml").read_text().lower()
+    assert "separate record; sample identity unknown" in wang
+    doc = Path("docs/NANF_MODEL_VALIDITY.md").read_text().lower()
+    assert "separate record; sample identity unknown" in doc and "separate sample" not in doc
 
 
 def test_g652d_reference_file_keeps_the_existing_implementation():
@@ -365,3 +374,86 @@ def test_profile_is_immutable():
     with pytest.raises(TypeError):
         profile.effects["kerr"] = "on"  # type: ignore[index]
     assert replace(profile, profile_id="Y").profile_id == "Y"
+
+
+# --- Gate N1 fix round: loader strictness ---------------------------------------------------------
+
+
+def _table(unit, name="t", category="measured", citation="Lab notebook 7, 2024-03-02"):
+    return WavelengthTable(
+        name,
+        (1540.0, 1560.0),
+        (1.0, 2.0),
+        unit,
+        ParameterProvenance(ProvenanceCategory(category), citation),
+    )
+
+
+def test_table_units_are_enforced():
+    assert make_profile(loss_table=_table("dB/km")).loss_table is not None
+    assert make_profile(dispersion_table=_table("ps/(nm km)")).dispersion_table is not None
+    for unit in ("dB/m", "ps/nm", "dB", "ps/(nm m)", ""):
+        with pytest.raises(FiberProfileError, match="must be in dB/km"):
+            make_profile(loss_table=_table(unit))
+    with pytest.raises(FiberProfileError, match="must be in ps/\\(nm km\\)"):
+        make_profile(dispersion_table=_table("dB/km"))  # a loss table used as a D table
+    with pytest.raises(FiberProfileError, match="negative loss"):
+        make_profile(
+            loss_table=WavelengthTable(
+                "t",
+                (1540.0, 1560.0),
+                (0.1, -0.2),
+                "dB/km",
+                ParameterProvenance(ProvenanceCategory.MEASURED, "Lab notebook 7"),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "citation",
+    ["none", "None", "NONE.", "n/a", "N/A", "na", "tbd", "TODO", "unknown", "-", "--", "?", "",
+     "  ", "not available", "none given", "no citation", "see paper", "x", "12345", "null",
+     "unspecified"],
+)  # fmt: skip
+@pytest.mark.parametrize("category", ["measured", "published-experimental",
+                                      "published-numerical-assumption"])  # fmt: skip
+def test_a_measured_or_published_value_needs_a_real_citation(category, citation):
+    with pytest.raises(FiberProfileError, match="citation"):
+        ParameterProvenance(ProvenanceCategory(category), citation)
+
+
+@pytest.mark.parametrize(
+    "citation",
+    ["Hong et al. 2021, Sec. II", "DOI 10.1109/JLT.2021.3097278", "Lab notebook 7, p. 3"],
+)
+def test_a_real_citation_is_accepted(citation):
+    for category in ("measured", "published-experimental", "published-numerical-assumption"):
+        assert ParameterProvenance(ProvenanceCategory(category), citation).citation == citation
+
+
+def test_the_yaml_loader_refuses_a_measured_value_cited_as_none(tmp_path):
+    text = (FIBERS / "NANF-HONG-2021-4P76KM.yaml").read_text()
+    assert load_fiber_config(FIBERS / "NANF-HONG-2021-4P76KM.yaml")
+    bad = text.replace("category: published-numerical-assumption", "category: measured", 1)
+    bad = bad.replace(
+        'citation: "Hong et al. 2021, Sec. II, assumed D of the NANF at 1550 nm (5 km simulation)"',
+        "citation: none",
+        1,
+    )
+    assert bad != text
+    path = tmp_path / "bad.yaml"
+    path.write_text(bad)
+    with pytest.raises(FiberProfileError, match="real citation"):
+        load_fiber_config(path)
+
+
+def test_the_yaml_loader_refuses_a_table_in_the_wrong_unit(tmp_path):
+    text = (FIBERS / "NANF-HONG-2021-4P76KM.yaml").read_text()
+    table = (
+        "loss_table:\n  name: t\n  unit: dB/m\n  wavelengths_nm: [1540, 1560]\n  values: [0.1, 0.2]\n"
+        "  provenance: {category: measured, citation: Lab notebook 7 page 3}\n"
+    )
+    path = tmp_path / "t.yaml"
+    path.write_text(text + table)
+    with pytest.raises(FiberProfileError, match="must be in dB/km"):
+        load_fiber_config(path)

@@ -17,9 +17,11 @@ DATA_DIR = Path("data/external/nanf_hong2021")
 # (N0 fix round) is recorded in the plan; it supersedes this pin with the one below. A deliberate
 # amendment must change the current pin and add a dated section to the plan.
 PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
-# Pin after Amendment 1 (commit 843d223); replaced by the pin below at Amendment 2 (Gate N1).
+# Pin after Amendment 1 (commit 843d223); replaced at Amendment 2 (Gate N1), then at Amendment 3
+# (N1 fix round).
 PLAN_SHA256_AMENDMENT1 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
-PLAN_SHA256 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
+PLAN_SHA256_AMENDMENT2 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
+PLAN_SHA256 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -91,6 +93,29 @@ def test_original_plan_section_is_unchanged_by_amendments() -> None:
     # if the current pin is moved with it.
     prefix = PLAN.read_bytes().split(b"## Amendment 1")[0]
     assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_ORIGINAL
+
+
+def test_plan_text_before_amendment_2_is_unchanged_by_later_amendments() -> None:
+    # Amendment 1 and everything before it: hashes to the Amendment 1 pin.
+    prefix = PLAN.read_bytes().split(b"## Amendment 2")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT1
+
+
+def test_plan_text_before_amendment_3_is_unchanged_and_amendment_3_records_the_previous_pin() -> (
+    None
+):
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 3")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT2
+    text = raw.decode()
+    assert text.index("## Amendment 3") > text.index("## Amendment 2")
+    amendment = text.split("## Amendment 3")[1]
+    assert PLAN_SHA256_AMENDMENT2 in amendment and PLAN_SHA256 not in text
+    assert "1e-2, 1e-3, 6e-3, 0" in amendment and "[r3, r4]" in amendment
+    assert "2026-10-31" in text.split("## Amendment 3")[1].splitlines()[0]
+    # B5.3 qualification only: no tolerance restated or moved
+    assert "set knowing" in amendment and "23.33" in amendment and "0.67" in amendment
+    assert "no criterion changes" in amendment
 
 
 def test_plan_amendment_2_records_previous_pin_and_closes_review_items() -> None:

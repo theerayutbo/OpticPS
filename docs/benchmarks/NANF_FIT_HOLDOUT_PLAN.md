@@ -442,3 +442,39 @@ mismatch and is not tuned away. These definitions are committed with the freeze 
 The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the 6-parameter cap, the criteria
 thresholds of section 4 and A3 (apart from the cases defined above), and the rule that no criterion is dropped,
 relaxed or added after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 3 (2026-10-31, N1 fix round, closing the C1 residual and noting B5.3)
+
+Previous SHA-256 of this file, pinned until now (Amendment 2):
+`ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; the text before
+"## Amendment 2" still hashes to the Amendment 1 pin `92b20966...ce5c0`, and a test checks that in addition to the
+prefix test for the original text). Where this amendment and anything above differ, this amendment governs. It is
+written before any scoring run; no fit or simulation of the paper's curves has run, and Fig.4, Fig.6 and Fig.8
+values and every holdout series stayed unread. No criterion's tolerance or threshold is changed.
+
+### C1-R. C1, the case of an upward point after a bracket (replaces the gloss of B1.1)
+
+The gloss of B1.1, "the ROP from which BER stays below the limit at every later uncensored point", is wrong for a
+curve such as BER 1e-2, 1e-3, 6e-3, 0 (points 1 to 4 by rising ROP: above, below, above, censored). A downward
+bracket exists (1 to 2) and B1.2 does not apply as written, but the curve is above the limit at point 3. The rule
+is now, for the scored points of one rate ordered by ROP, with P the last uncensored point:
+
+1. If P is below the threshold: the crossing is the interpolation in the last downward bracket (highest ROP) of two
+   adjacent uncensored points, as in B1.1. If there is no downward bracket, A3 applies (left-censored bound at the
+   first scored ROP).
+2. If P is above the threshold: any earlier downward bracket is not used. If a censored point follows P, the
+   crossing is the interval [ROP of P, ROP of the first censored point after P] (B1.2 extended to curves that fell
+   earlier). If no censored point follows P, it is a right-censored bound "above the ROP of P". B1.3 scores both.
+3. The same rule is applied to the simulated curve.
+
+Worked cases, ROPs r1 to r4 rising: 1e-2, 1e-3, 6e-3, 0 gives the interval [r3, r4]; 1e-2, 1e-3, 6e-3, 5e-3 gives
+"above r4"; 1e-2, 1e-3, 6e-3, 1e-3 gives the interpolated crossing between r3 and r4; 1e-2, 1e-3, 0, 0 gives the
+crossing between r1 and r2; 1e-2, 5e-3, 0, 0 gives the interval [r2, r3] (unchanged from B1.2). This amendment was
+written without testing whether Fig.4 contains any of these cases.
+
+### B5.3-N. The 0.5 GHz threshold of B5.3
+
+The threshold of 0.5 GHz in B5.3 was set knowing the paper's "around 24 GHz". A published null of 24.0 GHz misses
+23.33 GHz by 0.67 GHz, so the flag `POSSIBLE CLOCK-SPIKE COINCIDENCE` would not fire for it. This qualifies how the
+flag is read only; the threshold is not moved and no criterion changes.

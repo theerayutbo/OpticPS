@@ -12,6 +12,10 @@ OFF = {k: "off" for k in UNSUPPORTED_EFFECTS}
 
 
 def known(value, unit, category="user-assumed", **prov):
+    if (
+        unit == "ps/(nm km)"
+    ):  # a D must state its wavelength (it has no place on the axis otherwise)
+        prov.setdefault("measurement_wavelength_nm", 1550.0)
     return ProfileValue(
         value, unit, ParameterProvenance(ProvenanceCategory(category), "unit test", **prov)
     )

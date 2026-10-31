@@ -12,6 +12,7 @@ attenuation apply to cable, and Note 1 of Table 2 excludes short cables such as 
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Hashable, Mapping
 from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
@@ -349,6 +350,24 @@ class ProvenanceCategory(StrEnum):
     UNKNOWN = "unknown"
 
 
+# Words that, alone, are not a citation. A measured or published value needs a citation that has at
+# least 8 non-space characters and at least one word outside this set (form check only: it cannot
+# tell whether the cited place exists).
+_PLACEHOLDER_WORDS = frozenset(
+    "none n a na nil null tbd todo unknown unspecified not available applicable given provided "
+    "no citation source sources ref reference see text paper article tba x".split()
+)
+_CITED_CATEGORIES = ("measured", "published-experimental", "published-numerical-assumption")
+
+
+def is_real_citation(citation: str) -> bool:
+    """Return True if the text is more than a blank or placeholder such as "none" or "n/a"."""
+    if len(citation.replace(" ", "")) < 8:
+        return False
+    words = re.findall(r"[a-z0-9]+", citation.casefold())
+    return any(w not in _PLACEHOLDER_WORDS for w in words)
+
+
 def _finite(value: object, name: str) -> float:
     if isinstance(value, bool) or not isinstance(value, int | float) or not math.isfinite(value):
         raise FiberProfileError(f"{name} must be a finite number, got {value!r}")
@@ -372,6 +391,11 @@ class ParameterProvenance:
             raise FiberProfileError("citation must be text")
         if self.category is not ProvenanceCategory.UNKNOWN and not self.citation.strip():
             raise FiberProfileError(f"a {self.category.value} value needs an exact citation")
+        if self.category.value in _CITED_CATEGORIES and not is_real_citation(self.citation):
+            raise FiberProfileError(
+                f"a {self.category.value} value needs a real citation, not {self.citation!r} "
+                "(at least 8 characters and a word that is not a placeholder such as none)"
+            )
         if self.measurement_wavelength_nm is not None and (
             _finite(self.measurement_wavelength_nm, "measurement_wavelength_nm") <= 0
         ):
@@ -516,11 +540,15 @@ class SensitivityScenario:
         extra = set(self.values) - allowed
         if extra:
             raise FiberProfileError(f"scenario fields not allowed: {sorted(extra)}")
-        object.__setattr__(
-            self,
-            "values",
-            MappingProxyType({k: _finite(v, k) for k, v in dict(self.values).items()}),
-        )
+        checked = {k: _finite(v, k) for k, v in dict(self.values).items()}
+        for name, value in checked.items():
+            _, minimum, strict = _SCALAR_FIELDS[name]
+            if minimum is not None and (value < minimum or (strict and value == minimum)):
+                raise FiberProfileError(
+                    f"scenario value {name}={value} is outside its physical range "
+                    f"(minimum {minimum}{', exclusive' if strict else ''})"
+                )
+        object.__setattr__(self, "values", MappingProxyType(checked))
 
 
 # profile field name -> (unit, minimum, strict minimum?)
@@ -589,6 +617,19 @@ class FiberProfile:
             raise FiberProfileError(
                 f"effects must state each of {UNSUPPORTED_EFFECTS} as 'off' or 'on'"
             )
+        for table, field_name in (
+            (self.loss_table, "attenuation_db_per_km"),
+            (self.dispersion_table, "dispersion_ps_per_nm_km"),
+        ):
+            if table is not None:
+                unit = _SCALAR_FIELDS[field_name][0]
+                if table.unit != unit:
+                    raise FiberProfileError(
+                        f"table {table.name!r} for {field_name} must be in {unit}, got "
+                        f"{table.unit!r}"
+                    )
+                if field_name == "attenuation_db_per_km" and min(table.values) < 0:
+                    raise FiberProfileError(f"loss table {table.name!r} has a negative loss")
         object.__setattr__(self, "effects", MappingProxyType(dict(self.effects)))
         object.__setattr__(self, "geometry", MappingProxyType(dict(self.geometry)))
         object.__setattr__(self, "measurements", tuple(self.measurements))
@@ -651,6 +692,7 @@ class ResolvedFiber:
             "sources": dict(self.sources),
             "extrapolated": list(self.extrapolated),
             "sensitivity_scenario": self.scenario_label,
+            **({"not_a_benchmark_result": True} if self.scenario_label is not None else {}),
             "kerr_intermodal_gas_absorption_amplifier_noise": "off (unsupported)",
             "units": {
                 "wavelength": "nm",
@@ -739,6 +781,12 @@ def resolve_profile(
         assert pv.value is not None
         sources[name] = pv.provenance.category.value
         value = pv.value
+        is_d = name == "dispersion_ps_per_nm_km"
+        if is_d and pv.stated_range_nm is None:
+            raise OutOfValidityRangeError(
+                "dispersion_ps_per_nm_km states no wavelength (neither a measurement wavelength "
+                "nor a validity range), so it cannot be placed on the wavelength axis; state one"
+            )
         if not pv.covers(wavelength_nm):
             if not allow_extrapolation:
                 span = pv.stated_range_nm
@@ -747,14 +795,16 @@ def resolve_profile(
                     "extrapolation request or a table"
                 )
             extrapolated.append(name)
-            if name == "dispersion_ps_per_nm_km" and slope_known and pv.stated_range_nm:
-                assert slope_pv.value is not None
-                ref = (
-                    pv.stated_range_nm[0]
-                    if wavelength_nm < pv.stated_range_nm[0]
-                    else (pv.stated_range_nm[1])
+        if is_d and slope_known:
+            # D(lambda) = D_ref + S (lambda - lambda_ref), from the profile's reference wavelength,
+            # inside the stated range and, when extrapolation was requested, beyond it (no clamp).
+            ref_pv = profile.reference_wavelength_nm
+            if not ref_pv.known:
+                raise MissingFiberPropertyError(
+                    "reference_wavelength_nm is unknown; a dispersion slope needs it"
                 )
-                value = pv.value + slope_pv.value * (wavelength_nm - ref)
+            assert slope_pv.value is not None and ref_pv.value is not None
+            value = pv.value + slope_pv.value * (wavelength_nm - ref_pv.value)
         out[name] = value
     if missing:
         raise MissingFiberPropertyError(

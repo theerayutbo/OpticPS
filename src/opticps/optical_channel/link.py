@@ -89,6 +89,7 @@ class LinkConfig:
     adc_bits: int | None = None
     timing_offset_samples: float = 0.0
     predistort: bool = False
+    sensitivity_scenario: str | None = None
 
     def __post_init__(self) -> None:
         if self.fiber is not None:
@@ -269,6 +270,9 @@ def fiber_metadata(config: LinkConfig) -> dict[str, Any]:
         if slope is None:
             record["dispersion_slope_ps_per_nm2_km"] = None
     record["fiber_length_km"] = config.fiber_length_km
+    if config.sensitivity_scenario is not None:
+        record["sensitivity_scenario"] = config.sensitivity_scenario
+        record["not_a_benchmark_result"] = True
     return record
 
 
@@ -410,6 +414,7 @@ def profile_link_config(resolved: ResolvedFiber, base: LinkConfig | None = None)
         dispersion_slope_ps_per_nm2_km=resolved.dispersion_slope_ps_per_nm2_km,
         wavelength_m=resolved.wavelength_nm * 1e-9,
         extra_attenuation_db=base.extra_attenuation_db + resolved.lumped_loss_db,
+        sensitivity_scenario=resolved.scenario_label,
     )
 
 
@@ -421,9 +426,26 @@ def span_loss_db(config: LinkConfig) -> float:
     )
 
 
+@dataclass(frozen=True)
+class ProfileField:
+    """A propagated optical envelope with the record of the profile that produced it.
+
+    `record` is the resolved profile's record; for a sensitivity scenario it carries the scenario
+    label and `not_a_benchmark_result: true`, so the label travels with the field.
+    """
+
+    field: NDArray[np.complex128]
+    record: dict[str, Any]
+
+    @property
+    def sensitivity_scenario(self) -> str | None:
+        label = self.record["sensitivity_scenario"]
+        return None if label is None else str(label)
+
+
 def propagate_profile_field(
     field: NDArray[np.complex128], sample_rate: float, resolved: ResolvedFiber
-) -> NDArray[np.complex128]:
+) -> ProfileField:
     """Propagate a complex optical envelope through a resolved profile.
 
     Power is attenuated by 10^(-total/10), that is the amplitude by 10^(-total/20), then the
@@ -434,7 +456,7 @@ def propagate_profile_field(
     out = field * 10 ** (-span_loss_db(config) / 20)
     if config.fiber_length_km > 0:
         out = dispersive_field(out, sample_rate, config)
-    return np.asarray(out, dtype=np.complex128)
+    return ProfileField(np.asarray(out, dtype=np.complex128), resolved.to_record())
 
 
 def group_delay_s(resolved: ResolvedFiber) -> float:
@@ -444,6 +466,25 @@ def group_delay_s(resolved: ResolvedFiber) -> float:
             f"profile {resolved.profile_id!r} has no group index; none is assumed"
         )
     return resolved.group_index * resolved.length_km * 1e3 / SPEED_OF_LIGHT
+
+
+# Upper bound of a matched received power. It is a sanity limit, not a device limit: above +10 dBm
+# (10 mW) at the detector the matched protocol would need a laser far beyond any link in this study
+# and a detector beyond the linear range of any receiver modelled here, so the number is a mistake
+# (for example dBm entered as mW). The owner's -5 dBm Hong receiver limit is a different thing and
+# is not enforced here.
+MAX_MATCHED_RECEIVED_POWER_DBM = 10.0
+
+
+def check_matched_received_power_dbm(received_power_dbm: float) -> None:
+    """Raise ValueError if the matched-received-power target is non-finite or above the bound."""
+    if not math.isfinite(received_power_dbm):
+        raise ValueError(f"received_power_dbm must be finite, got {received_power_dbm!r}")
+    if received_power_dbm > MAX_MATCHED_RECEIVED_POWER_DBM:
+        raise ValueError(
+            f"received_power_dbm={received_power_dbm:g} exceeds the sanity limit "
+            f"{MAX_MATCHED_RECEIVED_POWER_DBM:g} dBm (see MAX_MATCHED_RECEIVED_POWER_DBM)"
+        )
 
 
 def launch_mean_per_watt(normalized: FloatArray, sample_rate: float, config: LinkConfig) -> float:
@@ -495,6 +536,9 @@ def transmit_profile(
     """
     if effects:
         raise UnsupportedEffectError(f"effects {tuple(effects)} are not implemented")
+    if PowerProtocol(protocol) is PowerProtocol.MATCHED_RECEIVED and received_power_dbm is not None:
+        # scenario-free: checked before any profile value is resolved
+        check_matched_received_power_dbm(received_power_dbm)
     resolved = resolve_profile(
         profile, wavelength_nm, scenario=scenario, allow_extrapolation=allow_extrapolation
     )

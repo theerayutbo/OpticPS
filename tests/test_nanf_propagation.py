@@ -11,7 +11,10 @@ import pytest
 
 from nanf_profile_helpers import known, make_profile, unknown
 from opticps.optical_channel.fiber import (
+    FiberProfileError,
+    OutOfValidityRangeError,
     ParameterProvenance,
+    ProfileValue,
     ProvenanceCategory,
     SensitivityScenario,
     UnsupportedEffectError,
@@ -24,9 +27,18 @@ from opticps.optical_channel.link import (
     beta2_s2_per_m,
     dispersive_field,
     group_delay_s,
+    lowpass,
+    mzm_intensity,
+    profile_link_config,
     propagate_profile_field,
+    transmit,
     transmit_profile,
 )
+
+
+def propagate_array(field, sample_rate, resolved):
+    return propagate_profile_field(field, sample_rate, resolved).field
+
 
 C = 299_792_458.0  # m/s, exact
 LAMBDA = 1550e-9
@@ -54,14 +66,14 @@ def power(x):
 def test_lossless_dispersionless_fiber_is_the_identity():
     profile = lossless(dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"))
     field = random_field()
-    out = propagate_profile_field(field, 64e9, resolve_profile(profile, 1550.0))
+    out = propagate_array(field, 64e9, resolve_profile(profile, 1550.0))
     assert np.allclose(out, field, rtol=0, atol=1e-12)
 
 
 def test_lossless_dispersion_preserves_power_and_changes_the_field():
     resolved = resolve_profile(lossless(), 1550.0)
     field = random_field()
-    out = propagate_profile_field(field, 256e9, resolved)
+    out = propagate_array(field, 256e9, resolved)
     assert power(out) == pytest.approx(power(field), rel=1e-12)
     assert not np.allclose(out, field, atol=1e-3)
 
@@ -74,7 +86,7 @@ def test_passive_loss_cannot_raise_power(alpha, d, length):
         length_km=known(length, "km"),
     )
     field = random_field()
-    out = propagate_profile_field(field, 128e9, resolve_profile(profile, 1550.0))
+    out = propagate_array(field, 128e9, resolve_profile(profile, 1550.0))
     assert power(out) <= power(field) * (1 + 1e-12)
 
 
@@ -88,18 +100,18 @@ def test_power_ratio_follows_ten_to_minus_alpha_l_over_ten():
             pigtail_loss_db=known(0.0, "dB"),
             splice_loss_db=known(0.0, "dB"),
         )
-        out = propagate_profile_field(field, 64e9, resolve_profile(profile, 1550.0))
+        out = propagate_array(field, 64e9, resolve_profile(profile, 1550.0))
         assert power(out) / power(field) == pytest.approx(10 ** (-alpha * length / 10), rel=1e-12)
     # ratio between two lengths of the same fibre
     p5 = power(
-        propagate_profile_field(
+        propagate_array(
             field,
             64e9,
             resolve_profile(make_profile(length_km=known(5.0, "km")), 1550.0),
         )
     )
     p9 = power(
-        propagate_profile_field(
+        propagate_array(
             field,
             64e9,
             resolve_profile(make_profile(length_km=known(9.0, "km")), 1550.0),
@@ -112,7 +124,7 @@ def test_amplitude_not_power_is_what_the_loss_exponent_halves():
     profile = lossless(
         pigtail_loss_db=known(6.0, "dB"), dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)")
     )
-    out = propagate_profile_field(np.ones(8, complex), 64e9, resolve_profile(profile, 1550.0))
+    out = propagate_array(np.ones(8, complex), 64e9, resolve_profile(profile, 1550.0))
     assert np.allclose(np.abs(out), 10 ** (-6.0 / 20))
     assert 10 ** (-6.0 / 20) == pytest.approx(
         0.501187, rel=1e-5
@@ -128,7 +140,7 @@ def test_two_db_lump_is_counted_once():
     resolved = resolve_profile(profile, 1550.0)
     assert resolved.total_loss_db == 2.0
     field = random_field()
-    out = propagate_profile_field(field, 64e9, resolved)
+    out = propagate_array(field, 64e9, resolved)
     assert power(out) / power(field) == pytest.approx(10 ** (-0.2), rel=1e-12)
     # three separate components add; none is applied twice
     three = make_profile(
@@ -138,7 +150,7 @@ def test_two_db_lump_is_counted_once():
         splice_loss_db=known(0.1, "dB"),
         dispersion_ps_per_nm_km=known(0.0, "ps/(nm km)"),
     )
-    out3 = propagate_profile_field(field, 64e9, resolve_profile(three, 1550.0))
+    out3 = propagate_array(field, 64e9, resolve_profile(three, 1550.0))
     assert power(out3) / power(field) == pytest.approx(10 ** (-0.26), rel=1e-12)
 
 
@@ -169,7 +181,7 @@ def small_signal_response(field_builder, resolved, fs, n, k):
     t = np.arange(n) / fs
     f = k * fs / n
     field = np.sqrt(1 + 0.01 * np.cos(2 * np.pi * f * t)) + 0j
-    out = propagate_profile_field(field, fs, resolved)
+    out = propagate_array(field, fs, resolved)
     spec_in = np.fft.fft(np.abs(field) ** 2)[k]
     spec_out = np.fft.fft(np.abs(out) ** 2)[k]
     return float(np.real(spec_out / spec_in))
@@ -256,7 +268,7 @@ def test_sign_of_d_positive_d_delays_longer_wavelengths():
             length_km=known(50.0, "km"),
             dispersion_ps_per_nm_km=known(d_ps, "ps/(nm km)"),
         )
-        out = propagate_profile_field(pulse, fs, resolve_profile(profile, 1550.0))
+        out = propagate_array(pulse, fs, resolve_profile(profile, 1550.0))
         p = np.abs(out) ** 2
         return float((p * t).sum() / p.sum())
 
@@ -280,7 +292,7 @@ def test_d_to_beta2_matches_an_independent_reference_value():
     omega = 2 * np.pi * k * fs / n
     tone = np.exp(1j * omega * np.arange(n) / fs)
     resolved = resolve_profile(lossless(dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)")), 1550.0)
-    out = propagate_profile_field(tone, fs, resolved)
+    out = propagate_array(tone, fs, resolved)
     phase = float(np.angle(out[0] / tone[0]))
     expected = 0.5 * beta2_s2_per_m(LAMBDA, 2.04e-6) * 5e3 * omega**2
     assert math.remainder(phase - expected, 2 * math.pi) == pytest.approx(0.0, abs=1e-6)
@@ -302,7 +314,7 @@ def test_slope_adds_the_third_order_term_with_independent_beta3():
             dispersion_ps_per_nm_km=known(2.04, "ps/(nm km)"),
             dispersion_slope_ps_per_nm2_km=known(slope_ps, "ps/(nm^2 km)"),
         )
-        out = propagate_profile_field(pulse, fs, resolve_profile(profile, 1550.0))
+        out = propagate_array(pulse, fs, resolve_profile(profile, 1550.0))
         p = np.abs(out) ** 2
         return float((p * t).sum() / p.sum())
 
@@ -332,7 +344,9 @@ def test_group_delay_is_ng_l_over_c_and_scales_linearly():
     scenario = SensitivityScenario("s", {"attenuation_db_per_km": 0.0, "connector_loss_db": 0.0})
     resolved = resolve_profile(hong, 1550.0, scenario=scenario)
     assert group_delay_s(resolved) == pytest.approx(1.003 * 4.76e3 / 299_792_458.0, rel=1e-12)
-    assert group_delay_s(resolved) * 1e6 == pytest.approx(15.926, abs=1e-3)  # microseconds
+    assert group_delay_s(resolved) * 1e6 == pytest.approx(
+        15.92528, abs=1e-5
+    )  # microseconds; 15.925 to the unit shown
     twice = resolve_profile(
         make_profile(length_km=known(9.52, "km"), group_index=known(1.003, "1")), 1550.0
     )
@@ -475,7 +489,7 @@ def test_table_dispersion_drives_the_propagation_and_range_is_enforced():
     expected = math.sqrt(C / (2 * LAMBDA**2 * 3.0e-6 * 5e3)) / 1e9
     assert first_null_ghz(resolved) == pytest.approx(expected, abs=0.05)
     with pytest.raises(Exception, match="no extrapolation"):
-        propagate_profile_field(random_field(), 64e9, resolve_profile(profile, 1640.0))
+        propagate_array(random_field(), 64e9, resolve_profile(profile, 1640.0))
 
 
 def test_g652d_path_is_unchanged_by_the_profile_code():
@@ -487,3 +501,182 @@ def test_g652d_path_is_unchanged_by_the_profile_code():
     omega = 2 * np.pi * np.fft.fftfreq(field.size, d=1 / 64e9)
     ref = np.fft.ifft(np.fft.fft(field) * np.exp(0.5j * beta2 * 20e3 * omega**2))
     assert np.array_equal(dispersive_field(field, 64e9, config), ref)
+
+
+# --- Gate N1 fix round ---------------------------------------------------------------------------
+
+
+def sloped(**over):
+    """D 10 at 1550 nm, valid 1500 to 1600 nm, S 0.06 ps/(nm^2 km): own literal numbers."""
+    return make_profile(
+        dispersion_ps_per_nm_km=known(
+            10.0, "ps/(nm km)", measurement_wavelength_nm=1550.0, validity_range_nm=(1500.0, 1600.0)
+        ),
+        dispersion_slope_ps_per_nm2_km=known(0.06, "ps/(nm^2 km)"),
+        **over,
+    )
+
+
+def test_slope_path_uses_the_reference_wavelength_inside_the_range():
+    resolved = resolve_profile(sloped(), 1590.0)
+    assert resolved.dispersion_ps_per_nm_km == pytest.approx(12.4, abs=1e-12)  # 10 + 0.06 * 40
+    assert "dispersion_ps_per_nm_km" not in resolved.extrapolated  # inside the stated range
+    assert resolve_profile(sloped(), 1510.0).dispersion_ps_per_nm_km == pytest.approx(7.6)
+    assert resolve_profile(sloped(), 1550.0).dispersion_ps_per_nm_km == 10.0
+
+
+def test_slope_path_under_requested_extrapolation_is_not_clamped_to_the_range_edge():
+    resolved = resolve_profile(sloped(), 1620.0, allow_extrapolation=True)
+    assert resolved.dispersion_ps_per_nm_km == pytest.approx(14.2, abs=1e-12)  # 10 + 0.06 * 70
+    assert "dispersion_ps_per_nm_km" in resolved.extrapolated  # truthful: outside the range
+    with pytest.raises(OutOfValidityRangeError):
+        resolve_profile(sloped(), 1620.0)
+
+
+def test_slope_is_applied_from_the_profile_reference_wavelength_not_the_measurement_one():
+    profile = sloped(reference_wavelength_nm=known(1500.0, "nm"))
+    assert resolve_profile(profile, 1590.0).dispersion_ps_per_nm_km == pytest.approx(15.4)
+
+
+def test_a_dispersion_without_a_stated_wavelength_raises_and_the_reference_is_not_a_stand_in():
+    d = ProfileValue(
+        10.0, "ps/(nm km)", ParameterProvenance(ProvenanceCategory.USER_ASSUMED, "unit test")
+    )
+    for reference in (1310.0, 1550.0):
+        profile = make_profile(
+            dispersion_ps_per_nm_km=d, reference_wavelength_nm=known(reference, "nm")
+        )
+        for wavelength in (1310.0, 1550.0):
+            with pytest.raises(OutOfValidityRangeError, match="states no wavelength"):
+                resolve_profile(profile, wavelength)
+
+
+def test_the_validity_check_applies_to_every_parameter_used():
+    for name, unit, value in (
+        ("attenuation_db_per_km", "dB/km", 0.4),
+        ("connector_loss_db", "dB", 0.1),
+        ("pigtail_loss_db", "dB", 0.1),
+        ("splice_loss_db", "dB", 0.1),
+        ("group_index", "1", 1.003),
+        ("dispersion_slope_ps_per_nm2_km", "ps/(nm^2 km)", 0.06),
+    ):
+        wide_d = known(10.0, "ps/(nm km)", validity_range_nm=(1400.0, 1700.0))
+        profile = make_profile(
+            dispersion_ps_per_nm_km=wide_d,
+            **{name: known(value, unit, validity_range_nm=(1540.0, 1560.0))},
+        )
+        assert resolve_profile(profile, 1550.0)
+        with pytest.raises(OutOfValidityRangeError, match=name):
+            resolve_profile(profile, 1590.0)
+        assert name in resolve_profile(profile, 1590.0, allow_extrapolation=True).extrapolated
+
+
+def test_scenario_values_have_the_same_physical_minima_as_known_values():
+    for name, bad in (
+        ("connector_loss_db", -5.0),
+        ("pigtail_loss_db", -0.1),
+        ("splice_loss_db", -1e-9),
+        ("attenuation_db_per_km", -0.2),
+        ("length_km", 0.0),
+        ("group_index", 0.2),
+        ("group_index", 0.999),
+        ("gamma_per_w_km", -1.0),
+    ):
+        with pytest.raises(FiberProfileError, match="physical range"):
+            SensitivityScenario("s", {name: bad})
+    ok = SensitivityScenario("s", {"connector_loss_db": 0.0, "group_index": 1.0})
+    assert ok.values["group_index"] == 1.0
+
+
+def _scenario_profile():
+    return make_profile(connector_loss_db=unknown("dB"))
+
+
+def test_the_scenario_label_survives_the_public_link_route():
+    scenario = SensitivityScenario("connector guess 0.5 dB", {"connector_loss_db": 0.5})
+    resolved = resolve_profile(_scenario_profile(), 1550.0, scenario=scenario)
+    config = profile_link_config(resolved)
+    assert config.sensitivity_scenario == "connector guess 0.5 dB"
+    result = transmit(quad_wave(), 64e9, config, np.random.default_rng(0))
+    assert result.fiber["sensitivity_scenario"] == "connector guess 0.5 dB"
+    assert result.fiber["not_a_benchmark_result"] is True
+    field = propagate_profile_field(random_field(256), 64e9, resolved)
+    assert field.sensitivity_scenario == "connector guess 0.5 dB"
+    assert field.record["not_a_benchmark_result"] is True
+    assert field.field.shape == (256,)
+    res = transmit_profile(
+        quad_wave(), 64e9, _scenario_profile(), 1550.0, np.random.default_rng(0), scenario=scenario
+    )
+    assert res.link.fiber["not_a_benchmark_result"] is True
+    assert res.link.fiber["sensitivity_scenario"] == "connector guess 0.5 dB"
+
+
+def test_no_scenario_means_no_label_and_no_benchmark_flag():
+    resolved = resolve_profile(make_profile(), 1550.0)
+    assert resolved.to_record()["sensitivity_scenario"] is None
+    assert "not_a_benchmark_result" not in resolved.to_record()
+    result = transmit(quad_wave(), 64e9, profile_link_config(resolved), np.random.default_rng(0))
+    assert "not_a_benchmark_result" not in result.fiber
+    assert "sensitivity_scenario" not in result.fiber
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), float("-inf"), 60.0, 10.001])
+def test_matched_power_refuses_a_non_finite_or_implausible_target(bad):
+    wave, rng = quad_wave(), np.random.default_rng(0)
+    for profile, scenario in (
+        (make_profile(), None),
+        (
+            _scenario_profile(),
+            SensitivityScenario("s", {"connector_loss_db": 0.5}),
+        ),
+    ):
+        with pytest.raises(ValueError, match="received_power_dbm"):
+            transmit_profile(
+                wave,
+                64e9,
+                profile,
+                1550.0,
+                rng,
+                protocol=PowerProtocol.MATCHED_RECEIVED,
+                received_power_dbm=bad,
+                scenario=scenario,
+            )
+
+
+def test_matched_power_accepts_the_stated_upper_bound_and_the_owner_receiver_range():
+    from opticps.optical_channel.link import (
+        MAX_MATCHED_RECEIVED_POWER_DBM,
+        check_matched_received_power_dbm,
+    )
+
+    assert MAX_MATCHED_RECEIVED_POWER_DBM == 10.0
+    for ok in (-30.0, -5.0, 0.0, 10.0):
+        check_matched_received_power_dbm(ok)
+
+
+def test_matched_power_follows_the_transmitter_filter_in_the_launch_mean():
+    # A narrow transmitter filter changes the mean modulator output. The matched protocol must use
+    # that mean; dropping the filter from launch_mean_per_watt would miss the target.
+    wave = quad_wave()
+    fs = 64e9
+    base = LinkConfig(transmitter_bandwidth_hz=4e9, extra_attenuation_db=1.5)
+    drive = wave * base.drive_vpp / 2
+    mean_unfiltered = float(mzm_intensity(drive, base).mean())
+    mean_filtered = float(mzm_intensity(lowpass(drive, fs, 4e9), base).mean())
+    # the filter moves the mean by 4e-4 here, 1e5 times the 1e-9 tolerance below
+    assert abs(mean_filtered / mean_unfiltered - 1) > 1e-4
+    res = transmit_profile(
+        wave,
+        fs,
+        make_profile(length_km=known(2.0, "km")),
+        1550.0,
+        np.random.default_rng(1),
+        base=base,
+        protocol=PowerProtocol.MATCHED_RECEIVED,
+        received_power_dbm=-7.0,
+    )
+    target_w = 1e-3 * 10 ** (-7.0 / 10)
+    assert res.link.received_power_w == pytest.approx(target_w, rel=1e-9)
+    total_db = 0.5 * 2.0 + 1.5
+    expected_laser = target_w / (mean_filtered * 10 ** (-total_db / 10))
+    assert res.config.laser_power_w == pytest.approx(expected_laser, rel=1e-9)
