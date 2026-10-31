@@ -136,11 +136,13 @@ Points to carry, none a gate failure:
 |---|---|
 | Base HEAD at N0 start | `94a3ec9` (`v1.3-mpam`) |
 | N0 deliverables | `docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md`, `docs/NANF_SOURCES_AND_PROVENANCE.md`, `tests/test_nanf_benchmark.py`, handoff `docs/orchestration/opticps-v2/handoff/N0_dev.md`, entries in this file, `ALGORITHM_PROVENANCE.md`, `engineering_log/LOG.md` |
-| Plan hash | `c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22`, committed (9a891c9) before any workbook value was read; pinned in `tests/test_nanf_benchmark.py` |
-| Label | `LITERATURE BENCHMARK / CALIBRATION ONLY` (one NANF spool, one SSMF spool, one session) |
+| Plan hash | original `c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22`, committed (9a891c9) before any workbook value was read; after Amendment 1 (843d223) the pin is `92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0` in `tests/test_nanf_benchmark.py` |
+| Label | `LITERATURE BENCHMARK / CALIBRATION ONLY` (one NANF spool, one SSMF spool; session count not stated, readme says May 2020) |
 | Licence | dataset CC BY 4.0 at the DataCite record only (readme blank, landing page unread); paper under IEEE terms. No third-party data, PDF or figure in Git. |
 | Tests | `912 passed` (905 at E0 plus 7 in `tests/test_nanf_benchmark.py`); anchor 15 passed; `ruff check`, `ruff format --check`, `mypy` clean; no dependency change |
 | Fit, simulation, push, merge, tag, hardware | none |
+| N0 fix round tests | `1107 passed` in the shared checkout (includes the parallel E0 fix work; `tests/test_nanf_benchmark.py` 10 tests, was 7); anchor green (in the default run); ruff check, ruff format --check, mypy clean |
+| N0 fix round | review FAIL (4 MAJOR) addressed by plan Amendment 1 (previous pin `c4771dc1...bef22` recorded; current pin in `tests/test_nanf_benchmark.py`), corrected sources doc, content-based third-party guard; see handoff `N0_dev.md` |
 
 ## Byte anchor
 

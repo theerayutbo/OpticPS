@@ -1,6 +1,6 @@
 # NANF benchmark: sources, licences, schema and provenance (Gate N0)
 
-Written 2026-10-31. Scope: Hong et al. 2021 (NANF versus SSMF, IM/DD). Nothing here is a fit or a
+Written 2026-10-31; revised in the N0 fix round after independent review (same day). Scope: Hong et al. 2021 (NANF versus SSMF, IM/DD). Nothing here is a fit or a
 simulation. Third-party data, the PDF and figures are not in Git. Parameter facts below are small
 and carry their provenance. Companion plan: `docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md`.
 
@@ -8,9 +8,11 @@ Provenance vocabulary (a parameter or claim carries exactly one of these tags, w
 brackets after the word prov, as in the tables below):
 `measured`, `published-experimental`, `published-numerical-assumption`, `derived`,
 `representative-literature`, `user-assumed`, `fitted-training-only`, `unknown`.
-`measured` means a quantity the source reports as measured in its own experiment and that we read
-from its text or data. `published-experimental` is a setting or description of the experiment. Both
-are only as reliable as the source: a tag records how the value became known, not that it is true.
+`measured` means a quantity the source reports as a result of its own experiment (an outcome, a
+threshold reached, a penalty observed) and that we read from its text or data. `published-experimental`
+is a setting or description of the experiment (a length, a rate, a component choice), never a result.
+`derived` is something we computed from other tagged values. Both source tags are only as reliable as
+the source: a tag records how the value became known, not that it is true.
 
 ## 1. Objects, identifiers and retrieval
 
@@ -26,7 +28,12 @@ The two extracted files are byte-identical (SHA-256) to the two members of the z
 those two members (45,202 and 2,407 bytes). Retrieval date: the files were supplied by the owner and
 carry local modification times of 2026-10-31 (16:44 to 16:48); the original download date and URL are
 not known to this gate. Zip member timestamps are 2021-07-13. The dataset readme gives the file date
-as July 2021 and the data collection date as May 2020, University of Southampton, UK.
+as July 2021 and the data collection date as May 2020, University of Southampton, UK. The DataCite
+record lists a "Collected" date of 2021-05, which differs from the readme by a year; this register does
+not decide between them and uses neither as a session count (the number of sessions is not stated).
+DataCite registers the landing page https://eprints.soton.ac.uk/450180/ as the dataset URL. It was
+unreadable here (HTTP 403 to this gate's fetcher, 401 to the reviewer), so it is recorded as the
+registered source URL and as unread.
 
 ### 1.1 Which version of the paper is this
 
@@ -45,7 +52,7 @@ Checked 2026-10-31. This is a record of what was read, not legal advice.
 
 | Object | What was read | Status | Private use | Redistribution |
 |---|---|---|---|---|
-| Dataset D1889 | DataCite `rightsList` for the DOI (queried again in N0): "Creative Commons Attribution 4.0 International", SPDX `cc-by-4.0`. The readme `Licence:` field is blank. The repository landing page was not read (HTTP 403 to the fetcher). University page: default CC BY on open data. | CC BY 4.0 at the DOI-registry record only. Readme blank. Landing page unread. | Yes | CC BY 4.0 allows sharing and adaptation with attribution and an indication of changes. This project still keeps the data out of Git (owner rule, N0), because the readme is silent and the landing page was not read. |
+| Dataset D1889 | DataCite `rightsList` for the DOI (queried again in N0): "Creative Commons Attribution 4.0 International", SPDX `cc-by-4.0`. The readme `Licence:` field is blank. The repository landing page (https://eprints.soton.ac.uk/450180/, as registered in DataCite) was not read (HTTP 403 to the fetcher). University page: default CC BY on open data. | CC BY 4.0 at the DOI-registry record only. Readme blank. Landing page unread. | Yes | CC BY 4.0 allows sharing and adaptation with attribution and an indication of changes. This project still keeps the data out of Git (owner rule, N0), because the readme is silent and the landing page was not read. |
 | Paper | Crossref lists the IEEE licence for the version of record and the accepted manuscript. No Creative Commons licence. | Restricted (IEEE terms) | Reading and private analysis only | No. No PDF, figure, table or long quotation in Git or in reports. Small parameter facts with a citation only. |
 | Secondary sources (Section 7) | Crossref metadata only. Licence recorded where present. | See Section 7 | Metadata only | Not read, not redistributed |
 
@@ -53,14 +60,21 @@ Attribution text required by CC BY 4.0 if any dataset-derived content is ever sh
 source, licence link, and an indication of changes):
 
 > Hong, Y., Bradley, T. D., Taengnoi, N., Bottrill, K. R. H., Hayes, J. R., Jasion, G. T., Poletti,
-> F., Petropoulos, P., and Richardson, D. J. (2021). Dataset for "Hollow-core NANF for High-speed
-> Short-reach Transmission in the S+C+L-bands". University of Southampton.
+> F., Petropoulos, P., and Richardson, D. J. (2021). Hollow-core NANF for High-speed Short-reach
+> Transmission in the S+C+L-bands [Dataset]. University of Southampton.
 > https://doi.org/10.5258/SOTON/D1889. Licensed under CC BY 4.0
 > (https://creativecommons.org/licenses/by/4.0/). Changes: summarised and compared against
 > simulation by OpticPS; values may be reformatted.
 
-The DataCite creator list gives "Bottrill, Kyle"; the paper and readme give "Kyle R. H. Bottrill".
-The longer published form is used above.
+The title is the DataCite-registered title, exactly (the registered record has no "Dataset for"
+prefix; the resource type "Dataset" is given in brackets). The DataCite creator list gives "Bottrill,
+Kyle"; the paper and readme give "Kyle R. H. Bottrill". The longer published form is used above.
+
+Facts versus expression. Numbers, parameters and structural facts (a length, a rate, a column count) are
+facts and are recorded here with their source. The paper's wording, figures and tables, and the dataset's
+cell contents as a body, are expression or compiled data and are not copied into Git; the dataset is
+CC BY 4.0 by its registry record, the paper is under IEEE terms. Only short phrases quoted as labels (the
+registered title) appear verbatim.
 
 ## 3. Figure-to-sheet mapping
 
@@ -90,7 +104,7 @@ No header or other cell carries a unit string. Units below are inferred from the
 | Sheet | Dimension | Axis column(s) | Series (header cells) | Points per series |
 |---|---|---|---|---|
 | Fig.1 | A1:V49 | wavelength (A, G), frequency (M), fibre length (S) | (a) NANF, SSMF, NZ-DSF; (b) SMF@5km, NZ-DSF@5km, NANF@5km; (c) NANF, SMF, NZ-DSF; (d) SSMF, NZ-DSF, NANF | 46, 46, 36, 21 |
-| Fig.4 | A1:N30 | ROP (A, F, K), repeated per BER and SNR block | per rate (80, 100, 112): NANF, B2B, SMF; BER block rows 4 to 16, SNR block rows 20 to 30 | B2B and SMF 11; NANF 6 |
+| Fig.4 | A1:N30 | ROP (A, F, K), repeated per BER and SNR block | per rate (80, 100, 112): NANF, B2B, SMF; BER block rows 4 to 14, SNR block rows 20 to 30 | B2B and SMF 11; NANF 6 |
 | Fig.5 | A1:D20 | wavelength | ROP@NANF, ROP@SSMF, NANF loss | 19 |
 | Fig.6 | A1:N45 | wavelength (A, F, K) | per rate: NANF, B2B, SMF; BER block rows 4 to 22, SNR block rows 27 to 45 | 19 |
 | Fig.7 | A1:E9 | subcarrier number | SMF-BER, NANF-BER, SMF-Average SNR, NANF-Average SNR | 8 |
@@ -119,20 +133,27 @@ numbers. Performance cells were tested only for presence, type and a coarse rang
   -8.34 and -6.67), against 11 for B2B and SSMF (axis -12 to -2 dBm). Three B2B and SSMF points
   (-4, -3, -2 dBm) lie beyond the paper's -5 dBm receiver limit and are excluded from scoring by the plan.
 - Fig.9 and Fig.12 NANF have 6 of 8 points (ROP -12 to -7 dBm). The -6 and -5 dBm rows are blank.
-- Fig.11, SSMF column: 24 of 240 cells hold a cached error (`#NAME?`) from 24 formula cells. They sit
-  between 22.15 and 25.43 GHz, the region of the SSMF spectral null. Of the 25 text cells in the
-  column, one is the header. Consequence for the plan: the SSMF null in criterion C6 can be scored
-  on Fig.8 (240 numeric) but not on Fig.11. Unusable cells are treated as missing, never as a number.
+- Fig.11, SSMF column: all 24 of the error cells hold the formula `=-Inf` (cached result `#NAME?`),
+  in cells C163 to C187 with one numeric cell inside that span. They sit at 22.15 to 25.43 GHz on the
+  frequency axis, around the SSMF spectral null. A value pasted as a formula is not a corrupt cell. The
+  paper says subcarriers under extremely low SNR, around the SSMF spectral null, were not data-loaded
+  (Fig.11 discussion, p.7). The most likely reading is that these are unloaded subcarriers; this is an
+  inference, not a statement in the workbook. They are neither "unusable" nor "missing" data: the band
+  itself marks the null. Handling is decided in the plan (Amendment 1, A5): C6 is scored on Fig.8, not
+  Fig.11, because Fig.8 has a full numeric profile; no Fig.11 cell is read as a number for C6.
 - BER of exactly 0 (an error-free capture) occurs at 80 Gb/s: Fig.4 NANF 1 and B2B 3 points; Fig.6
   NANF 12 and B2B 12 of 19 points; Fig.10 one point per fibre. These cannot be put on a log scale and
   are censored under plan section 3. The error-count depth behind a zero is not stated. All other BER
   cells are in (0, 1]. No negative, infinite or non-numeric BER or SNR cell was found.
-- Fig.8 SSMF SNR has 13 cells below -5 dB (the nulls). The paper's own axis runs to -20 dB.
+- A count of Fig.8 SSMF SNR cells below -5 dB was made in the first N0 pass. It summarised a locked holdout
+  series before the freeze hash and is withdrawn here; it is disclosed in the plan (Amendment 1, A0).
 - Fig.8 and Fig.11 frequency axes run 0.13672 to 32.8125 in 240 equal steps. 0.13672 is
   70/512 to the printed precision, which is consistent with the 70 GSa/s AWG and a 512-point IFFT
   [prov: derived]. This is a check on the axis only.
 - Fig.5, Fig.6: 19 wavelength points from 1460 to 1640 nm; the figure's printed ticks span 1470 to
-  1620 nm. The laser range in the paper is 1460 to 1640 nm.
+  1620 nm. The laser range in the paper is 1460 to 1640 nm. The Fig.5 column `ROP@NANF` also sets the B2B
+  ROP in Fig.6 (paper p.5: the B2B ROPs were held at the NANF values), so it serves both links; the SSMF
+  ROP is capped at -5 dBm.
 - Naming trap: `SMF` in headers is the paper's SSMF; Fig.1 series order differs between blocks.
 
 ## 6. Per-parameter provenance (from the PDF manuscript)
@@ -146,8 +167,9 @@ numbers. Performance cells were tested only for presence, type and a coarse rang
 | NANF link loss | 6.45 to 8.33 dB over S+C+L, minimum 6.45 dB at 1610 nm | `[prov: measured]` | includes the ~2 dB; the paper text; Fig. 5 data in the workbook |
 | SSMF length | ~4.53 km: spools ~4 km and ~0.5 km | `[prov: published-experimental]` | |
 | CD at 1550 nm, 5 km simulation | SSMF 15.95, NZ-DSF 4.50, NANF 2.04 ps/(nm km) | `[prov: published-numerical-assumption]` | "assumed"; SSMF and NZ-DSF are mean values of the ITU G.652 and G.655 ranges; the NANF value has no stated source beyond the design in the paper's ref. [32] |
-| CD slope | not given | `[prov: unknown]` | needed by any wavelength-dependent run (Fig. 6) |
-| Refractive index for latency | SSMF 1.4682 (Corning SMF28e), NZ-DSF 1.4693 (Corning LEAF), NANF 1.003 (ref. [2]) | `[prov: published-numerical-assumption]` | the paper says "(effective) refractive indices"; see mismatch 1 |
+| CD curve D(lambda), 1.4 to 1.625 um | published numerical curves for SSMF, NZ-DSF and NANF, Fig. 1(a) and workbook sheet Fig.1 | `[prov: published-numerical-assumption]` | the paper's own simulation, not a measurement; SSMF and NZ-DSF follow mean values of the ITU ranges; the curves give a slope with no extra assumption |
+| CD slope near 1550 nm | about 0.060 (SSMF), 0.054 (NZ-DSF), 0.004 (NANF) ps/(nm^2 km) | `[prov: derived]` | finite difference over 10 nm of the workbook curves; the curve itself gives 15.95, 4.50, 2.04 ps/(nm km) at 1550 nm to rounding (2.036 for NANF) |
+| Index used for latency | SSMF 1.4682 (the paper names Corning SMF28e), NZ-DSF 1.4693 (Corning LEAF), NANF 1.003 (ref. [2]) | `[prov: published-numerical-assumption]` | the paper calls them "(effective) refractive indices"; the workbook uses them as group indices (latency = n L / c); see mismatch 1 |
 | Latency saving at 5 km | ~8 us, ~30% | `[prov: derived]` | recomputed here: (1.4682 - 1.003) x 5 km / c = 7.8 us; 1 - 1.003/1.4682 = 31.7% |
 | Modulation | Nyquist PAM4 at 80, 100, 112 Gb/s | `[prov: published-experimental]` | |
 | PAM4 symbol rate | 40, 50, 56 GBd | `[prov: derived]` | 70x up-sample then 40/50/56x down-sample to a 70 GSa/s AWG gives 70 x Rs / D = 70 GSa/s |
@@ -158,9 +180,11 @@ numbers. Performance cells were tested only for presence, type and a coarse rang
 | Oscilloscope (DSO) | 80 GSa/s | `[prov: published-experimental]` | model, bandwidth: `unknown` (the paper says the DSO cut-off limits subcarriers to 240) |
 | Equaliser | T/2-spaced (17,7)-tap DFE, RLS, forgetting factor 0.998 | `[prov: published-experimental]` | which of 17 and 7 is feed-forward is not stated: `unknown`; training length, initialisation, decision-directed operation: `unknown` |
 | BER threshold | 3.8e-3, called the 7% FEC limit | `[prov: published-experimental]` | |
-| Required ROP at BER below 3.8e-3 | about -12, -11, -10 dBm at 80, 100, 112 Gb/s, for B2B and NANF | `[prov: published-experimental]` | "around"; SSMF never reaches the limit |
-| Receiver limit | upper ROP limit -5 dBm | `[prov: published-experimental]` | imposed because the PD transimpedance amplifier input range degrades results above it |
-| SSMF extra SNR penalty | about 5, 11, 14 dB at 80, 100, 112 Gb/s | `[prov: published-experimental]` | prose estimate |
+| Required ROP at BER below 3.8e-3 | about -12, -11, -10 dBm at 80, 100, 112 Gb/s, for B2B and NANF | `[prov: measured]` | a result stated in the paper's prose ("around"), not a setting; chosen term `measured` because the source reports it as an experimental outcome and we read it from text; SSMF never reaches the limit |
+| Receiver limit | upper ROP limit -5 dBm | `[prov: published-experimental]` | a setting, imposed because the PD transimpedance amplifier input range degrades results above it |
+| Fig.5 ROP column `ROP@NANF` | per wavelength; also the B2B ROP in Fig.6 | `[prov: published-experimental]` | an operating point (maximum available ROP), shared by B2B and NANF (p.5); the SSMF ROP is capped at -5 dBm |
+| Transmitter chirp | not stated anywhere in the paper | `[prov: unknown]` | has no B2B effect; see plan Amendment 1, A1 (`UNIDENTIFIABLE_PARAMETER`) |
+| SSMF extra SNR penalty | about 5, 11, 14 dB at 80, 100, 112 Gb/s | `[prov: measured]` | a result stated in prose ("around"), not a setting; no ROP is given for it; same reasoning as above. `derived` was not used because we did not compute it |
 | DDO-OFDM | 512-point IFFT, cyclic prefix 1/16 symbol, 240 data subcarriers = 32.8125 GHz | `[prov: published-experimental]` | |
 | OFDM rates | 54.6875 to 131.25 Gb/s (16QAM), 65.625 Gb/s (4QAM, 240 sub) | `[prov: derived]` | rate = subcarriers x bits x (70 GSa/s / 512); the cyclic-prefix overhead is not subtracted |
 | Laser, MZM, driver, PD, attenuator | tunable laser 1460 to 1640 nm; no launch power, V-pi, bias, extinction ratio, PD or TIA data | `[prov: unknown]` | only the laser range is stated |
@@ -171,9 +195,10 @@ numbers. Performance cells were tested only for presence, type and a coarse rang
 
 ## 7. Secondary sources (Crossref metadata only; no full text read)
 
-Each is a separate sample. No data, spool or result of one is pooled with another or with Hong et
-al. Metadata cannot show that two papers did not use the same physical fibre, so this register does not
-assert "no shared spool". It adopts the stricter rule that each stays separate and unpooled. One
+Each is a separate record. The sample identity (which physical fibre) behind each is unknown. No data,
+spool or result of one is pooled with another or with Hong et al. Metadata cannot show that two papers
+did not use the same physical fibre, so this register does not assert "no shared spool". It adopts the
+stricter rule that each stays separate and unpooled. One
 overlap is visible: Altuna et al. and the CLEO abstract each report an 11.1 km hollow-core span, so
 those two may share a spool and must never be treated as independent samples. Authors are as given in
 the Crossref author lists.
@@ -188,14 +213,18 @@ The brief calls the second source "Wang et al." and the third "the CLEO 2025 abs
 author of the third is Suttikarn Wantee. Treat all three as `representative-literature` at most, and
 only for a later cross-check, never for calibration.
 
-## 8. Mismatches between the owner brief and the PDF
+## 8. Mismatches between the owner brief, the PDF and the workbook
 
-Checked claim by claim against the manuscript text. Claims not listed here matched.
+Items 1 to 6 are checked claim by claim against the manuscript text (brief versus PDF); items 7 and 8 are disagreements between the sources themselves. Claims not listed here matched.
 
-1. Index terminology. The brief says "group index" for 1.4682 (SSMF) and 1.003 (NANF). The paper says
-   "(effective) refractive indices" and does not use the words group index. The values match; the label
-   does not. Whether those numbers are group or phase indices is not stated by the paper, and Corning
-   datasheet values were not checked. Keep the paper's label and tag
+1. Index terminology. The brief says "group index" for 1.4682 (SSMF) and 1.003 (NANF). The paper
+   words are "(effective) refractive indices" and it does not say group index. But it uses them as group
+   indices: the workbook Fig.1(d) latency equals n L / c, recovered as n = t c / L from the sheet (units
+   assumed microseconds and km) as 1.4682, 1.4693 and 1.0030 at every length checked (1, 1.2, 2.2, 5 km),
+   to four or five digits. So the label differs from the paper's wording, while the paper's use matches
+   the brief. This is a wording difference, not a numerical one. The paper names Corning SMF28e and LEAF
+   as the source of the 1.4682 and 1.4693; no Corning datasheet was read here, so nothing is claimed
+   about what Corning calls these numbers. Keep the paper's label and tag
    `published-numerical-assumption`.
 2. Length arithmetic. 3.4 km plus 1.4 km is 4.8 km, not 4.76 km. The paper gives ~4.76 km for the
    spliced spool and "~" for both pieces, so this is rounding, not an error. Use 4.76 km for the NANF
@@ -211,6 +240,20 @@ Checked claim by claim against the manuscript text. Claims not listed here match
 6. Document version. The brief treats the PDF as the paper. It is an author manuscript with template
    placeholders (Section 1.1), so it may differ from the published article.
 
+7. Fig.1 panel labels disagree inside the sources. The paper's prose calls panel (b) the frequency
+   response at 1550 nm and 5 km, and panel (c) the 3-dB bandwidth versus wavelength (pp.2 to 3). The figure
+   caption and the workbook headers say (b) is the 3-dB bandwidth and (c) the power-fading profile. The
+   workbook sheet follows the caption. Use the caption and workbook labels; the prose is the odd one.
+8. SSMF first spectral null, four numbers that do not agree. (i) Zero-chirp arithmetic, f = sqrt(c /
+   (2 lambda^2 D L)) with lambda 1550 nm and D 15.95 ps/(nm km), derived here: 29.39 GHz at L = 4.53 km
+   (the experimental spool) and 27.97 GHz at 5 km. (ii) The workbook Fig.1 fading column for SSMF at 5 km
+   has its minimum at 28 GHz (1 GHz grid), which matches the 5 km arithmetic. (iii) The paper's own
+   statement is "~25 GHz" at 5 km (p.2). (iv) The measured SNR profile has a null "around 24 GHz" (p.6).
+   The arithmetic and the workbook agree with each other and sit about 3 GHz above the paper's 25 GHz and
+   about 5.4 GHz above the measured 24 GHz (at 4.53 km). Transmitter chirp is not stated in the paper;
+   the gap is unexplained here. Chirp is a hypothesis only (plan Amendment 1, A1), and the actual spool
+   dispersion is unmeasured.
+
 Matched without difference: length ~4.76 km with ~3.4 + ~1.4 pieces; SSMF ~4.53 km (~4 + ~0.5);
 D at 1550 nm of 15.95, 4.50, 2.04 ps/(nm km) as assumed values; link loss 6.45 to 8.33 dB; ~2 dB splice
 loss; 80/100/112 Gb/s PAM4; AWG 70 GSa/s; scope 80 GSa/s; SRRC Nyquist shaping; T/2-spaced (17,7)-tap
@@ -219,7 +262,10 @@ receiver limit -5 dBm (an imposed upper limit due to the TIA input range).
 
 ## 9. Honest limits
 
-Single paper, single setup, single session. One NANF spool and one SSMF spool, so the dataset label is
-`LITERATURE BENCHMARK / CALIBRATION ONLY` (plan section 1). The workbook structure and the paper were
-read before the plan; no numeric cell was read before it. The licence of the dataset rests on the
-DOI-registry record; the readme is blank and the landing page was not read.
+Single paper, single setup. The dataset readme gives data collection as May 2020 (DataCite lists
+2021-05); the number of measurement sessions is not stated, so it is not asserted. One NANF spool and one
+SSMF spool, so the dataset label is `LITERATURE BENCHMARK / CALIBRATION ONLY` (plan section 1). The
+workbook structure and the paper were read before the plan; no numeric cell was read before it (the
+Fig.1 numerical curves and the Fig.11 formula text were read afterwards, for the cross-checks in this
+document). The licence of the dataset rests on the DOI-registry record; the readme is blank and the
+landing page was not read.
