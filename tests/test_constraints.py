@@ -216,6 +216,62 @@ def test_fixed_oma_target_below_the_current_oma_reduces_the_swing_on_the_rising_
     # unreachable case is the one above the ceiling, covered in the test before this one
 
 
+def test_fixed_oma_inactive_reason_is_true_when_the_outer_pair_is_unused():
+    """The target equals the OMA of the levels in use: INACTIVE, and the text must not say that
+    the extreme levels are in use (they carry no mass here)."""
+    p = np.array([0.0, 0.5, 0.5, 0.0])
+    result = FixedOMA(target_oma_w=oma_w(CONFIG, p)).check(CONFIG, p)
+    assert result.status is FeasibilityStatus.INACTIVE and result.adjustments == {}
+    assert "extreme levels are in use" not in result.reason and "no mass" in result.reason
+    full = np.full(4, 0.25)  # outer levels used: the original wording is still true
+    kept = FixedOMA(target_oma_w=oma_w(CONFIG, full)).check(CONFIG, full)
+    assert kept.status is FeasibilityStatus.INACTIVE and "extreme levels are in use" in kept.reason
+
+
+def test_fixed_oma_target_below_the_first_grid_value_is_reachable_with_a_tiny_swing():
+    """1e-4 x OMA: OMA = P L V sin(pi V_pp a_max / (2 V_pi)) with a_max = 1, so V_pp =
+    (2 V_pi / pi) asin(1e-4 sin(pi / 4)) = 1.8006e-4 V. A grid that starts above zero said
+    that no swing reaches it and quoted a larger reachable OMA."""
+    p = np.full(4, 0.25)
+    target = 1e-4 * oma_w(CONFIG, p)
+    expected = (2 * CONFIG.v_pi / math.pi) * math.asin(1e-4 * math.sin(math.pi / 4))
+    assert expected == pytest.approx(1.8006e-4, rel=1e-4)
+    declared = FixedOMA(target_oma_w=target, allow_drive_rescale=True).check(CONFIG, p)
+    assert declared.status is FeasibilityStatus.FEASIBLE
+    assert declared.adjustments["drive_vpp"] == pytest.approx(expected, rel=1e-8)
+    assert oma_w(replace(CONFIG, drive_vpp=declared.adjustments["drive_vpp"]), p) == pytest.approx(
+        target, rel=1e-8
+    )
+    undeclared = FixedOMA(target_oma_w=target).check(CONFIG, p)
+    assert undeclared.status is FeasibilityStatus.INFEASIBLE and "not declared" in undeclared.reason
+    assert undeclared.adjustments["drive_vpp"] == pytest.approx(expected, rel=1e-8)
+
+
+@pytest.mark.parametrize("order", [8, 16])  # at M = 4 the peak swing 12 V is beyond 2 V_pi
+def test_fixed_oma_at_the_analytic_peak_is_feasible_and_just_above_it_is_not(order):
+    """With the outer pair unused the largest inner amplitude is a = (M - 3) / (M - 1) and OMA is
+    P L V sin(pi V_pp a / (2 V_pi)), maximal (sin = 1) at V_pp = V_pi / a = 4 (M - 1) / (M - 3) V:
+    M = 16 gives 4.6154 V, which falls between grid points of 2 V_pi / 8000 = 1 mV."""
+    p = np.zeros(order)
+    p[1:-1] = 1.0 / (order - 2)
+    peak_oma = CONFIG.laser_power_w * LOSS * VIS  # sin = 1
+    swing = CONFIG.v_pi * (order - 1) / (order - 3)  # 4 (M - 1) / (M - 3) V
+    on = FixedOMA(target_oma_w=peak_oma, allow_drive_rescale=True).check(CONFIG, p)
+    assert on.status is FeasibilityStatus.FEASIBLE
+    assert on.adjustments["drive_vpp"] == pytest.approx(swing, abs=1e-6)
+    assert oma_w(replace(CONFIG, drive_vpp=on.adjustments["drive_vpp"]), p) == pytest.approx(
+        peak_oma, rel=1e-9
+    )
+    above = FixedOMA(target_oma_w=peak_oma * (1 + 1e-6), allow_drive_rescale=True).check(CONFIG, p)
+    assert above.status is FeasibilityStatus.INFEASIBLE and f"{peak_oma:.4g}" in above.reason
+    below = FixedOMA(target_oma_w=peak_oma * (1 - 1e-7), allow_drive_rescale=True).check(CONFIG, p)
+    assert below.status is FeasibilityStatus.FEASIBLE  # on the rising branch, before the peak
+    assert below.adjustments["drive_vpp"] < swing
+    assert oma_w(replace(CONFIG, drive_vpp=below.adjustments["drive_vpp"]), p) == pytest.approx(
+        peak_oma * (1 - 1e-7), rel=1e-8
+    )
+
+
 def test_fixed_peak_rescale_needs_a_declaration():
     p = np.full(4, 0.25)
     undeclared = FixedPeak(peak_v=0.8).check(CONFIG, p)
@@ -328,6 +384,28 @@ def test_equal_rate_range_edges_and_overhead_dependence():
     assert needed.adjustments["sample_rate_hz"] == pytest.approx(224e9 * ratio)
     with pytest.raises(ValueError):
         EqualRealizedUserRate(-1.0).check(acc)
+
+
+def test_equal_rate_range_edges_have_a_tight_tolerance_and_outside_negatives():
+    """Needed sample rate within 1e-9 relative of an edge passes; 1e-6 and 1e-8 outside fail at
+    both ends (a 1e-3 tolerance, or none at the lower edge, would change one of these)."""
+    acc = accounting(np.full(4, 0.25))
+    nominal = acc.user_rate_bps(224e9)
+
+    def at(sample_rate: float) -> FeasibilityStatus:
+        constraint = EqualRealizedUserRate(
+            nominal * sample_rate / 224e9, allow_sample_rate_adjustment=True
+        )
+        return constraint.check(acc).status
+
+    assert at(256e9 * (1 + 1e-10)) is FeasibilityStatus.FEASIBLE
+    assert at(200e9 * (1 - 1e-10)) is FeasibilityStatus.FEASIBLE
+    for outside in (1e-6, 1e-8):
+        assert at(256e9 * (1 + outside)) is FeasibilityStatus.INFEASIBLE
+        assert at(200e9 * (1 - outside)) is FeasibilityStatus.INFEASIBLE
+    assert (
+        at(256.1e9) is FeasibilityStatus.INFEASIBLE and at(199.9e9) is FeasibilityStatus.INFEASIBLE
+    )
 
 
 # --------------------------------------------------------------------- inner-heavy may win

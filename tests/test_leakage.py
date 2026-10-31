@@ -268,3 +268,32 @@ def test_test_data_cannot_reach_the_optimiser(monkeypatch):
     assert first.selection.channel == real(
         np.concatenate([a.indices for a in train]), np.concatenate([a.received for a in train])
     )
+
+
+def test_best_fixed_refuses_an_acquisition_listed_twice_or_under_two_names():
+    """`_training_channel` must reject duplicates: one capture counted twice doubles its weight
+    in the fitted channel."""
+    from dataclasses import replace
+
+    train, _ = simulate_acquisitions(14.0, 4, 8000, 3, 2, 0)
+    with pytest.raises(DataLeakageError, match="appears twice"):
+        best_fixed([train[0], train[0]], 4, "bmd", 1024)
+    renamed = replace(train[0], id=replace(train[0].id, id="copy-of-0"))
+    with pytest.raises(DataLeakageError, match="identical content"):
+        best_fixed([train[0], renamed], 4, "bmd", 1024)
+    assert best_fixed(train, 4, "bmd", 1024).name  # two distinct captures are accepted
+
+
+def test_selected_on_says_declared_for_the_split_label_and_a_relabelled_test_capture_passes():
+    """The digest is recomputed; the split label is only read. A test capture relabelled
+    training with its true hash is accepted, so the text must not say the split was checked."""
+    from dataclasses import replace
+
+    train, test = simulate_acquisitions(14.0, 4, 8000, 3, 1, 1)
+    relabelled = replace(test[0], id=replace(test[0].id, split="training"))
+    chosen = best_fixed([train[0], relabelled], 4, "bmd", 1024)
+    assert (
+        "split label declared" in chosen.selected_on
+        and "content hash recomputed" in chosen.selected_on
+    )
+    assert "checked" not in chosen.selected_on

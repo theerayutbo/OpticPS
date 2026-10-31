@@ -39,7 +39,7 @@ from enum import StrEnum
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.optimize import brentq
+from scipy.optimize import brentq, minimize_scalar
 
 from opticps.modulation.pam import pam_levels
 from opticps.optical_channel.link import LinkConfig, mzm_intensity, predistort
@@ -248,11 +248,18 @@ class FixedOMA:
             raise ValueError("target_oma_w must be positive")
         oma = oma_w(config, p)
         if abs(oma - target) <= _REL_TOL * target:
-            return Feasibility(
-                FeasibilityStatus.INACTIVE,
-                "the extreme levels are in use: OMA equals the fixed-peak value at this bias "
-                "and laser power, so fixed OMA is not a separate protocol here",
-            )
+            if p[0] > 0 and p[-1] > 0:
+                reason = (
+                    "the extreme levels are in use: OMA equals the fixed-peak value at this bias "
+                    "and laser power, so fixed OMA is not a separate protocol here"
+                )
+            else:
+                reason = (
+                    "the OMA of the levels in use already equals the fixed target; no swing "
+                    "change is needed (the outer levels carry no mass, so this is a declared "
+                    "target, not the fixed-peak value)"
+                )
+            return Feasibility(FeasibilityStatus.INACTIVE, reason)
         if config.predistort:
             return Feasibility(
                 FeasibilityStatus.INFEASIBLE,
@@ -266,20 +273,37 @@ class FixedOMA:
         # wanted is the smallest one, on that first rising branch, whether the target is above
         # or below the current OMA (a search that only went upward from the current swing
         # reached the fold-over branch for a lower target).
-        grid = np.linspace(0.0, 2 * config.v_pi, 8001)[1:]
+        # The grid includes swing 0 (OMA 0, gap = -target < 0), so a target far below the OMA at
+        # the first non-zero point still brackets. A target at or within 1e-9 of the maximum of
+        # OMA can fall between grid points, so the maximum is refined and used when no grid
+        # value reaches the target.
+        grid = np.linspace(0.0, 2 * config.v_pi, 8001)
         values = np.array([gap(v) for v in grid])
-        crossing = np.flatnonzero((values[:-1] < 0) & (values[1:] >= 0))
+        reached = np.flatnonzero(values >= 0)
         direction = "below" if oma < target else "above"
-        if crossing.size == 0:
-            best = float(values.max() + target)
-            return Feasibility(
-                FeasibilityStatus.INFEASIBLE,
-                f"OMA {oma:.4g} W is {direction} the fixed {target:.4g} W and no drive swing up "
-                f"to 2 V_pi = {2 * config.v_pi:g} V reaches it (largest reachable OMA "
-                f"{best:.4g} W)",
+        if reached.size:
+            i = int(reached[0])
+            vpp = float(brentq(gap, grid[i - 1], grid[i], xtol=1e-12))
+        else:
+            j = int(np.argmax(values))
+            lo, hi = grid[max(j - 1, 0)], grid[min(j + 1, grid.size - 1)]
+            peak = minimize_scalar(
+                lambda v: -gap(v), bounds=(lo, hi), method="bounded", options={"xatol": 1e-12}
             )
-        i = int(crossing[0])
-        vpp = float(brentq(gap, grid[i], grid[i + 1], xtol=1e-12))
+            peak_gap = max(float(-peak.fun), float(values.max()))
+            if peak_gap < -_REL_TOL * target:
+                best = peak_gap + target
+                return Feasibility(
+                    FeasibilityStatus.INFEASIBLE,
+                    f"OMA {oma:.4g} W is {direction} the fixed {target:.4g} W and no drive "
+                    f"swing up to 2 V_pi = {2 * config.v_pi:g} V reaches it (largest reachable "
+                    f"OMA {best:.4g} W)",
+                )
+            # No grid value reached the target, so gap(lo) < 0. At or above zero at the refined
+            # maximum the root lies between; within 1e-9 below it, the maximum itself is used.
+            vpp = float(peak.x)
+            if peak_gap >= 0:
+                vpp = float(brentq(gap, lo, vpp, xtol=1e-12))
         needed = {"drive_vpp": vpp, "drive_vpp_factor": vpp / config.drive_vpp}
         step = "increased" if vpp > config.drive_vpp else "reduced"
         cause = (

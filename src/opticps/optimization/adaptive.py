@@ -662,7 +662,9 @@ def optimise_symmetric(
                 "success": bool(result.success),
             }
         )
-        candidates.append(problem.evaluate(symmetric_from_pairs(q), f"endpoint:{name}", "endpoint"))
+        candidates.append(
+            problem.evaluate(symmetric_from_pairs(q), f"optimised_from:{name}", "endpoint")
+        )
     candidates.append(problem.evaluate(np.full(order, 1.0 / order), "uniform", "uniform"))
     top = float(np.log2(order))
     for sign, label in ((1, "inner"), (-1, "outer")):
@@ -796,10 +798,10 @@ def fixed_menu(
 
 @dataclass(frozen=True)
 class BestFixed:
-    """The fixed PMF with the highest objective on checked training acquisitions.
+    """The fixed PMF with the highest objective on training acquisitions.
 
-    `selected_on` is built from the acquisitions that were checked (split and content hash),
-    never asserted: see `best_fixed`.
+    `selected_on` names the acquisitions used. Their content hash was recomputed; their
+    split label was only read (declared), see `best_fixed`.
     """
 
     name: str
@@ -842,9 +844,12 @@ def _argmax_menu(
     selected_on: str,
 ) -> BestFixed:
     table = evaluate_menu(channel, order, metric, block_length, menu)
-    feasible = [row for row in table if row["status"] == "ok"]
+    feasible = [row for row in table if row["status"] == "ok" and row["in_bounds"]]
     if not feasible:
-        raise ValueError("No feasible entry in the fixed menu; increase block_length")
+        raise ValueError(
+            "No feasible in-bounds entry in the fixed menu (every probability must be at "
+            "least 1/block_length and the composition must quantise); increase block_length"
+        )
     best = max(feasible, key=lambda row: row["objective"])
     return BestFixed(
         name=best["name"],
@@ -872,7 +877,7 @@ def _training_channel(training: Sequence[Acquisition], order: int) -> tuple[Chan
         np.concatenate([a.received for a in training]),
         order,
     )
-    label = "training acquisitions (split and content hash checked): " + ", ".join(
+    label = "training acquisitions (content hash recomputed, split label declared): " + ", ".join(
         a.id.id for a in training
     )
     return channel, label
@@ -888,9 +893,10 @@ def best_fixed(
     """BestFixed = argmax of the objective over the declared menu, on training acquisitions.
 
     The input is a set of `Acquisition`s, not a bare channel: every one must carry
-    split "training" and a digest that matches its samples, else DataLeakageError. The channel
-    is fitted here and `selected_on` names the checked acquisitions. This makes the label a
-    consequence of the check rather than a default; it does not prove the samples are not
+    split label "training" and a digest that matches its samples, else DataLeakageError. The
+    channel is fitted here and `selected_on` names the acquisitions: the digest is recomputed
+    from the samples, but the split label is only declared by the caller (a test capture
+    relabelled "training" with its true hash passes). This does not prove the samples are not
     test-derived under an honest-looking label. The uniform member is charged no matcher loss.
     Values computed on test data are an oracle and are reported by `oracle_not_a_baseline`.
     """

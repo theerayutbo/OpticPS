@@ -350,7 +350,7 @@ def test_selection_picks_the_direct_uniform_when_it_is_best():
     channel = awgn_channel(8, 40.0, 0.01)  # shaping cannot help near saturation
     sel = optimise_symmetric(channel, 8, "smd", 1024, 2, multistart_check=False)
     # the uniform start may end exactly where it began; that endpoint is the same PMF
-    assert sel.parameters["selected"] in ("uniform", "endpoint:uniform")
+    assert sel.parameters["selected"] in ("uniform", "optimised_from:uniform")
     assert sel.probabilities == [1 / 8] * 8
     chosen = next(c for c in sel.candidates if c["name"] == sel.parameters["selected"])
     assert chosen["direct"] and sel.objective == chosen["objective"] == chosen["rate"]
@@ -578,6 +578,45 @@ def test_out_of_bounds_candidates_are_flagged_and_never_selected(monkeypatch):
     assert sel.objective < 5.0
 
 
+def test_floor_active_selected_pairs_differs_from_the_continuous_report():
+    """M = 16, n = 256, 22 dB SMD, one start: the continuous optimum sits at the floor on pairs
+    2, 5, 6 but the selected candidate (the direct uniform) is above the floor everywhere."""
+    sel = optimise_symmetric(awgn_channel(16, 22.0), 16, "smd", 256, 7, multistart_check=False)
+    assert sel.parameters["floor_active_pairs"] == [2, 5, 6]
+    assert sel.parameters["selected"] == "uniform"
+    assert sel.parameters["floor_active_selected_pairs"] == []
+    floor = 1.0 / 256
+    q = sel.parameters["pair_probabilities"]  # of the selected candidate: uniform, 1/16 each
+    assert [i for i, v in enumerate(q) if v <= floor + 1e-5] == []
+    # a selected candidate that does sit at the floor is reported: M = 8, 12 dB SMD, n = 1024
+    low = optimise_symmetric(awgn_channel(8, 12.0), 8, "smd", 1024, 7, multistart_check=False)
+    q_low = low.parameters["pair_probabilities"]
+    assert low.parameters["floor_active_selected_pairs"] == [
+        i for i, v in enumerate(q_low) if v <= 1.0 / 1024 + 1e-5
+    ]
+
+
+def test_best_fixed_never_selects_an_out_of_bounds_menu_entry(monkeypatch):
+    train, _ = simulate_acquisitions(14.0, 4, 8000, 3, 1, 0)
+    real = adaptive._Problem.evaluate
+
+    def tempting(self, p, name, kind):
+        record = real(self, p, name, kind)
+        if name == "PAM4_Fixed_Outer70":
+            record["in_bounds"] = False
+            record["objective"] += 10.0  # would win by far if bounds were ignored
+        return record
+
+    monkeypatch.setattr(adaptive._Problem, "evaluate", tempting)
+    chosen = adaptive.best_fixed(train, 4, "bmd", 1024)
+    assert chosen.name != "PAM4_Fixed_Outer70" and chosen.objective < 5.0
+    oracle = oracle_not_a_baseline(awgn_channel(4, 14.0), 4, "bmd", 1024)
+    assert oracle["oracle_not_a_baseline"]["name"] != "PAM4_Fixed_Outer70"
+    only_bad = {"PAM4_Fixed_Outer70": fixed_menu(4)["PAM4_Fixed_Outer70"]}
+    with pytest.raises(ValueError, match="in-bounds"):
+        adaptive.best_fixed(train, 4, "bmd", 1024, only_bad)
+
+
 # --------------------------------------------------------------------------- negative case
 
 
@@ -644,7 +683,10 @@ def test_best_fixed_is_the_argmax_of_the_training_objective_and_oracle_is_labell
     chosen, train = best_fixed_on(4, "bmd", 1024, 14.0)  # outer-heavy territory
     table = {r["name"]: r["objective"] for r in chosen.table}
     assert chosen.name == max(table, key=table.get)
-    assert chosen.selected_on.startswith("training acquisitions (split and content hash checked)")
+    assert chosen.selected_on.startswith(
+        "training acquisitions (content hash recomputed, split label declared)"
+    )
+    assert "checked" not in chosen.selected_on
     assert all(a.id.id in chosen.selected_on for a in train)
     assert chosen.objective == table[chosen.name]
     assert "oracle_not_a_baseline" not in json.dumps(chosen.to_dict())
