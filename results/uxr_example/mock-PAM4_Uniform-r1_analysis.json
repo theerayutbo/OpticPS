@@ -3,7 +3,7 @@
   "split": "test",
   "waveform": "PAM4_Uniform",
   "profile": "A_initial_8GBd",
-  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpbf63eoig/registry.json",
+  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpncqv9xuh/registry.json",
   "registry_source": "given",
   "source_file": "mock-PAM4_Uniform-r1.csv",
   "source_sha256": "0a2484e466a92adeb4b25c1a36aafbaaebded9a8a6a8c4742e517d85e86d3e87",

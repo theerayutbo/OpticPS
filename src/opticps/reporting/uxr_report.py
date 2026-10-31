@@ -58,12 +58,13 @@ NOT_RECORDED = "not recorded"
 NO_SIMULATED_POINT = "no comparable simulated point"
 POSITION_TOLERANCE_KM = 1e-3
 MOCK_DIFFERENCE = (
-    "The mock captures use the same link parameters as the simulation (same configuration, "
-    "profile and attenuation setting). They differ in the capture sample rate (the mock "
-    "capture runs at the rate in the acquisition table, the simulation at 8 samples per "
-    "symbol) and in the receiver chain (a non-periodic record with symbol clock estimation "
-    "and a matched filter, against one exact period), in the noise realisation, and in the "
-    "received power offset in the table above."
+    "The mock captures use the same link configuration and profile as the simulation. The "
+    "attenuation setting may differ: the simulated point is the nearest in received power, "
+    "and the offset is in the table above. They also differ in the capture sample rate (the "
+    "mock capture runs at the rate in the acquisition table, the simulation at 8 samples per "
+    "symbol), in the receiver chain (both apply a one-symbol filter, but the capture chain "
+    "reads a non-periodic record with symbol clock estimation, the simulation one exact "
+    "period), and in the noise realisation."
 )
 MEASURED_DIFFERENCE = (
     "The simulation is a model with assumed parameters, not a description of this link, so "
@@ -399,7 +400,7 @@ def _waveform_section(
             "Symbols",
             "Mean (level units)",
             "Spread, std (level units)",
-            "Spread, std (V)",
+            "Spread, std (V, filtered-record gain)",
         ]
     ]
     for i in items:

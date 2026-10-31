@@ -3,7 +3,7 @@
   "split": "test",
   "waveform": "PAM4_Fixed_PS70",
   "profile": "A_initial_8GBd",
-  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpbf63eoig/registry.json",
+  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpncqv9xuh/registry.json",
   "registry_source": "given",
   "source_file": "mock-PAM4_Fixed_PS70-r1.csv",
   "source_sha256": "0b49ebdd7ede8c436f3ab495cdc1909da84eec5b6abc7c39e94ac50078e84c3d",

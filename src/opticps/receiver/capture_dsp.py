@@ -680,12 +680,12 @@ def analyze_scope_capture(
     score_payload=False (training captures) the payload is used only to steer timing and
     nothing derived from it is reported.
 
-    matched_filter=True (default) integrates the record over one symbol period before timing
-    and sampling, the matched filter of an NRZ pulse, as process_capture does for periodic
-    records. It is applied on the record resampled to 8 samples per symbol at the symbol
-    rate in use: the nominal rate on the first pass, the estimated rate on the second, so the
-    final pass uses the estimated timing (the first pass differs by at most the 2000 ppm
-    clock limit, a window error far below a sample). The exported waveforms are NRZ. For an
+    matched_filter=True (default) integrates the record over one symbol period, the matched
+    filter of an ideal NRZ pulse, as process_capture does for periodic records. Sync, clock
+    and sampling phase are fitted on the unfiltered record; the filter is applied once, on
+    the final pass after the phase is chosen. For a band-limited received pulse it is a
+    one-symbol integrator, not a true matched filter, and gain_v_per_level then describes
+    the filtered record. The exported waveforms are NRZ. For an
     RRC waveform (pulse_shape="rrc") this filter is the wrong one and the call is refused;
     matched_filter=False samples the unfiltered record.
     """

@@ -34,7 +34,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|
 | mock-PAM4_Uniform-r1 | 18.98 | 2.000 | 2.000 | true |
 
-| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
+| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V, filtered-record gain) |
 |---|---|---|---|---|---|
 | mock-PAM4_Uniform-r1 | -3 | 31832 | -2.959 | 0.2468 | 5.923e-05 |
 | mock-PAM4_Uniform-r1 | -1 | 32020 | -1.107 | 0.2514 | 6.034e-05 |
@@ -57,7 +57,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|---|
 | mock-PAM4_Uniform-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 6 errors in 253952 symbols, rate 2.36e-05 (95% interval 8.67e-06 to 5.14e-05) | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link configuration and profile as the simulation. The attenuation setting may differ: the simulated point is the nearest in received power, and the offset is in the table above. They also differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol), in the receiver chain (both apply a one-symbol filter, but the capture chain reads a non-periodic record with symbol clock estimation, the simulation one exact period), and in the noise realisation.
 
 ### Uncertainty
 
@@ -89,7 +89,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|
 | mock-PAM4_Fixed_PS70-r1 | 17.43 | 1.881 | 1.881 | true |
 
-| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
+| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V, filtered-record gain) |
 |---|---|---|---|---|---|
 | mock-PAM4_Fixed_PS70-r1 | -3 | 19096 | -2.963 | 0.2452 | 5.884e-05 |
 | mock-PAM4_Fixed_PS70-r1 | -1 | 44392 | -1.109 | 0.2479 | 5.949e-05 |
@@ -112,7 +112,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|---|
 | mock-PAM4_Fixed_PS70-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 3 errors in 253952 symbols, rate 1.18e-05 (95% interval 2.44e-06 to 3.45e-05) | 10 errors in 126976 symbols, rate 7.88e-05 (95% interval 3.78e-05 to 0.000145); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link configuration and profile as the simulation. The attenuation setting may differ: the simulated point is the nearest in received power, and the offset is in the table above. They also differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol), in the receiver chain (both apply a one-symbol filter, but the capture chain reads a non-periodic record with symbol clock estimation, the simulation one exact period), and in the noise realisation.
 
 ### Uncertainty
 
@@ -144,7 +144,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|
 | mock-PAM4_Fixed_PS80-r1 | 16.38 | 1.722 | 1.722 | true |
 
-| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
+| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V, filtered-record gain) |
 |---|---|---|---|---|---|
 | mock-PAM4_Fixed_PS80-r1 | -3 | 12648 | -2.967 | 0.2468 | 5.923e-05 |
 | mock-PAM4_Fixed_PS80-r1 | -1 | 50840 | -1.108 | 0.2475 | 5.94e-05 |
@@ -167,7 +167,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|---|
 | mock-PAM4_Fixed_PS80-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 2 errors in 253952 symbols, rate 7.88e-06 (95% interval 9.54e-07 to 2.84e-05) | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link configuration and profile as the simulation. The attenuation setting may differ: the simulated point is the nearest in received power, and the offset is in the table above. They also differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol), in the receiver chain (both apply a one-symbol filter, but the capture chain reads a non-periodic record with symbol clock estimation, the simulation one exact period), and in the noise realisation.
 
 ### Uncertainty
 
@@ -199,7 +199,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|
 | mock-PAM4_Adaptive-r1 | 20.36 | 1.811 | 1.811 | true |
 
-| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
+| Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V, filtered-record gain) |
 |---|---|---|---|---|---|
 | mock-PAM4_Adaptive-r1 | -3 | 47616 | -2.959 | 0.2495 | 5.988e-05 |
 | mock-PAM4_Adaptive-r1 | -1 | 15872 | -1.107 | 0.2461 | 5.904e-05 |
@@ -222,7 +222,7 @@ Post-matcher BER is diagnostic only; there is no FEC.
 |---|---|---|---|---|---|
 | mock-PAM4_Adaptive-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 4 errors in 253952 symbols, rate 1.58e-05 (95% interval 4.29e-06 to 4.03e-05) | 11 errors in 126976 symbols, rate 8.66e-05 (95% interval 4.32e-05 to 0.000155); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link configuration and profile as the simulation. The attenuation setting may differ: the simulated point is the nearest in received power, and the offset is in the table above. They also differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol), in the receiver chain (both apply a one-symbol filter, but the capture chain reads a non-periodic record with symbol clock estimation, the simulation one exact period), and in the noise realisation.
 
 ### Uncertainty
 
