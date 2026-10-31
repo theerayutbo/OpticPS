@@ -213,6 +213,7 @@ def _summary(analysis: ScopeAnalysis, priors: np.ndarray) -> dict[str, Any]:
         "gain_v_per_level": analysis.gain_v_per_level,
         "offset_v": analysis.offset_v,
         "rate_estimate_reliable": analysis.rate_estimate_reliable,
+        "matched_filter": analysis.matched_filter,
         "warnings": list(analysis.warnings),
     }
     if analysis.map is None or analysis.minimum_distance is None:
@@ -337,6 +338,7 @@ def ingest_uxr(
     segment: int | None = None,
     allow_waveform_types: Iterable[str] | None = None,
     max_samples: int | None = None,
+    matched_filter: bool = True,
 ) -> dict[str, Any]:
     """Import, validate, analyze and write the results of one scope capture."""
     registry_path = (default_registry() if registry is None else registry).resolve()
@@ -376,7 +378,13 @@ def ingest_uxr(
     priors = np.array(metadata["symbol_probabilities"], dtype=float)
     scored = metadata["split"] == "test"
     analysis = analyze_scope_capture(
-        waveform, float(metadata["symbol_rate_Bd"]), frame, priors, score_payload=scored
+        waveform,
+        float(metadata["symbol_rate_Bd"]),
+        frame,
+        priors,
+        score_payload=scored,
+        matched_filter=matched_filter,
+        pulse_shape=by_id[experiment]["pulse_shape"],
     )
     imported = [str(w) for w in waveform.attributes.get("warnings", [])]
     summary = {

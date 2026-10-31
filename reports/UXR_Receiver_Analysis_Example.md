@@ -16,7 +16,7 @@ Simulation for comparison: results/synthetic/demo_results.json (data source: sim
 
 | Capture | Condition | SER | BER |
 |---|---|---|---|
-| mock-PAM4_Uniform-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 194 errors in 126976 symbols, rate 0.00153 (95% interval 0.00132 to 0.00176); 4 frames repeat the same 31744 payload symbols | 194 errors in 253952 bits, rate 0.000764 (95% interval 0.00066 to 0.000879); 4 frames repeat the same 63488 payload bits |
+| mock-PAM4_Uniform-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols | 12 errors in 253952 bits, rate 4.73e-05 (95% interval 2.44e-05 to 8.25e-05); 4 frames repeat the same 63488 payload bits |
 
 Post-matcher BER is diagnostic only; there is no FEC.
 
@@ -32,20 +32,20 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | SNR (dB) | R_SMD (bit/sym) | R_BMD (bit/sym) | rate_estimate_reliable |
 |---|---|---|---|---|
-| mock-PAM4_Uniform-r1 | 17.12 | 1.994 | 1.994 | true |
+| mock-PAM4_Uniform-r1 | 18.98 | 2.000 | 2.000 | true |
 
 | Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
 |---|---|---|---|---|---|
-| mock-PAM4_Uniform-r1 | -3 | 31832 | -2.93 | 0.3038 | 8.972e-05 |
-| mock-PAM4_Uniform-r1 | -1 | 32020 | -1.094 | 0.3098 | 9.149e-05 |
-| mock-PAM4_Uniform-r1 | +1 | 30888 | 1.101 | 0.3083 | 9.105e-05 |
-| mock-PAM4_Uniform-r1 | +3 | 32236 | 2.944 | 0.3088 | 9.12e-05 |
+| mock-PAM4_Uniform-r1 | -3 | 31832 | -2.959 | 0.2468 | 5.923e-05 |
+| mock-PAM4_Uniform-r1 | -1 | 32020 | -1.107 | 0.2514 | 6.034e-05 |
+| mock-PAM4_Uniform-r1 | +1 | 30888 | 1.096 | 0.2492 | 5.981e-05 |
+| mock-PAM4_Uniform-r1 | +3 | 32236 | 2.953 | 0.2503 | 6.007e-05 |
 
 ### Receiver acquisition configuration
 
-| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) |
-|---|---|---|---|---|
-| mock-PAM4_Uniform-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) |
+| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) | Matched filter (one-symbol NRZ) |
+|---|---|---|---|---|---|
+| mock-PAM4_Uniform-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) | on |
 
 | Capture | Estimated symbol rate (GBd) | Clock offset (ppm) | Frames found | Frames analysed | Frames lost |
 |---|---|---|---|---|---|
@@ -55,15 +55,15 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | Received power (dBm) | Nearest simulated power (dBm) | Power difference | Simulated SER | Capture SER |
 |---|---|---|---|---|---|
-| mock-PAM4_Uniform-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 6 errors in 253952 symbols, rate 2.36e-05 (95% interval 8.67e-06 to 5.14e-05) | 194 errors in 126976 symbols, rate 0.00153 (95% interval 0.00132 to 0.00176); 4 frames repeat the same 31744 payload symbols |
+| mock-PAM4_Uniform-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 6 errors in 253952 symbols, rate 2.36e-05 (95% interval 8.67e-06 to 5.14e-05) | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The simulation is generic and is not tuned to this link, so equal power does not mean an equal link.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
 
 ### Uncertainty
 
-| Capture | Statistical: SER 95% interval | Statistical: BER 95% interval | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
+| Capture | Statistical: SER 95% interval, or one-sided upper bound at 0 errors | Statistical: BER 95% interval, or one-sided upper bound at 0 errors | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
 |---|---|---|---|---|
-| mock-PAM4_Uniform-r1 | 0.00132 to 0.00176 | 0.00066 to 0.000879 | 0.00141 to 0.00161 | not recorded |
+| mock-PAM4_Uniform-r1 | 4.88e-05 to 0.000165 | 2.44e-05 to 8.25e-05 | 7.09e-05 to 0.000118 | not recorded |
 
 ## Fixed PS70 (PAM4_Fixed_PS70)
 
@@ -71,7 +71,7 @@ The simulated point has the same waveform and profile and the nearest received p
 
 | Capture | Condition | SER | BER |
 |---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 163 errors in 126976 symbols, rate 0.00128 (95% interval 0.00109 to 0.0015); 4 frames repeat the same 31744 payload symbols | 163 errors in 253952 bits, rate 0.000642 (95% interval 0.000547 to 0.000748); 4 frames repeat the same 63488 payload bits |
+| mock-PAM4_Fixed_PS70-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 10 errors in 126976 symbols, rate 7.88e-05 (95% interval 3.78e-05 to 0.000145); 4 frames repeat the same 31744 payload symbols | 10 errors in 253952 bits, rate 3.94e-05 (95% interval 1.89e-05 to 7.24e-05); 4 frames repeat the same 63488 payload bits |
 
 Post-matcher BER is diagnostic only; there is no FEC.
 
@@ -87,20 +87,20 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | SNR (dB) | R_SMD (bit/sym) | R_BMD (bit/sym) | rate_estimate_reliable |
 |---|---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | 15.58 | 1.876 | 1.876 | true |
+| mock-PAM4_Fixed_PS70-r1 | 17.43 | 1.881 | 1.881 | true |
 
 | Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
 |---|---|---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | -3 | 19096 | -2.934 | 0.3033 | 8.957e-05 |
-| mock-PAM4_Fixed_PS70-r1 | -1 | 44392 | -1.095 | 0.3064 | 9.048e-05 |
-| mock-PAM4_Fixed_PS70-r1 | +1 | 44392 | 1.106 | 0.309 | 9.125e-05 |
-| mock-PAM4_Fixed_PS70-r1 | +3 | 19096 | 2.943 | 0.308 | 9.095e-05 |
+| mock-PAM4_Fixed_PS70-r1 | -3 | 19096 | -2.963 | 0.2452 | 5.884e-05 |
+| mock-PAM4_Fixed_PS70-r1 | -1 | 44392 | -1.109 | 0.2479 | 5.949e-05 |
+| mock-PAM4_Fixed_PS70-r1 | +1 | 44392 | 1.1 | 0.251 | 6.022e-05 |
+| mock-PAM4_Fixed_PS70-r1 | +3 | 19096 | 2.956 | 0.2507 | 6.017e-05 |
 
 ### Receiver acquisition configuration
 
-| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) |
-|---|---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) |
+| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) | Matched filter (one-symbol NRZ) |
+|---|---|---|---|---|---|
+| mock-PAM4_Fixed_PS70-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) | on |
 
 | Capture | Estimated symbol rate (GBd) | Clock offset (ppm) | Frames found | Frames analysed | Frames lost |
 |---|---|---|---|---|---|
@@ -110,15 +110,15 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | Received power (dBm) | Nearest simulated power (dBm) | Power difference | Simulated SER | Capture SER |
 |---|---|---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 3 errors in 253952 symbols, rate 1.18e-05 (95% interval 2.44e-06 to 3.45e-05) | 163 errors in 126976 symbols, rate 0.00128 (95% interval 0.00109 to 0.0015); 4 frames repeat the same 31744 payload symbols |
+| mock-PAM4_Fixed_PS70-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 3 errors in 253952 symbols, rate 1.18e-05 (95% interval 2.44e-06 to 3.45e-05) | 10 errors in 126976 symbols, rate 7.88e-05 (95% interval 3.78e-05 to 0.000145); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The simulation is generic and is not tuned to this link, so equal power does not mean an equal link.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
 
 ### Uncertainty
 
-| Capture | Statistical: SER 95% interval | Statistical: BER 95% interval | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
+| Capture | Statistical: SER 95% interval, or one-sided upper bound at 0 errors | Statistical: BER 95% interval, or one-sided upper bound at 0 errors | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
 |---|---|---|---|---|
-| mock-PAM4_Fixed_PS70-r1 | 0.00109 to 0.0015 | 0.000547 to 0.000748 | 0.00115 to 0.00145 | not recorded |
+| mock-PAM4_Fixed_PS70-r1 | 3.78e-05 to 0.000145 | 1.89e-05 to 7.24e-05 | 2.36e-05 to 0.000118 | not recorded |
 
 ## Fixed PS80 (PAM4_Fixed_PS80)
 
@@ -126,7 +126,7 @@ The simulated point has the same waveform and profile and the nearest received p
 
 | Capture | Condition | SER | BER |
 |---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 167 errors in 126976 symbols, rate 0.00132 (95% interval 0.00112 to 0.00153); 4 frames repeat the same 31744 payload symbols | 167 errors in 253952 bits, rate 0.000658 (95% interval 0.000562 to 0.000765); 4 frames repeat the same 63488 payload bits |
+| mock-PAM4_Fixed_PS80-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols | 12 errors in 253952 bits, rate 4.73e-05 (95% interval 2.44e-05 to 8.25e-05); 4 frames repeat the same 63488 payload bits |
 
 Post-matcher BER is diagnostic only; there is no FEC.
 
@@ -142,20 +142,20 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | SNR (dB) | R_SMD (bit/sym) | R_BMD (bit/sym) | rate_estimate_reliable |
 |---|---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | 14.53 | 1.717 | 1.717 | true |
+| mock-PAM4_Fixed_PS80-r1 | 16.38 | 1.722 | 1.722 | true |
 
 | Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
 |---|---|---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | -3 | 12648 | -2.935 | 0.3042 | 8.985e-05 |
-| mock-PAM4_Fixed_PS80-r1 | -1 | 50840 | -1.093 | 0.3049 | 9.004e-05 |
-| mock-PAM4_Fixed_PS80-r1 | +1 | 50840 | 1.104 | 0.3087 | 9.117e-05 |
-| mock-PAM4_Fixed_PS80-r1 | +3 | 12648 | 2.942 | 0.3095 | 9.141e-05 |
+| mock-PAM4_Fixed_PS80-r1 | -3 | 12648 | -2.967 | 0.2468 | 5.923e-05 |
+| mock-PAM4_Fixed_PS80-r1 | -1 | 50840 | -1.108 | 0.2475 | 5.94e-05 |
+| mock-PAM4_Fixed_PS80-r1 | +1 | 50840 | 1.1 | 0.2507 | 6.015e-05 |
+| mock-PAM4_Fixed_PS80-r1 | +3 | 12648 | 2.956 | 0.2488 | 5.97e-05 |
 
 ### Receiver acquisition configuration
 
-| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) |
-|---|---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) |
+| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) | Matched filter (one-symbol NRZ) |
+|---|---|---|---|---|---|
+| mock-PAM4_Fixed_PS80-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) | on |
 
 | Capture | Estimated symbol rate (GBd) | Clock offset (ppm) | Frames found | Frames analysed | Frames lost |
 |---|---|---|---|---|---|
@@ -165,15 +165,15 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | Received power (dBm) | Nearest simulated power (dBm) | Power difference | Simulated SER | Capture SER |
 |---|---|---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 2 errors in 253952 symbols, rate 7.88e-06 (95% interval 9.54e-07 to 2.84e-05) | 167 errors in 126976 symbols, rate 0.00132 (95% interval 0.00112 to 0.00153); 4 frames repeat the same 31744 payload symbols |
+| mock-PAM4_Fixed_PS80-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 2 errors in 253952 symbols, rate 7.88e-06 (95% interval 9.54e-07 to 2.84e-05) | 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The simulation is generic and is not tuned to this link, so equal power does not mean an equal link.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
 
 ### Uncertainty
 
-| Capture | Statistical: SER 95% interval | Statistical: BER 95% interval | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
+| Capture | Statistical: SER 95% interval, or one-sided upper bound at 0 errors | Statistical: BER 95% interval, or one-sided upper bound at 0 errors | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
 |---|---|---|---|---|
-| mock-PAM4_Fixed_PS80-r1 | 0.00112 to 0.00153 | 0.000562 to 0.000765 | 0.00128 to 0.00135 | not recorded |
+| mock-PAM4_Fixed_PS80-r1 | 4.88e-05 to 0.000165 | 2.44e-05 to 8.25e-05 | 7.09e-05 to 0.000118 | not recorded |
 
 ## Adaptive (PAM4_Adaptive)
 
@@ -181,7 +181,7 @@ The simulated point has the same waveform and profile and the nearest received p
 
 | Capture | Condition | SER | BER |
 |---|---|---|---|
-| mock-PAM4_Adaptive-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 177 errors in 126976 symbols, rate 0.00139 (95% interval 0.0012 to 0.00161); 4 frames repeat the same 31744 payload symbols | 177 errors in 253952 bits, rate 0.000697 (95% interval 0.000598 to 0.000808); 4 frames repeat the same 63488 payload bits |
+| mock-PAM4_Adaptive-r1 | attenuation 18.4 dB, fiber 0 km, run r1 | 11 errors in 126976 symbols, rate 8.66e-05 (95% interval 4.32e-05 to 0.000155); 4 frames repeat the same 31744 payload symbols | 11 errors in 253952 bits, rate 4.33e-05 (95% interval 2.16e-05 to 7.75e-05); 4 frames repeat the same 63488 payload bits |
 
 Post-matcher BER is diagnostic only; there is no FEC.
 
@@ -197,20 +197,20 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | SNR (dB) | R_SMD (bit/sym) | R_BMD (bit/sym) | rate_estimate_reliable |
 |---|---|---|---|---|
-| mock-PAM4_Adaptive-r1 | 18.50 | 1.806 | 1.806 | true |
+| mock-PAM4_Adaptive-r1 | 20.36 | 1.811 | 1.811 | true |
 
 | Capture | Level | Symbols | Mean (level units) | Spread, std (level units) | Spread, std (V) |
 |---|---|---|---|---|---|
-| mock-PAM4_Adaptive-r1 | -3 | 47616 | -2.933 | 0.3071 | 9.069e-05 |
-| mock-PAM4_Adaptive-r1 | -1 | 15872 | -1.095 | 0.3081 | 9.1e-05 |
-| mock-PAM4_Adaptive-r1 | +1 | 15872 | 1.101 | 0.3103 | 9.164e-05 |
-| mock-PAM4_Adaptive-r1 | +3 | 47616 | 2.945 | 0.3077 | 9.088e-05 |
+| mock-PAM4_Adaptive-r1 | -3 | 47616 | -2.959 | 0.2495 | 5.988e-05 |
+| mock-PAM4_Adaptive-r1 | -1 | 15872 | -1.107 | 0.2461 | 5.904e-05 |
+| mock-PAM4_Adaptive-r1 | +1 | 15872 | 1.096 | 0.2527 | 6.063e-05 |
+| mock-PAM4_Adaptive-r1 | +3 | 47616 | 2.951 | 0.2504 | 6.009e-05 |
 
 ### Receiver acquisition configuration
 
-| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) |
-|---|---|---|---|---|
-| mock-PAM4_Adaptive-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) |
+| Capture | Receiver model | Source format | Sample rate (GSa/s) | Bandwidth (GHz) | Matched filter (one-symbol NRZ) |
+|---|---|---|---|---|---|
+| mock-PAM4_Adaptive-r1 | MOCK-RECEIVER (no real instrument); file reports no model | csv | 80 (from the file) | 8 (declared) | on |
 
 | Capture | Estimated symbol rate (GBd) | Clock offset (ppm) | Frames found | Frames analysed | Frames lost |
 |---|---|---|---|---|---|
@@ -220,15 +220,15 @@ Post-matcher BER is diagnostic only; there is no FEC.
 
 | Capture | Received power (dBm) | Nearest simulated power (dBm) | Power difference | Simulated SER | Capture SER |
 |---|---|---|---|---|---|
-| mock-PAM4_Adaptive-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 4 errors in 253952 symbols, rate 1.58e-05 (95% interval 4.29e-06 to 4.03e-05) | 177 errors in 126976 symbols, rate 0.00139 (95% interval 0.0012 to 0.00161); 4 frames repeat the same 31744 payload symbols |
+| mock-PAM4_Adaptive-r1 | -15.41 | -15.01 | -0.40 dB (capture minus simulation) | 4 errors in 253952 symbols, rate 1.58e-05 (95% interval 4.29e-06 to 4.03e-05) | 11 errors in 126976 symbols, rate 8.66e-05 (95% interval 4.32e-05 to 0.000155); 4 frames repeat the same 31744 payload symbols |
 
-The simulated point has the same waveform and profile and the nearest received power. The simulation is generic and is not tuned to this link, so equal power does not mean an equal link.
+The simulated point has the same waveform and profile and the nearest received power. The mock captures use the same link parameters as the simulation (same configuration, profile and attenuation setting). They differ in the capture sample rate (the mock capture runs at the rate in the acquisition table, the simulation at 8 samples per symbol) and in the receiver chain (a non-periodic record with symbol clock estimation and a matched filter, against one exact period), in the noise realisation, and in the received power offset in the table above.
 
 ### Uncertainty
 
-| Capture | Statistical: SER 95% interval | Statistical: BER 95% interval | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
+| Capture | Statistical: SER 95% interval, or one-sided upper bound at 0 errors | Statistical: BER 95% interval, or one-sided upper bound at 0 errors | Statistical: frame bootstrap, SER | Physical uncertainty, from the sidecar |
 |---|---|---|---|---|
-| mock-PAM4_Adaptive-r1 | 0.0012 to 0.00161 | 0.000598 to 0.000808 | 0.00126 to 0.00153 | not recorded |
+| mock-PAM4_Adaptive-r1 | 4.32e-05 to 0.000155 | 2.16e-05 to 7.75e-05 | 6.3e-05 to 0.00011 | not recorded |
 
 ## Comparison verdicts
 

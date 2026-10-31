@@ -23,7 +23,6 @@ from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     Image,
-    KeepTogether,
     ListFlowable,
     ListItem,
     PageBreak,
@@ -453,14 +452,9 @@ def render_pdf(
             tagged = re.search(r" \[([^\]]+)\]$", label)
             if tagged:
                 label, kind = label[: tagged.start()], f" ({tagged.group(1)})"
-            story.append(
-                KeepTogether(
-                    [
-                        Image(match.group(2), width=shown, height=shown * h / w),
-                        Paragraph(_inline(label) + kind, caption),
-                    ]
-                )
-            )
+            picture = Image(match.group(2), width=shown, height=shown * h / w)
+            picture.keepWithNext = 1  # picture, its caption and any heading above stay together
+            story.extend([picture, Paragraph(_inline(label) + kind, caption)])
         elif block.startswith("|"):
             rows = [
                 [c.strip() for c in line.strip("|").split("|")]

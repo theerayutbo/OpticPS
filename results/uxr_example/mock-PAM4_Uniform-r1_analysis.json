@@ -3,7 +3,7 @@
   "split": "test",
   "waveform": "PAM4_Uniform",
   "profile": "A_initial_8GBd",
-  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpoucgxqch/registry.json",
+  "registry": "/private/var/folders/xy/8y450hn11jqb94jwm5mjv5dw0000gn/T/tmpbf63eoig/registry.json",
   "registry_source": "given",
   "source_file": "mock-PAM4_Uniform-r1.csv",
   "source_sha256": "0a2484e466a92adeb4b25c1a36aafbaaebded9a8a6a8c4742e517d85e86d3e87",
@@ -75,46 +75,47 @@
   "frames_lost": 0,
   "lost_frame_numbers": [],
   "distinct_payload_symbols": 31744,
-  "timing_residual_rms_samples": 0.05106200265163186,
-  "gain_v_per_level": 0.0002953177798473762,
-  "offset_v": 0.0011496629017039449,
+  "timing_residual_rms_samples": 0.020482838981133195,
+  "gain_v_per_level": 0.00023997119009542203,
+  "offset_v": 0.0011522053281081373,
   "rate_estimate_reliable": true,
+  "matched_filter": true,
   "warnings": [
     "Frames repeat the same 31744 payload symbols, so pooled symbols are not independent data and level counts are per frame"
   ],
   "map": {
     "symbols": 126976,
-    "symbol_errors": 194,
-    "ser": 0.0015278477822580645,
+    "symbol_errors": 12,
+    "ser": 9.450604838709677e-05,
     "ser_ci": [
-      0.001320538782500639,
-      0.0017584278433580413
+      4.8833577191103437e-05,
+      0.00016507722204603015
     ],
-    "ser_upper_95": 0.0017208160007735254,
-    "ser_report": "194 errors in 126976 symbols, rate 0.00153 (95% interval 0.00132 to 0.00176); 4 frames repeat the same 31744 payload symbols",
+    "ser_upper_95": 0.0001531155456587048,
+    "ser_report": "12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols",
     "bits": 253952,
-    "bit_errors": 194,
-    "ber": 0.0007639238911290322,
+    "bit_errors": 12,
+    "ber": 4.7253024193548386e-05,
     "ber_ci": [
-      0.0006602364302466199,
-      0.0008792646770252913
+      2.44165578612418e-05,
+      8.25400674026611e-05
     ],
-    "ber_upper_95": 0.0008604495671713994,
-    "ber_report": "194 errors in 253952 bits, rate 0.000764 (95% interval 0.00066 to 0.000879); 4 frames repeat the same 63488 payload bits",
+    "ber_upper_95": 7.655889470458357e-05,
+    "ber_report": "12 errors in 253952 bits, rate 4.73e-05 (95% interval 2.44e-05 to 8.25e-05); 4 frames repeat the same 63488 payload bits",
     "ser_bootstrap_ci": [
-      0.0014097152217741936,
-      0.0016144783266129033
+      7.087953629032259e-05,
+      0.00011813256048387097
     ],
     "ber_bootstrap_ci": [
-      0.0007048576108870968,
-      0.0008072391633064517
+      3.543976814516129e-05,
+      5.9066280241935486e-05
     ],
     "distinct_symbols": 31744,
     "per_frame_symbol_errors": [
-      52,
-      50,
-      43,
-      49
+      2,
+      4,
+      3,
+      3
     ],
     "ser_upper_95_distinct": null,
     "lost_frames": 0,
@@ -124,37 +125,37 @@
   },
   "minimum_distance": {
     "symbols": 126976,
-    "symbol_errors": 187,
-    "ser": 0.001472719254032258,
+    "symbol_errors": 12,
+    "ser": 9.450604838709677e-05,
     "ser_ci": [
-      0.0012693187483529599,
-      0.0016994034000909883
+      4.8833577191103437e-05,
+      0.00016507722204603015
     ],
-    "ser_upper_95": 0.001662417278091522,
-    "ser_report": "187 errors in 126976 symbols, rate 0.00147 (95% interval 0.00127 to 0.0017); 4 frames repeat the same 31744 payload symbols",
+    "ser_upper_95": 0.0001531155456587048,
+    "ser_report": "12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols",
     "bits": 253952,
-    "bit_errors": 187,
-    "ber": 0.000736359627016129,
+    "bit_errors": 12,
+    "ber": 4.7253024193548386e-05,
     "ber_ci": [
-      0.0006346283139997647,
-      0.0008497499205118256
+      2.44165578612418e-05,
+      8.25400674026611e-05
     ],
-    "ber_upper_95": 0.0008312481127151954,
-    "ber_report": "187 errors in 253952 bits, rate 0.000736 (95% interval 0.000635 to 0.00085); 4 frames repeat the same 63488 payload bits",
+    "ber_upper_95": 7.655889470458357e-05,
+    "ber_report": "12 errors in 253952 bits, rate 4.73e-05 (95% interval 2.44e-05 to 8.25e-05); 4 frames repeat the same 63488 payload bits",
     "ser_bootstrap_ci": [
-      0.0012679561491935483,
-      0.0016853578629032258
+      7.087953629032259e-05,
+      0.00011813256048387097
     ],
     "ber_bootstrap_ci": [
-      0.0006339780745967742,
-      0.0008426789314516129
+      3.543976814516129e-05,
+      5.9066280241935486e-05
     ],
     "distinct_symbols": 31744,
     "per_frame_symbol_errors": [
-      56,
-      47,
-      38,
-      46
+      2,
+      3,
+      4,
+      3
     ],
     "ser_upper_95_distinct": null,
     "lost_frames": 0,
@@ -162,9 +163,9 @@
     "ser_worst_case": null,
     "ber_worst_case": null
   },
-  "r_smd": 1.9938363279433435,
-  "r_bmd": 1.9938363279433435,
-  "snr_db": 17.119843329407722,
+  "r_smd": 1.9995170272643654,
+  "r_bmd": 1.9995170272643654,
+  "snr_db": 18.983329514856294,
   "level_test_symbols": [
     7958,
     8005,
@@ -172,17 +173,17 @@
     8059
   ],
   "symbol_histogram": [
-    31843,
-    32013,
-    30881,
-    32239
+    31831,
+    32021,
+    30891,
+    32233
   ],
   "reference_mismatch_suspected": false,
   "reference_check_reason": "",
   "reference_check": {
-    "training_ser": 0.00048828125,
+    "training_ser": 0.0,
     "training_ser_upper": 0.010294916914515638,
-    "payload_ser_minimum_distance": 0.001472719254032258,
+    "payload_ser_minimum_distance": 9.450604838709677e-05,
     "excess_margin": 0.1
   },
   "level_statistics": {
@@ -191,30 +192,30 @@
       {
         "level": -3,
         "symbols": 31832,
-        "mean": -2.9299422731553233,
-        "std": 0.30381364118187015,
-        "std_v": 8.972157000117728e-05
+        "mean": -2.959261838190476,
+        "std": 0.2468145374658402,
+        "std_v": 5.92283782885288e-05
       },
       {
         "level": -1,
         "symbols": 32020,
-        "mean": -1.093593453232759,
-        "std": 0.3098101392602788,
-        "std_v": 9.149244250055197e-05
+        "mean": -1.107308067306979,
+        "std": 0.25144516457077515,
+        "std_v": 6.0339595385788156e-05
       },
       {
         "level": 1,
         "symbols": 30888,
-        "mean": 1.1011967430496687,
-        "std": 0.30829880107842306,
-        "std_v": 9.104611746408777e-05
+        "mean": 1.095666447699605,
+        "std": 0.24922548817778356,
+        "std_v": 5.9806937000135254e-05
       },
       {
         "level": 3,
         "symbols": 32236,
-        "mean": 2.943510299936313,
-        "std": 0.3088242096385597,
-        "std_v": 9.120127995358013e-05
+        "mean": 2.9528313531772694,
+        "std": 0.25031618962046603,
+        "std_v": 6.006867392337456e-05
       }
     ]
   }

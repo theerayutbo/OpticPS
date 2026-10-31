@@ -6,6 +6,7 @@ All fixtures are SYNTHETIC: files and waveforms written by this module, not inst
 import hashlib
 import json
 import re
+import shutil
 import struct
 from pathlib import Path
 
@@ -455,10 +456,17 @@ def test_partial_frames_clock_offset_and_polarity(ppm, invert, seed):
 def test_gain_and_dc_offset_recovered():
     frame = uniform_frame()
     wave = scope_capture(frame, 70.0, link=False, gain=0.37, dc=0.21, invert=True)
-    result = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    result = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, matched_filter=False)
     assert result.gain_v_per_level == pytest.approx(-0.37, rel=0.02)
     assert result.offset_v == pytest.approx(0.21, abs=0.005)
     assert result.map.symbol_errors == 0
+    # After the matched filter the gain is that of the filtered record: the one-sample edges
+    # of the 8 samples per symbol grid fall inside the one-symbol window, so it reads a few
+    # percent low (the equalizer absorbs this); offset and decisions are unchanged.
+    filtered = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+    assert -0.37 < filtered.gain_v_per_level < -0.37 * 0.9 and filtered.matched_filter
+    assert filtered.offset_v == pytest.approx(0.21, abs=0.005)
+    assert filtered.map.symbol_errors == 0
 
 
 def test_clock_compensation_matters():
@@ -475,7 +483,10 @@ def test_ser_inside_clopper_pearson_interval_of_analytic_value():
     frame = uniform_frame()
     sigma = 0.5
     wave = scope_capture(frame, 100.0, frames=8.3, sps=8, link=False, sigma=sigma, seed=4)
-    result = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, taps=1)
+    # the analytic value is for point sampling; the matched filter averages noise down
+    result = analyze_scope_capture(
+        wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, taps=1, matched_filter=False
+    )
     analytic = 0.75 * erfc(1 / (np.sqrt(2) * sigma))
     for pooled in (result.minimum_distance, result.map):
         low, high = clopper_pearson(pooled.symbol_errors, pooled.symbols, 0.999)
@@ -508,6 +519,75 @@ def test_no_complete_frame_or_no_preamble_raises():
         analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
     with pytest.raises(ValueError, match="samples per symbol"):
         analyze_scope_capture(wave, 200e9, frame, UNIFORM_PRIORS)
+
+
+def periodic_noisy_record(frame, sigma, seed, periods=5, sps=8, noise_bandwidth=8e9):
+    """Exactly periodic, 8 samples per symbol: band-limited NRZ plus noise up to noise_bandwidth.
+
+    Noise reaching past the symbol rate is what a wideband scope adds. SYNTHETIC.
+    """
+    rng = np.random.default_rng(seed)
+    tiled = np.tile(np.repeat(pam_levels(4)[frame.indices], sps).astype(float), periods)
+    rate = sps * SYMBOL_RATE
+    f = np.fft.rfftfreq(tiled.size, 1 / rate)
+    signal = np.fft.irfft(np.fft.rfft(tiled) / np.sqrt(1 + (f / 8e9) ** 8), n=tiled.size)
+    noisy = signal + band_limited_noise(tiled.size, rate, noise_bandwidth, sigma, rng)
+    return noisy, rate
+
+
+def test_capture_chain_matches_process_capture_and_the_matched_filter_buys_snr():
+    """Same record, same noise: the non-periodic chain agrees with process_capture.
+
+    process_capture applies a periodic rectangular matched filter to one exact period; the
+    capture chain does the same linearly. Stated margins: SNR within 0.3 dB, error counts
+    within 15 percent of each other, and 1.5 dB or more SNR and at least twice the errors
+    without the filter.
+    """
+    from opticps.receiver.dsp import process_capture
+
+    frame = uniform_frame()
+    period = frame.indices.size * 8
+    for seed in (1, 2):
+        record, rate = periodic_noisy_record(frame, 0.65, seed)
+        wave = ScopeWaveform(record, 1 / rate, 0.0, "V", 1, None, None, None, "synthetic", {})
+        on = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS)
+        off = analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, matched_filter=False)
+        reference = [
+            process_capture(record[k * period : (k + 1) * period], rate, SYMBOL_RATE, frame,
+                            UNIFORM_PRIORS)
+            for k in range(5)
+        ]  # fmt: skip
+        reference_errors = sum(r.map.symbol_errors for r in reference)
+        reference_snr = float(np.mean([r.map.snr_db for r in reference]))
+        assert on.matched_filter is True and off.matched_filter is False
+        assert on.frames_analyzed == 5 and reference_errors > 400
+        assert abs(on.snr_db - reference_snr) < 0.3
+        assert abs(on.map.symbol_errors / reference_errors - 1) < 0.15
+        assert on.snr_db - off.snr_db > 1.5
+        assert off.map.symbol_errors > 2 * on.map.symbol_errors
+
+
+def test_matched_filter_is_rectangular_and_refuses_an_rrc_waveform():
+    frame = uniform_frame()
+    record, rate = periodic_noisy_record(frame, 0.3, 1)
+    wave = ScopeWaveform(record, 1 / rate, 0.0, "V", 1, None, None, None, "synthetic", {})
+    with pytest.raises(ValueError, match="RRC|rrc"):
+        analyze_scope_capture(wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, pulse_shape="rrc")
+    unfiltered = analyze_scope_capture(
+        wave, SYMBOL_RATE, frame, UNIFORM_PRIORS, matched_filter=False, pulse_shape="rrc"
+    )
+    assert unfiltered.matched_filter is False
+
+
+def test_clean_30_ghz_capture_stays_reliable_with_the_matched_filter():
+    frame = uniform_frame()
+    result = analyze_scope_capture(
+        scope_capture(frame, 40.0, bandwidth=30e9, link=False, sigma=0.2, seed=5),
+        SYMBOL_RATE, frame, UNIFORM_PRIORS,
+    )  # fmt: skip
+    assert result.matched_filter and result.rate_estimate_reliable
+    assert result.clock_confidence == "high" and abs(result.clock_offset_ppm - 40) < 1.0
+    assert result.map.symbol_errors == 0
 
 
 def test_zero_errors_are_reported_as_an_upper_bound_not_zero_ber():
@@ -774,12 +854,32 @@ def test_ingest_uxr_test_split_end_to_end(uxr_files, tmp_path, capsys):
     assert "SER: 0 errors in" in out and "upper bound" in out and "clock offset" in out
     summary = json.loads((tmp_path / "res" / "uxr-synthetic-1_analysis.json").read_text())
     assert summary["split"] == "test" and summary["waveform"] == "PAM4_Fixed_PS70"
+    assert summary["matched_filter"] is True
     assert abs(summary["clock_offset_ppm"] - 40) < 1.0
     assert summary["measured_sample_rate_Sa_per_s"] == pytest.approx(64e9)
     assert summary["map"]["symbol_errors"] == 0 and summary["map"]["ber"] is None
     assert "upper bound" in summary["map"]["ber_report"]
     assert (tmp_path / "res" / "uxr-synthetic-1_eye.npz").exists()
     assert (tmp_path / "res" / "uxr-synthetic-1_frames.csv").exists()
+
+
+def test_ingest_refuses_an_rrc_manifest_unless_the_matched_filter_is_off(uxr_files, tmp_path):
+    from opticps.measurement.uxr_ingest import ingest_uxr
+
+    folder, row, probabilities = uxr_files
+    side = write_sidecar(folder, row, probabilities, "rrc.json")
+    root = tmp_path / "root"
+    shutil.copytree(ROOT / PROFILE, root / PROFILE)
+    manifest = root / PROFILE / "experiment_manifest.csv"
+    manifest.write_text(manifest.read_text().replace(",nrz,", ",rrc,"))
+    with pytest.raises(ValueError, match="RRC|rrc"):
+        ingest_uxr(folder / "cap.h5", side, root, PROFILE, tmp_path / "a",
+                   registry=tmp_path / "a.json")  # fmt: skip
+    summary = ingest_uxr(
+        folder / "cap.h5", side, root, PROFILE, tmp_path / "b",
+        registry=tmp_path / "b.json", matched_filter=False,
+    )  # fmt: skip
+    assert summary["matched_filter"] is False
 
 
 def test_ingest_uxr_training_split_is_not_scored(uxr_files, tmp_path):
@@ -2266,6 +2366,25 @@ def test_report_zero_error_wording_and_both_kinds_of_uncertainty_kept_apart(mock
     assert "rate 0" not in text and "BER 0" not in text
     assert "Statistical: SER 95% interval" in text
     assert "Physical uncertainty, from the sidecar" in text and "not recorded" in text
+    uncertainty = text.split("### Uncertainty")[1].split("## Comparison")[0]
+    rows = [r for r in uncertainty.splitlines() if r.startswith("|") and "-r" in r]
+    zero = [r for r in rows if "0 errors:" in r]
+    assert zero and all("one-sided 95% upper bound" in r and "(no lower bound)" in r for r in zero)
+    # a zero-error row never shows a two-sided interval "0 to x" beside the bound
+    assert not any(re.search(r"\| 0 to ", r) for r in rows)
+
+
+def test_statistical_interval_is_two_sided_only_when_there_are_errors():
+    from opticps.reporting.uxr_report import _statistical_interval
+
+    pooled = {"symbol_errors": 0, "ser_ci": (0.0, 0.01), "ser_upper_95": 0.007}
+    assert _statistical_interval(pooled, "symbol_errors", "ser_ci", "ser_upper_95") == (
+        "0 errors: one-sided 95% upper bound 0.007 (no lower bound)"
+    )
+    pooled = {"symbol_errors": 3, "ser_ci": (0.001, 0.02), "ser_upper_95": 0.018}
+    assert (
+        _statistical_interval(pooled, "symbol_errors", "ser_ci", "ser_upper_95") == "0.001 to 0.02"
+    )
 
 
 def test_report_lists_verdicts_withheld_reasons_and_flagged_captures(mock_report):

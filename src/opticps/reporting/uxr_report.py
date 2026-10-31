@@ -57,6 +57,19 @@ EYE_INTERPOLATION = 8
 NOT_RECORDED = "not recorded"
 NO_SIMULATED_POINT = "no comparable simulated point"
 POSITION_TOLERANCE_KM = 1e-3
+MOCK_DIFFERENCE = (
+    "The mock captures use the same link parameters as the simulation (same configuration, "
+    "profile and attenuation setting). They differ in the capture sample rate (the mock "
+    "capture runs at the rate in the acquisition table, the simulation at 8 samples per "
+    "symbol) and in the receiver chain (a non-periodic record with symbol clock estimation "
+    "and a matched filter, against one exact period), in the noise realisation, and in the "
+    "received power offset in the table above."
+)
+MEASURED_DIFFERENCE = (
+    "The simulation is a model with assumed parameters, not a description of this link, so "
+    "equal received power does not mean an equal link; the power offset in the table above "
+    "is only one of the differences."
+)
 
 
 def _source_text(sources: list[str]) -> str:
@@ -186,7 +199,7 @@ def _distribution_figure(item: dict[str, Any], label: str, path: Path) -> str | 
     axis.set_xticks(x, [f"{v:+d}" for v in LEVELS])
     axis.set_xlabel("PAM4 level")
     axis.set_ylabel("Probability")
-    axis.legend(fontsize=7)
+    axis.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.22), ncol=2, frameon=False)
     axis.set_title(
         f"{label}: recovered symbol distribution\n{_stamp(item['sidecar']['data_source'])}",
         fontsize=8,
@@ -225,12 +238,26 @@ def _eye_figure(item: dict[str, Any], label: str, results_dir: Path, path: Path)
     return None
 
 
+def _matched_filter_text(item: dict[str, Any]) -> str:
+    used = item.get("matched_filter")
+    if used is None:
+        return "not recorded (analysed before the filter was recorded)"
+    return "on" if used else "off (unfiltered samples)"
+
+
 def _ppm(value: float) -> str:
     return f"{round(value, 1) + 0.0:+.1f}"  # + 0.0 turns -0.0 into 0.0
 
 
 def _interval(low: float, high: float) -> str:
     return f"{low:.3g} to {high:.3g}"
+
+
+def _statistical_interval(pooled: dict[str, Any], errors: str, ci: str, upper: str) -> str:
+    """Two-sided interval, or at zero errors only the one-sided upper bound."""
+    if pooled[errors] == 0:
+        return f"0 errors: one-sided 95% upper bound {pooled[upper]:.3g} (no lower bound)"
+    return _interval(*pooled[ci])
 
 
 def _simulated_point(
@@ -266,8 +293,8 @@ def _uncertainty_row(item: dict[str, Any]) -> list[str]:
     calibration = item["sidecar"].get("calibration")
     return [
         item["capture_id"],
-        _interval(*pooled["ser_ci"]),
-        _interval(*pooled["ber_ci"]),
+        _statistical_interval(pooled, "symbol_errors", "ser_ci", "ser_upper_95"),
+        _statistical_interval(pooled, "bit_errors", "ber_ci", "ber_upper_95"),
         _interval(*boot) if boot else "none (needs 2 or more frames and an error)",
         json.dumps(calibration, sort_keys=True) if calibration else NOT_RECORDED,
     ]
@@ -398,6 +425,7 @@ def _waveform_section(
                     "Source format",
                     "Sample rate (GSa/s)",
                     "Bandwidth (GHz)",
+                    "Matched filter (one-symbol NRZ)",
                 ]
             ]
             + [
@@ -408,6 +436,7 @@ def _waveform_section(
                     str(i["source_format"]),
                     f"{i['measured_sample_rate_Sa_per_s'] / 1e9:.4g} (from the file)",
                     f"{i['sidecar']['receiver_bandwidth_Hz'] / 1e9:.4g} (declared)",
+                    _matched_filter_text(i),
                 ]
                 for i in items
             ]
@@ -474,8 +503,7 @@ def _waveform_section(
     parts += [_table(rows), ""]
     parts += [
         "The simulated point has the same waveform and profile and the nearest received power. "
-        "The simulation is generic and is not tuned to this link, so equal power does not mean "
-        "an equal link.",
+        + context["difference_note"],
         "",
     ]
     parts += ["### Uncertainty", ""]
@@ -484,8 +512,8 @@ def _waveform_section(
             [
                 [
                     "Capture",
-                    "Statistical: SER 95% interval",
-                    "Statistical: BER 95% interval",
+                    "Statistical: SER 95% interval, or one-sided upper bound at 0 errors",
+                    "Statistical: BER 95% interval, or one-sided upper bound at 0 errors",
                     "Statistical: frame bootstrap, SER",
                     "Physical uncertainty, from the sidecar",
                 ]
@@ -661,6 +689,7 @@ def build_uxr_report(
         "simulation": simulation,
         "simulation_note": note,
         "noun": "measurement" if sources == {"measured"} else "capture",
+        "difference_note": MOCK_DIFFERENCE if sources == {"simulated"} else MEASURED_DIFFERENCE,
         "figure_files": [],
     }
     text = _markdown(items, summary, title, context)

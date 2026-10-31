@@ -118,6 +118,7 @@ def cmd_ingest_uxr(args: argparse.Namespace) -> int:
         segment=args.segment,
         allow_waveform_types=args.allow_waveform_type,
         max_samples=args.max_samples,
+        matched_filter=not args.no_matched_filter,
     )
     print(f"{summary['capture_id']} ({summary['split']}): {summary['source_format']}")
     print(
@@ -269,6 +270,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     command.add_argument(
         "--max-samples", type=int, help="most values to read from an HDF5 file (default 5e8)"
+    )
+    command.add_argument(
+        "--no-matched-filter",
+        action="store_true",
+        help="sample the unfiltered record (default: rectangular NRZ matched filter, "
+        "refused when the manifest says RRC)",
     )
 
     command = add("compare-uxr", cmd_compare_uxr, "paired comparison and report from ingest-uxr")

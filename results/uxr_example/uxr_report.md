@@ -4,10 +4,10 @@ Data sources: simulated. 4 test and 0 training captures; training captures are n
 
 ## Captures
 
-- mock-PAM4_Adaptive-r1 (A_initial_8GBd PAM4_Adaptive, run r1): SER 177 errors in 126976 symbols, rate 0.00139 (95% interval 0.0012 to 0.00161); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
-- mock-PAM4_Fixed_PS70-r1 (A_initial_8GBd PAM4_Fixed_PS70, run r1): SER 163 errors in 126976 symbols, rate 0.00128 (95% interval 0.00109 to 0.0015); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
-- mock-PAM4_Fixed_PS80-r1 (A_initial_8GBd PAM4_Fixed_PS80, run r1): SER 167 errors in 126976 symbols, rate 0.00132 (95% interval 0.00112 to 0.00153); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
-- mock-PAM4_Uniform-r1 (A_initial_8GBd PAM4_Uniform, run r1): SER 194 errors in 126976 symbols, rate 0.00153 (95% interval 0.00132 to 0.00176); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
+- mock-PAM4_Adaptive-r1 (A_initial_8GBd PAM4_Adaptive, run r1): SER 11 errors in 126976 symbols, rate 8.66e-05 (95% interval 4.32e-05 to 0.000155); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
+- mock-PAM4_Fixed_PS70-r1 (A_initial_8GBd PAM4_Fixed_PS70, run r1): SER 10 errors in 126976 symbols, rate 7.88e-05 (95% interval 3.78e-05 to 0.000145); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
+- mock-PAM4_Fixed_PS80-r1 (A_initial_8GBd PAM4_Fixed_PS80, run r1): SER 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
+- mock-PAM4_Uniform-r1 (A_initial_8GBd PAM4_Uniform, run r1): SER 12 errors in 126976 symbols, rate 9.45e-05 (95% interval 4.88e-05 to 0.000165); 4 frames repeat the same 31744 payload symbols; 4 frames analysed, 0 lost.
 
 ## Paired comparisons (R_BMD), one per condition
 

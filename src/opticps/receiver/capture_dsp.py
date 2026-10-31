@@ -112,7 +112,8 @@ class ScopeAnalysis:
     """Everything derived from one scope capture.
 
     Without scoring (training captures) no value derived from the payload is reported:
-    the error pools, rates, SNR, histogram and eye are None or empty.
+    the error pools, rates, SNR, histogram and eye are None or empty. With matched_filter the
+    symbols, gain and eye come from the record after the one-symbol window.
     """
 
     measured_sample_rate: float
@@ -146,6 +147,7 @@ class ScopeAnalysis:
     symbol_histogram: IntArray | None
     eye: FloatArray
     eye_time_ui: FloatArray
+    matched_filter: bool
     warnings: list[str] = field(default_factory=list)
 
 
@@ -177,6 +179,20 @@ def resample_linear(x: FloatArray, sample_rate: float, target_rate: float) -> Fl
     count = int(np.floor((x.size - 1) / ratio)) + 1
     spline = CubicSpline(np.arange(x.size), x)
     return np.asarray(spline(np.arange(count) * ratio), dtype=float)
+
+
+def matched_filter_nrz(signal: FloatArray) -> FloatArray:
+    """Integrate over one symbol period (OVERSAMPLING samples), the matched filter of NRZ.
+
+    Linear and non-periodic: a symmetric window of OVERSAMPLING samples (half weight on its
+    two end taps) has zero delay, and near the ends of the record it is renormalized over
+    the samples that exist. It is matched to a rectangular pulse only; an RRC waveform
+    needs the RRC pulse here instead.
+    """
+    window = np.ones(OVERSAMPLING + 1)
+    window[[0, -1]] = 0.5
+    weight = oaconvolve(np.ones(signal.size), window, mode="same")
+    return np.asarray(oaconvolve(signal, window, mode="same") / weight, float)
 
 
 def _normalized_correlation(signal: FloatArray, template: FloatArray) -> FloatArray:
@@ -654,6 +670,8 @@ def analyze_scope_capture(
     seed: int = 0,
     compensate_clock: bool = True,
     score_payload: bool = True,
+    matched_filter: bool = True,
+    pulse_shape: str = "nrz",
 ) -> ScopeAnalysis:
     """Analyze a non-periodic scope capture against the known transmitted frame.
 
@@ -661,7 +679,22 @@ def analyze_scope_capture(
     estimation buys); each frame is then aligned only by its own preamble. With
     score_payload=False (training captures) the payload is used only to steer timing and
     nothing derived from it is reported.
+
+    matched_filter=True (default) integrates the record over one symbol period before timing
+    and sampling, the matched filter of an NRZ pulse, as process_capture does for periodic
+    records. It is applied on the record resampled to 8 samples per symbol at the symbol
+    rate in use: the nominal rate on the first pass, the estimated rate on the second, so the
+    final pass uses the estimated timing (the first pass differs by at most the 2000 ppm
+    clock limit, a window error far below a sample). The exported waveforms are NRZ. For an
+    RRC waveform (pulse_shape="rrc") this filter is the wrong one and the call is refused;
+    matched_filter=False samples the unfiltered record.
     """
+    if matched_filter and pulse_shape != "nrz":
+        raise ValueError(
+            f"The matched filter is rectangular (NRZ); pulse shape {pulse_shape!r} needs a "
+            "different filter, which is not implemented. Use matched_filter=False to sample "
+            "the unfiltered record"
+        )
     sample_rate = waveform.measured_sample_rate
     if symbol_rate_nominal <= 0 or sample_rate < 2 * symbol_rate_nominal:
         raise ValueError("Need a positive symbol rate and at least 2 samples per symbol")
@@ -732,6 +765,12 @@ def analyze_scope_capture(
     while high < smooth.size - 1 and smooth[high + 1] <= PLATEAU * smooth[best]:
         high += 1
     phase = float(PHASES[low] + PHASES[high]) / 2  # centre of the open part of the eye
+    if matched_filter:
+        # Timing, clock and sampling phase are found on the unfiltered record, as before; the
+        # symbol centre is where the filtered pulse peaks, so symbols are then read from the
+        # filtered record at that phase (the same window as the unfiltered eye centre).
+        signal = matched_filter_nrz(signal)
+        spline = CubicSpline(np.arange(signal.size), signal)
     tracks = []
     disputed: list[tuple[float, float]] = []
     firm_disputed: list[tuple[float, float]] = []
@@ -958,5 +997,6 @@ def analyze_scope_capture(
         symbol_histogram=histogram if score_payload else None,
         eye=np.concatenate(eye_rows) if eye_rows else np.zeros((0, eye_offsets.size)),
         eye_time_ui=eye_offsets,
+        matched_filter=matched_filter,
         warnings=warnings,
     )
