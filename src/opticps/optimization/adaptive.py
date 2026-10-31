@@ -769,8 +769,21 @@ def optimise_symmetric(
 # ---------------------------------------------------------------------------------------
 
 
+class BaselineOverrideError(ValueError):
+    """A reported best-fixed baseline would differ from the pinned menu."""
+
+
+class ExploratoryMenu(dict[str, tuple[float, ...]]):
+    """A menu built with non-pinned deficits: usable for exploration, never a reported baseline."""
+
+    reportable = False
+
+
 def fixed_menu(
-    order: int, entropy_deficits: Sequence[float] = DEFAULT_FIXED_DEFICITS
+    order: int,
+    entropy_deficits: Sequence[float] | None = None,
+    *,
+    exploratory: bool = False,
 ) -> dict[str, tuple[float, ...]]:
     """Return the declared fixed PMFs: Uniform and Inner/Outer at entropy deficits.
 
@@ -778,22 +791,48 @@ def fixed_menu(
     on each side, named PAM{M}_Fixed_{Inner|Outer}_H{centibits} (H288/H272 at M = 8,
     H388/H372 at M = 16). PAM4 with the default deficits is the exact legacy set Uniform, PS70,
     PS80 and Outer70 (their entropies are 1.88, 1.72 bit, about the same deficits).
+
+    The deficits are pinned (`DEFAULT_FIXED_DEFICITS`, declared in configs/mpam_profiles.yaml
+    and checked by its loader). Passing different ones raises `BaselineOverrideError`, so a
+    reported baseline cannot be changed by an argument; with `exploratory=True` an
+    `ExploratoryMenu` is returned instead, which `best_fixed` marks non-reportable.
     """
     if order not in SUPPORTED_ORDERS or order < 4:
         raise ValueError(f"fixed_menu supports M = 4, 8, 16, got {order}")
-    menu: dict[str, tuple[float, ...]] = {f"PAM{order}_Uniform": tuple([1.0 / order] * order)}
-    if order == 4 and tuple(entropy_deficits) == DEFAULT_FIXED_DEFICITS:
+    deficits = DEFAULT_FIXED_DEFICITS if entropy_deficits is None else tuple(entropy_deficits)
+    pinned = deficits == DEFAULT_FIXED_DEFICITS
+    if not pinned and not exploratory:
+        raise BaselineOverrideError(
+            f"entropy deficits {deficits} differ from the pinned {DEFAULT_FIXED_DEFICITS}; a "
+            "reported baseline cannot be overridden (pass exploratory=True for a non-reportable "
+            "menu)"
+        )
+    menu: dict[str, tuple[float, ...]] = {} if pinned else ExploratoryMenu()
+    menu[f"PAM{order}_Uniform"] = tuple([1.0 / order] * order)
+    if order == 4 and pinned:
         menu["PAM4_Fixed_PS70"] = PS70
         menu["PAM4_Fixed_PS80"] = PS80
         menu["PAM4_Fixed_Outer70"] = OUTER70
         return menu
     top = float(np.log2(order))
     for sign, label in ((1, "Inner"), (-1, "Outer")):
-        for deficit in entropy_deficits:
+        for deficit in deficits:
             entropy = top - deficit
             pmf = mb_for_entropy(entropy, order, sign)
             menu[f"PAM{order}_Fixed_{label}_H{round(100 * entropy)}"] = tuple(pmf.tolist())
     return menu
+
+
+def _menu_is_pinned(order: int, menu: Mapping[str, Sequence[float]] | None) -> bool:
+    """True if `menu` is None or is exactly the pinned menu of this order (names and PMFs)."""
+    if menu is None:
+        return True
+    if getattr(menu, "reportable", True) is False:
+        return False
+    pinned = fixed_menu(order)
+    return list(menu) == list(pinned) and all(
+        tuple(float(x) for x in menu[name]) == pinned[name] for name in pinned
+    )
 
 
 @dataclass(frozen=True)
@@ -812,6 +851,8 @@ class BestFixed:
     order: int
     table: list[dict[str, Any]]
     selected_on: str
+    reportable: bool = True
+    reportable_reason: str = "the pinned menu of configs/mpam_profiles.yaml"
 
     def to_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -851,6 +892,7 @@ def _argmax_menu(
             "least 1/block_length and the composition must quantise); increase block_length"
         )
     best = max(feasible, key=lambda row: row["objective"])
+    pinned = _menu_is_pinned(order, menu)
     return BestFixed(
         name=best["name"],
         probabilities=list(best["probabilities"]),
@@ -860,6 +902,12 @@ def _argmax_menu(
         order=order,
         table=table,
         selected_on=selected_on,
+        reportable=pinned,
+        reportable_reason=(
+            "the pinned menu of configs/mpam_profiles.yaml"
+            if pinned
+            else "NON-REPORTABLE: the menu differs from the pinned one"
+        ),
     )
 
 
@@ -897,7 +945,11 @@ def best_fixed(
     channel is fitted here and `selected_on` names the acquisitions: the digest is recomputed
     from the samples, but the split label is only declared by the caller (a test capture
     relabelled "training" with its true hash passes). This does not prove the samples are not
-    test-derived under an honest-looking label. The uniform member is charged no matcher loss.
+    test-derived under an honest-looking label.
+
+    `menu` defaults to the pinned menu. Any other menu (names or PMFs) is allowed for
+    exploration but the result has `reportable=False` and a reason that says so, and must not
+    be reported as the baseline. The uniform member is charged no matcher loss.
     Values computed on test data are an oracle and are reported by `oracle_not_a_baseline`.
     """
     channel, label = _training_channel(training, order)

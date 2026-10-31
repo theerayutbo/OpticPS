@@ -1,6 +1,6 @@
 # Roadmap v2 status
 
-Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C4, generic adaptive selection, constraints, acquisition guard).
+Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C5, M-PAM frame, export, validator, profiles config).
 
 ## Baseline (written before any code change)
 
@@ -50,6 +50,17 @@ Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts ab
 | Optimiser | M = 8, 16: all 11 starts agree to 6.3e-13 bit and 2.7e-7 in q (SMD and BMD, 22 dB and 28 dB); 11 of 11 endpoints feasible over M = 8 8 to 18 dB and M = 16 10 to 22 dB with the floor 1/n; runtime per call M = 16 13 to 15 s (unequal sigma) or 20 to 22 s (equal sigma), M = 8 about 3 s (note: `docs/notes/mpam_adaptive_constraints.md`) |
 | Lint, format, mypy | pass |
 
+### After C5
+
+| Command | Result |
+|---|---|
+| `uv run pytest -o addopts="-q -rN"` | `768 passed in 526.47s` (698 before C5a; C5a adds 9: 5 in `tests/test_constraints.py` (counting parametrised cases), 2 in `tests/test_leakage.py`, 2 in `tests/test_mpam_adaptive.py`; C5 adds `tests/test_mpam_frame_rx.py` 54 (1 slow) and `tests/test_mpam_config.py` 7); anchor included and green, no anchor test edited |
+| Frame lengths (symbols, sps, samples; head / payload) | Protocol A, 8 GBd, sps 28: 32768 symbols, 917504 samples for M = 2, 4, 8, 16 (head 1024, 1024, 2048, 3072). Protocol A, 56 GBd, sps 4: 65536, 262144 (same heads). Protocol B, 224 GSa/s: M = 2 sps 2 131072 symbols 262144 samples; M = 4 sps 4 65536, 262144; M = 8 sps 6 43008, 258048 (112 / 3 GBd); M = 16 sps 8 32768, 262144. All multiples of 512, below 1,048,576; all FEASIBLE under `check_frame_fit` |
+| Training length at M = 16 (160 per level) | Simulated with `estimate_channel`: relative standard deviation of the per-level sigma estimate 5.64 % (theory 1 / sqrt(2 (N - 1)) = 5.61 %); the 95 % half width is 11.1 %. At the 512-symbol head (32 per level) it would be 12.6 %. M = 8 (192 per level) 5.09 %, M = 4 (128) 6.26 % |
+| Lint, format, mypy | pass |
+
+PLAN's "sigma deviates about +-5.6 %" for the PAM16 head is a one-sigma figure, not a bound: the measured relative standard deviation is 5.64 % and 95 % of the estimates fall within +-11 %. The head length stands (160 per level), the wording is corrected here.
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
@@ -73,8 +84,9 @@ Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERI
   - [x] C2 `optimization/rates.py` generic in M (SMD, BMD, `bmd_raw`, order-aware PSNR, average SNR) with `tests/test_mpam_rates.py`; PAM4 values bit-identical, anchor green. Independent review pending.
   - [x] C3 `shaping/distributions.py` pair family (`symmetric_from_pairs`, `pairs_of`, `mb_for_entropy`; lam > 0 inner-heavy), `distribution_matching/ccdm.py` `quantize_symmetric_composition` (equal to legacy at M=4 wherever legacy does not split a pair; legacy untouched), `symmetric_rate_loss`, `InvalidSymbolError`, `scripts/profile_ccdm.py` and `docs/notes/ccdm_profile.md` (M=16, n=1024: 9.3 ms encode, 9.9 ms decode, threshold 1 s not exceeded), `tests/test_mpam_shaping.py`. Independent review pending.
   - [x] C4 `optimization/adaptive.py` generic in M (`estimate_channel`, `simulate_training_capture` with `order`; `optimise_symmetric` for M = 4, 8, 16 over the pair simplex with bounds [1/n, 1/2]; SMD multistart agreement check, BMD best of 11 starts, every start and candidate logged; exact quantised objective evaluated after the continuous fit; `fixed_menu`, `best_fixed` (takes training `Acquisition`s, checked), `oracle_not_a_baseline`; `AcquisitionId`, `assert_independent`, `simulate_acquisitions`, `select_on_acquisitions`; `Selection` gains `order, family, parameters, starts, claim`, legacy serialisation unchanged), `optimization/constraints.py` (`FixedPeak`, `FixedAverageOpticalPower`, `FixedOMA`, `EqualRealizedUserRate`, `Feasibility`), rates.py minors (separate commit C4a), `tests/test_mpam_adaptive.py`, `tests/test_constraints.py`, `tests/test_leakage.py`, `docs/notes/mpam_adaptive_constraints.md`. Anchor green. Independent review (Loki) FAIL at 2b9e1fe; fixed in the fix round (see Deviations 6 and 7, and the tracked lines below); re-review pending.
-  - [ ] C5 to C8: NOT STARTED.
-- [ ] Tracked for C5: pin the best-fixed menu and entropy deficits in `configs/mpam_profiles.yaml` and forbid a run-time override for reported baselines. `fixed_menu(order, entropy_deficits)` and the `menu=` argument of `evaluate_menu`/`best_fixed` can change the baseline at run time today.
+  - [x] C5a C4 review leftovers (separate commit): `FixedOMA` INACTIVE reason true when the outer pair is unused, swing 0 in the search grid and a refined maximum (target at the analytic peak 4.6154 V is FEASIBLE, just above it INFEASIBLE), mutation-killing tests (range tolerance, lower-edge tolerance, `_assert_unique` in `_training_channel`, `floor_active_selected_pairs`), `selected_on` says the split label is declared, optimised endpoints are named `optimised_from:<start>`, `_argmax_menu` honours `in_bounds`, note corrections (post hoc g = 1.8 channel, BMD start disagreement, rate(P) against rate(counts/n), PAM16 single-start against multistart).
+  - [x] C5 `ModulationSpec` (frozen) and `order: int = 4` in `modulation/pam.py`, `transmitter/frame.py` (`Frame.order` last; head 512 + {512, 512, 1536, 2560}, head multiple of 1024, direct uniform at log2 M bits per symbol, PAM4 byte-identical), `configs/mpam_profiles.yaml` (`config_schema_version: 2`, Protocol A 8 / 56 GBd, Protocol B 112 Gb/s) with loader `transmitter/mpam_config.py` (pinned menu, M8199B fit check with INFEASIBLE, rate-equalisation report, DAC step diagnostic), `transmitter/export.py` M-PAM generator (manifest schema v2, stream keys, evidence label; PAM4 path and its 40 columns unchanged), `measurement/validate_export.py` (both schemas, per-order head and level checks, default-deny on unknown schema), `tests/test_mpam_frame_rx.py`, `tests/test_mpam_config.py`. Independent review pending.
+  - [ ] C6 to C8: NOT STARTED.
 - [ ] Tracked for C7: PLAN describes `assert_disjoint` as checking content; it is id-only. Migrate `compare`, `uxr_compare` and `demo` callers to `assert_independent` (`AcquisitionId` with content hash), which recomputes the digest of an `Acquisition`.
 - [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
 - [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
@@ -97,9 +109,14 @@ Stopping point for this run: end of S2-3 (PLAN.md).
 6. C4 decision, stated in neither PLAN nor the roadmap: the generic optimiser's pair probabilities are bounded below by q_j >= 1/n (n the block length), upper bound 1/2. 1/n is the smallest probability that quantises to a nonzero count, so an optimum at the floor is representable. A first floor of 1/(4n) was unrepresentable (11 of 11 endpoints infeasible over most of the sweep, selection fell back to a Maxwell-Boltzmann grid). Every optimum is therefore an optimum over the constrained set, and selections report where the floor is active.
 7. C4 uniform baseline: at M a power of two the uniform PMF is the direct mapping (`frame.py` `direct_uniform`) and pays no matcher loss; the generic path charges it 0 everywhere. The committed v1.x PAM4 selection (`select_distribution`, `adaptive_selection.json`) still charges its uniform member the CCDM loss (0.0146484375 bit at n = 1024) and is left unchanged because it is pinned byte for byte by the anchor. That is a known limitation of the committed v1.x result: inside that selection the uniform member (p_outer = 0.25) carries a CCDM loss the repository's direct-uniform waveform does not pay, so any adaptive-over-uniform margin read from its candidate list is overstated by that loss.
 
+8. C5 decision, not in PLAN: the pinned best-fixed menu lives in the YAML and in code (`adaptive.DEFAULT_FIXED_DEFICITS`); the loader refuses a file whose deficits differ, `fixed_menu` raises `BaselineOverrideError` for other deficits unless `exploratory=True` (an `ExploratoryMenu`, never reportable), and `best_fixed(..., menu=...)` returns `reportable=False` for any menu that is not exactly the pinned one. Reported baselines therefore cannot be changed by an argument or by editing only the YAML.
+9. C5 decision, not in PLAN: Protocol B frame lengths are chosen here (the plan fixes only sps): 131072, 65536, 43008, 32768 symbols for M = 2, 4, 8, 16, so that every frame is about 260 kSa (258048 to 262144 samples) and payload and head are multiples of 1024. Protocol A uses the v1.2 lengths (32768 and 65536 symbols) for every order. The M-PAM generator writes M = 2, 8, 16 (PAM4 stays on `generate_all`); M = 2 gets PAM2_Uniform only, because its only symmetric PMF is uniform. The design rate of the simulated adaptive / best-fixed selection (1.5 bit per channel use at M = 8, 2.0 at M = 16) is a declared starting point, not derived from a roadmap value.
+10. C5 equalisation finding: with the heads of C5 the "PS80 class" (entropy deficit 0.28 bit) is INFEASIBLE only at M = 4 (+17.2 %). At M = 8 H272 needs +11.6 % (Inner) and +11.5 % (Outer), at M = 16 H372 +9.3 %, all inside +14.3 %, so they are FEASIBLE (reported, not applied). The wider the alphabet, the smaller the relative bit loss of a fixed entropy deficit.
+
 Other differences, from PLAN.md: work is on `v1.3-mpam` with local commits only (no push, merge or tag); `ruff format --check` passed at baseline, so no separate format commit is needed; the roadmap files stay untracked.
 
 ## Open items
 
-- Opus review of C1.
+- Opus review of C1, and of C5 and C5a.
+- C5 does not touch `cli/main.py`, `receiver/*`, `measurement/demo.py`, `compare.py`, `uxr_*` or the reports: `opticps generate` still writes PAM4 only and the M-PAM generator is `export.generate_mpam_all` (CLI in C7, receiver in C6).
 - Anchor not yet run on Linux.

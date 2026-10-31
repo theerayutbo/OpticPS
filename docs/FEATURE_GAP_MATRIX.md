@@ -4,18 +4,20 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 
 ## Stage 1: adaptive M-PAM core
 
+Rows changed by C5 (frame, export, validator, profiles) carry `(C5)`; the other rows are the Gate 0 statement and were updated by the slice that closed them only where marked in `docs/ROADMAP_STATUS.md`.
+
 ### 1.1 Generalisation
 
 | Feature | Status | Evidence and gap |
 |---|---|---|
 | Generalise modulation, shaping, rates, adaptive, transmitter, receiver, measurement, CLI, reporting | PARTIAL | modulation and MB are generic; everything else is bound to 4 levels (site table below) |
-| PAM levels, Gray labels, bit mapping for M = 2, 4, 8, 16 | EXISTS | `modulation/pam.py:9` `SUPPORTED_ORDERS`, `:18 :24 :31`; `indices_to_bits`/`bits_to_indices` default `order=4` (`:38`, `:44`) |
+| PAM levels, Gray labels, bit mapping for M = 2, 4, 8, 16 | EXISTS (C5) | `modulation/pam.py` `SUPPORTED_ORDERS`, `pam_levels`, `gray_labels`, `label_bits`, `indices_to_bits`, `bits_to_indices` (all `order=4` default) and frozen `ModulationSpec`; `tests/test_mpam_frame_rx.py` |
 | Uniform PMF | EXISTS | `shaping/distributions.py:18` (4-tuple); `maxwell_boltzmann(0)` for any M |
 | Symmetric MB family, positive and negative shaping parameters | PARTIAL | `shaping/distributions.py:45` takes `order` and any sign of lambda; no entropy-matched constructor; sign ambiguity only resolved for M=4 |
 | Arbitrary validated PMFs | PARTIAL | `validate_probabilities(p, order)` is generic (`shaping/distributions.py`); `gaussian_rates` and CCDM accept a PMF but rates hard-code 4 symbols |
 | General symmetric per-pair PMF optimisation; one-parameter vs higher-dimensional, local/global stated | MISSING | only `symmetric_pam4(p_outer)` (`shaping/distributions.py:52`) on a 1-D grid (`optimization/adaptive.py:100`); no optimality claim recorded |
 | Gray labelling, symbol probabilities vs labelled bit priors | PARTIAL | Gray labels generic; bit-prior handling in `rates.py` is 2 bits (`:54`) |
-| Stable serialisable versioned config, deterministic seeds | PARTIAL | seed in YAML (`configs/m8199b_profiles.yaml`); no schema version (`experiment_id` hashes the file text, so it must not be edited) |
+| Stable serialisable versioned config, deterministic seeds | EXISTS for M-PAM (C5) | `configs/mpam_profiles.yaml`, `config_schema_version: 2`, loader `transmitter/mpam_config.py` refuses unknown versions and keys; PAM4 keeps `configs/m8199b_profiles.yaml` unversioned on purpose (`experiment_id` hashes the file text, so it is not edited; its SHA-256 is pinned in `tests/test_mpam_config.py`) |
 
 ### 1.2 Rates and CCDM
 
@@ -30,10 +32,10 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 | Composition rounding | PARTIAL | `quantize_composition` (`ccdm.py:35`) is largest-remainder with symmetric tie handling; may split mirrored pairs when M>=8 |
 | Decoder invalid-block behaviour | EXISTS | `CompositionError` (`ccdm.py:27`), `RankOverflowError` (`:31`); imported in `tests/test_core.py:5` |
 | Finite-block rate loss | EXISTS | `rate_loss` property (`ccdm.py:100`); `tests/test_core.py:110,119` (PAM4 PMFs only) |
-| Bit-to-symbol round trip M=2/4/8/16 | PARTIAL | M=4 tested; mapping code generic |
+| Bit-to-symbol round trip M=2/4/8/16 | EXISTS (C5) | direct uniform at M = 2, 8, 16 and CCDM at M = 8, 16 in `tests/test_mpam_frame_rx.py`; M = 4 in `tests/test_core.py` |
 | CCDM time/memory per M and block size | MISSING | no measurement; no performance test (`perf_counter`/timing absent from tests) |
 | `fixed_peak`, `fixed_average_optical_power`, `fixed_OMA`, `equal_realized_user_rate` as separate protocols | MISSING | no `optimization/constraints.py`; equal-rate search for PAM4 in `measurement/compare.py:112` |
-| Feasibility and physical normalisation; `INFEASIBLE` with reasons | PARTIAL | M8199B `Profile.check()` raises (`instruments/m8199b.py`); optimiser has no INFEASIBLE |
+| Feasibility and physical normalisation; `INFEASIBLE` with reasons | EXISTS (C4, C5) | `optimization/constraints.py` (`Feasibility`); `transmitter/mpam_config.py` `check_frame_fit` reports an M8199B-infeasible frame and `generate_mpam_all` writes nothing then; M8199B `Profile.check()` raises |
 | Training-selected adaptive vs best-fixed predeclared before test; held-out test | PARTIAL | `optimization/adaptive.py` selects from training; `assert_disjoint`/`DataLeakageError` (`:27`) is id-only; best-fixed is the manual PS70/PS80/Outer70 set |
 | Store all candidates, constraints, matcher overhead, seeds, objective values | PARTIAL | `Selection.to_dict` and `adaptive_selection.json` (the `candidates` list holds all 90 candidates); no constraints, no matcher overhead |
 | Optimiser multistart logs, local/global statement | MISSING | |
@@ -42,10 +44,10 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 
 | Feature | Status | Evidence and gap |
 |---|---|---|
-| Export Uniform, Inner, Outer, Adaptive, best-fixed for M=4/8/16 with labels, manifests, references, checksums | PARTIAL | M=4 only (`transmitter/export.py:32-33,159-167`); references and checksums exist (`:262`, `:309`); manifest `:35,305` PAM4 schema; no best-fixed entry |
+| Export Uniform, Inner, Outer, Adaptive, best-fixed for M=4/8/16 with labels, manifests, references, checksums | PARTIAL (C5: M = 2, 8, 16 exist) | `transmitter/export.py` `generate_mpam_all` writes PAM{M}_Uniform, Fixed_Inner/Outer_H{centibits}, Adaptive, BestFixed (PAM2: Uniform only) with manifest schema v2, stream keys and an evidence label; PAM4 stays on `generate_all` with its 40 columns; no CLI command yet (C7). Gate 0 text follows: | M=4 only (`transmitter/export.py:32-33,159-167`); references and checksums exist (`:262`, `:309`); manifest `:35,305` PAM4 schema; no best-fixed entry |
 | M8199B export offline only, CSV/sample/memory/granularity checks | EXISTS | `instruments/m8199b.py` Profile checks; the 512-sample granularity is confirmed by the data sheet p. 9; the 1,048,576-sample limit is verified only if "1024 kSa" means k = 1024 (the sheet does not say; exported files are safe either way); see `engineering_log/VERIFICATION.md` |
 | Protocol A (matched baud, controlled settings) | EXISTS | profiles in `configs/m8199b_profiles.yaml`; equal-baud comparison in `measurement/compare.py` |
-| Protocol B (matched realised user rate incl. overhead) | PARTIAL | PAM4 rate search `measurement/compare.py:112`; no overhead accounting across M |
+| Protocol B (matched realised user rate incl. overhead) | PARTIAL (C5) | profiles (112 Gb/s nominal, sps 2/4/6/8) and the rate-equalisation report with head overhead per order exist (`mpam_config.rate_equalisation`, `optimization/constraints.py`); `measurement/compare.py:112` is still the PAM4 search (C7) |
 | Drive Vpp, RMS, optical power, OMA, ER, fibre, bandwidth recorded separately | PARTIAL | some in manifest and `optical_channel/link.py`; OMA and ER fields absent from manifest |
 
 ### Stage 1 tests and exit gate
@@ -62,7 +64,7 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 | CLI `generate -> validate -> simulate -> report` for 4/8/16 | PARTIAL | exists for M=4 (`cli/main.py`) |
 | Monte Carlo convergence | MISSING | |
 | Shaped BER vs information-bit BER | PARTIAL | label BER and info bits for PAM4 (`receiver/dsp.py:197`); not separated for M>4 |
-| Documented negative/infeasible case | MISSING | |
+| Documented negative/infeasible case | EXISTS (C4, C5) | PAM16 high PSNR (direct uniform wins), PS80 at M = 4 INFEASIBLE for equal rate, a 40000-symbol 8 GBd PAM16 frame INFEASIBLE (`tests/test_mpam_frame_rx.py`) |
 | PAM6 follow-on | MISSING | out of Stage 1 scope by the roadmap |
 
 ### Stage 1: PAM4-bound sites (file:line, grep of this checkout)
@@ -72,12 +74,12 @@ Baseline: `a2eb969` on `main`, work branch `v1.3-mpam`, package version 1.2.0. E
 | `optimization/rates.py` | 5-6 docstring, 22 `_UNIPOLAR = arange(4)`, 27 `3.0 /` in sigma, 41 `validate_probabilities(p, 4)`, 46 `label_bits(4)`, 54 `range(2)` bits, 63 `np.full(4,...)`, 78 symmetric PAM4 search |
 | `optimization/adaptive.py` | 1 docstring, 46-52 `range(4)` per-level fit, 66-68 `integers(0, 4)`/`pam_levels(4)`, 75 `p_outer`, 100-119 one-parameter grid, 133 design rate |
 | `shaping/distributions.py` | 18-21 `UNIFORM/PS70/PS80/OUTER70` 4-tuples, 52-63 `symmetric_pam4`, `lambda_of_symmetric_pam4` (`/ 8.0`) |
-| `modulation/pam.py` | 38, 44 default `order=4` |
-| `transmitter/frame.py` | 33-37 preamble on indices {0,3} (`* 3`), 43 training `arange(4)`, `// 4`, 84 docstring, 95-97 `2 * length` bits, 70 payload RNG name hash |
-| `transmitter/export.py` | 32-33 names, 35-36 `MANIFEST_COLUMNS` (PAM4 schema), 97 `3.0 *` full scale, 102 and 136 `pam_levels(4)`, 159-167 waveform table, 201 `minlength=4`, 203 `target[0]`, 234 `+/-3` preamble note, 272 `"modulation": "PAM4"`, 290 `2 * symbol_rate` |
+| `modulation/pam.py` | generalised in C5: `ModulationSpec`, all functions take `order` |
+| `transmitter/frame.py` | generalised in C5: preamble on {0, M - 1}, per-order training, `m * length` bits, `Frame.order`; the payload RNG name hash is kept (PAM4 names unchanged) |
+| `transmitter/export.py` | PAM4 path unchanged (names, `MANIFEST_COLUMNS`, 40 columns; `full_scale` and `synthesize` take the order, PAM4 values identical). C5 adds the M-PAM generator (`generate_mpam_all`, schema v2). Still PAM4-only: `waveform_definitions`, `generate_profile`, `generate_all` (`+/-3` metadata, `PAM4` modulation, `p_outer` use) |
 | `receiver/dsp.py` | 54, 94, 112, 128, 171, 280 `pam_levels(4)`; 158-159 `range(4)`; 208 `label_bits(4)`; 228 `2 * sent.size` |
 | `receiver/capture_dsp.py` | 265, 278, 399, 508 `pam_levels(4)`; 635, 650 `2 *` bits; 729, 844 `zeros/minlength 4`; 854 `range(4)` |
-| `measurement/validate_export.py` | 24 `LEVELS = (-3,-1,1,3)`, 27-30 PMF table, 122 and 149-156 `range(4)`, 167 `2 * length` |
+| `measurement/validate_export.py` | generalised in C5: both manifest schemas, levels, head, preamble and training per order, default-deny; `LEVELS` and `EXPECTED_TARGETS` remain as the PAM4 tables |
 | `measurement/capture.py` | 155 `validate_probabilities(..., 4)`; 235 `indices_to_bits` default |
 | `measurement/uxr_ingest.py` | 185 priors matched to manifest probabilities (no M assumption seen, but manifest schema is PAM4) |
 | `measurement/demo.py` | 61-65 waveform names, 72-73 `np.full(4, 0.25)`/`minlength=4`, 78 `pam_levels(4)` and `/ 3.0`, 145-152 `arange(4)`, 168-172 `p_outer`, 203 `pam_levels(4)` |
