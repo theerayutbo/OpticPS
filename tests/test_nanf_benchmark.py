@@ -13,9 +13,11 @@ PLAN = Path("docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md")
 SOURCES = Path("docs/NANF_SOURCES_AND_PROVENANCE.md")
 DATA_DIR = Path("data/external/nanf_hong2021")
 
-# Pinned when the plan was committed (2026-10-31), before any workbook value was read. A deliberate
-# amendment must change this line and add a dated section to the plan.
-PLAN_SHA256 = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
+# Original pin (2026-10-31, commit 9a891c9), set before any workbook value was read. Amendment 1
+# (N0 fix round) is recorded in the plan; it supersedes this pin with the one below. A deliberate
+# amendment must change the current pin and add a dated section to the plan.
+PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
+PLAN_SHA256 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -55,6 +57,23 @@ def mismatched_present_files(directory: Path) -> list[str]:
 
 def test_plan_hash_is_pinned() -> None:
     assert sha256_of(PLAN) == PLAN_SHA256
+
+
+def test_plan_amendment_records_previous_pin_and_key_rules() -> None:
+    text = PLAN.read_text()
+    assert "## Amendment 1" in text
+    assert PLAN_SHA256_ORIGINAL in text  # previous SHA recorded
+    assert PLAN_SHA256_ORIGINAL != PLAN_SHA256
+    for needle in (
+        "UNIDENTIFIABLE_PARAMETER",
+        "B2B-copy",
+        "NOT DISCRIMINATING",
+        "29.39 GHz",
+        "left-censored",
+        "240sub-SMF-OFDM",
+    ):
+        assert needle in text, needle
+    assert LABEL in text.split("## Amendment 1")[1]
 
 
 def test_plan_declares_label_and_no_per_fibre_retuning() -> None:

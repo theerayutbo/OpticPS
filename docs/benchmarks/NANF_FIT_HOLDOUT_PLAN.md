@@ -124,3 +124,170 @@ new pin written before the scoring run it affects.
 - It does not make this dataset a validation set. The label in section 1 stands whatever the scores.
 - It does not authorise redistribution of the data. Licence handling is in
   `docs/NANF_SOURCES_AND_PROVENANCE.md`.
+
+## Amendment 1 (2026-10-31, N0 fix round after independent review)
+
+Previous SHA-256 of this file, pinned until now (original text, commit 9a891c9):
+`c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22`. The new pin is in
+`tests/test_nanf_benchmark.py`. Where this amendment and sections 2 to 4 differ, this amendment
+governs; the original text stays above for the record. This amendment is written before any scoring
+run. No fit, simulation or model comparison has run.
+
+### A0. What had been seen when this amendment was written
+
+- The review text exposed one holdout cell, Fig.11 SSMF C164, in a raw-XML excerpt. Its value was not
+  used and is not an input to anything below.
+- Counts only, no values compared to any model: BER cells equal to zero, BER cells below 1e-5, BER cells
+  outside (0, 1]; and (Gate N0, Sources section 5, now withdrawn from that document) the number of Fig.8
+  SSMF SNR cells below -5 dB (13). That last count is a summary of a locked holdout series made before the
+  freeze hash, which rule 2 forbids in spirit. It is disclosed here and removed from the Sources
+  document; no threshold below depends on it.
+- The paper text, including the SSMF null "~25 GHz" at 5 km (p.2), "around 24 GHz" measured (p.6) and the
+  clock-leakage sentence on p.6, which gives no spike frequency.
+- For this amendment: the numerical curves of Fig.1 only (a cross-check class, not a measurement): CD near
+  1550 nm, the latency columns, and the minimum of the SSMF fading column; and the structure (formula text)
+  of the Fig.11 error cells. Fig.4, Fig.6, Fig.8 values and every other holdout series stayed unread.
+
+### A1. Chirp is an unknown nuisance (amends rule 6)
+
+Rule 6 gains: transmitter chirp (the modulator chirp parameter; any value, sign or model) is an unknown
+nuisance parameter, tag `unknown`. The paper states no chirp value (searched; none found).
+
+1. Chirp has no effect in B2B, so the calibration set cannot constrain it. It is classed
+   `UNIDENTIFIABLE_PARAMETER` from calibration and is never fitted on holdout, on any fibre, rate or sheet.
+   It is not one of the at most 6 free Tx/Rx parameters.
+2. The primary result is computed at zero chirp. Every SSMF-dependent criterion (C3, the SSMF parts of
+   C5, C6, C7, C8, and the SSMF series of C4) is scored at zero chirp.
+3. Pre-registered zero-chirp expectation, from the standard small-signal intensity-modulation response
+   (first null at f = sqrt(c / (2 lambda^2 D L))), lambda 1550 nm, D from the paper (15.95 SSMF,
+   2.04 NANF ps/(nm km)). It is arithmetic on the paper's own assumed values, not a fit, and is reported
+   whatever the simulation returns:
+
+   | Case | First null at zero chirp |
+   |---|---|
+   | SSMF, L = 4.53 km (the experiment) | 29.39 GHz |
+   | SSMF, L = 5 km (the paper's numerical case) | 27.97 GHz (workbook Fig.1 fading curve, 1 GHz grid: 28 GHz) |
+   | NANF, L = 4.76 km | 80.2 GHz, no null inside the 32.8125 GHz band |
+
+   The simulator's own zero-chirp null is reported beside these values. A disagreement above 0.3 GHz
+   (about two subcarrier spacings of 0.1367 GHz) is treated as a simulator defect to be examined before
+   scoring, not as a result.
+4. The published null is about 24 GHz (Fig.8, p.6) and the paper's own calculation is about 25 GHz at 5 km
+   (p.2). The pre-registered zero-chirp value is about 5.4 GHz above the measured null, against C6's
+   tolerance of 2.0 GHz. C6 is therefore expected to FAIL at zero chirp. It is reported as FAIL with the
+   number. The C6 tolerance is not widened because of this known gap, and no other criterion is relaxed.
+5. A gap beyond tolerance is reported as a mismatch. It may be attributed to chirp only as a hypothesis.
+   A chirp sensitivity sweep (alpha from -1.0 to +1.0 in steps of 0.25; a span chosen by the plan author,
+   not by any source) may be run and reported. It is labelled "sensitivity sweep, not a fit" in the report;
+   it does not select a value and nothing is scored from it. Arithmetic note: reaching 24 GHz at 4.53 km
+   with zero chirp needs D of about 23.9 ps/(nm km), 50% above the assumed 15.95; the actual spool D is
+   unmeasured, so this does not exclude a different D either.
+6. A chirp value may enter the primary run only if a source states one for this setup. It is then cited
+   (source, page), tagged `published-experimental`, and fixed before scoring.
+7. Identifiability check (all Tx/Rx parameters, before the freeze hash). At the calibration optimum,
+   compute the Gauss-Newton information matrix of the calibration residuals, each parameter scaled by its
+   allowed range. A parameter whose scaled direction has an eigenvalue below 1e-3 of the largest is
+   flagged `UNIDENTIFIABLE_PARAMETER`, frozen at a declared prior value, and counted out of the free
+   parameters. The report lists the flags before any holdout is read.
+
+### A2. Null model: copying the B2B curve is a named comparator
+
+"B2B-copy" predicts the NANF series by the published B2B series of the same rate, at the same ROP
+(linear interpolation of SNR in dB and of log10 BER against ROP, no extrapolation). It is a model with no
+fibre. Paper p.4 and p.5 call the NANF penalty-free against B2B, and B2B and NANF share the apparatus, so
+the B2B-copy is expected to be close.
+
+- For C1 and C2, and the NANF part of C5, both the fibre model and B2B-copy are scored with the same
+  metric and tolerance. Let d be the difference between the two predictions in that criterion's own
+  metric (C1: absolute difference of the two crossings; C2 and C5: mean absolute difference of the two
+  SNR predictions at the scored points).
+- If d is at most the declared tolerance of the criterion (C1 1.0 dB, C2 1.5 dB, C5 NANF 2.0 dB), the
+  criterion cannot tell the fibre model from a B2B copy. A pass there reads
+  `PASS, NOT DISCRIMINATING`, never "agreement" or "consistent". A fail stays a fail.
+- The overall verdict "consistent with this one experiment" additionally requires C1 and C2 to be
+  discriminating. If all primary criteria pass but C1 or C2 are not discriminating, the verdict reads
+  "primary criteria pass; NANF criteria NOT DISCRIMINATING", and the SSMF criteria (C3, C5 SSMF) are the
+  only fibre evidence. Shared apparatus is thus handled per criterion, not only by the label.
+
+### A3. Precise definitions (replace the loose wording of sections 3 and 4)
+
+General: ROPs scored are those at most -5 dBm. Simulated curves are sampled at exactly the published
+ROP or wavelength points and processed by the same rule as the published ones. BER is handled as log10.
+A published BER of zero, or below 1e-5, is censored (no error-count depth is known). A censored point is
+scored only as "predicted BER below 1e-4"; it never enters an interpolation or an average of log10 BER.
+SNR is as the paper reports it (receiver-DSP SNR in dB; its exact definition is not stated in the source,
+so any definitional difference is a mismatch and is reported, not tuned away).
+
+- C1, crossing. For each rate, order the published NANF BER points by ROP, keep those uncensored and
+  scored. The crossing is the ROP at which log10 BER, linearly interpolated against ROP in dBm between two
+  adjacent points that bracket log10(3.8e-3), equals log10(3.8e-3); the bracket must go from above to
+  below the threshold with rising ROP. Unbracketed cases are never extrapolated. If the first scored
+  point is already below the threshold, the crossing is reported as a left-censored bound
+  "at or below that ROP"; if no scored point is below it, as a right-censored bound. This includes the
+  80 Gb/s curve, whose crossing the paper puts near the -12 dBm edge of the axis. A bound is scored
+  one-sidedly: it passes if the simulated crossing, found by the same rule, lies on the right side of the
+  bound within the 1.0 dB tolerance. A rate scored only on a bound is flagged, and cannot count as
+  discriminating under A2. The primary decision needs a result at every rate; a bound result counts as a
+  pass or fail of the bound.
+- C2. At each scored published NANF ROP point (uncensored; SNR cells are never censored), error =
+  simulated SNR minus published SNR in dB. Pass: mean of the absolute errors at most 1.5 dB per rate and
+  no single absolute error above 3.0 dB.
+- C3, penalty. At each published NANF ROP at most -5 dBm that lies inside the SSMF ROP range, penalty =
+  NANF SNR minus SSMF SNR in dB, the SSMF SNR linearly interpolated in dB against ROP, no extrapolation.
+  The penalty of a rate is the mean over those ROPs. The simulated penalty uses the same ROPs and rule.
+  Pass: the simulated penalty is within 3.0 dB of the paper's stated value (5, 11, 14 dB; the paper gives
+  no ROP for these and calls them "around"), and the simulated SSMF BER exceeds 3.8e-3 at every scored
+  SSMF ROP point of that rate. The workbook penalty, by the same rule, is reported next to the prose value.
+- C4. Per rate, the uncensored scored BER points of NANF and SSMF pooled: absolute error of log10 BER at
+  most 0.5 for at least 80% of points. Censored points are scored by the general rule and are reported,
+  not counted in the 80%.
+- C5. For each wavelength of the 19 published points, simulated minus published SNR in dB, with ROP and
+  loss taken from Fig.5 (the `ROP@NANF` column also sets the B2B ROP, paper p.5; the SSMF ROP is capped
+  at -5 dBm). Mean absolute error per rate and link against the stated thresholds. Points whose ROP lies
+  outside the calibrated ROP range are included in the criterion and also reported separately.
+- C7. Capacity at ROP -7 dBm: the loading algorithm is fixed and committed before scoring (its identity is
+  not tunable); capacity is bits loaded times 70 GSa/s / 512 summed over the 240 data subcarriers, under
+  BER at most 3.8e-3. Ratio = NANF capacity over SSMF capacity.
+- C8. Fig.7 and Fig.9: for each fibre, mean absolute error of simulated minus published average SNR in dB
+  over that fibre's published points.
+
+### A4. Calibration uses the scoring exclusions
+
+- Calibration points with ROP above -5 dBm (B2B at -4, -3, -2 dBm) are excluded from the fit, as they are
+  from scoring. The earlier calibration row, which kept them, is replaced by this rule.
+- BER = 0 cells have no count basis. They are censored and excluded from the BER part of the fit. The same
+  holds for BER below 1e-5. Rule: the BER residual (log10 BER) is formed from uncensored cells only; the
+  fitted model's prediction at a censored cell is reported as a diagnostic (below 1e-4 expected), never as
+  an objective term. This selection by value can bias BER-based estimates toward higher error rates; SNR
+  cells are not censored and carry the rest of the information.
+
+### A5. C6 moves to Fig.8 (replaces C6 sources "Fig. 8, 11")
+
+- Data: workbook sheet `Fig.8`, column A (frequency, GHz, 240 values, 0.13672 to 32.8125), column C
+  (header `240sub-SMF-OFDM`, SSMF SNR profile, uniform 16QAM-DDO-OFDM, ROP -7 dBm). Fig.11 is not used for
+  C6: its 24 cells around the null are formulas, most likely unloaded subcarriers (inference).
+- Null estimator (applied identically to the published column and to the simulated 240-subcarrier
+  profile): (i) the running median of the SNR profile over 5 consecutive subcarriers (centred; the
+  median is formed over the whole profile before the window is applied); (ii) restrict to frequencies
+  from 20.0 to 32.8125 GHz; (iii) the null frequency is where that median is lowest, the lowest frequency
+  on ties. If the minimum falls on a window edge, the result is "no interior null in window" and C6
+  fails with that reason.
+- AWG clock-leakage spikes (paper p.6; the paper gives no frequency). Exclusion is by rule, from
+  paper-stated quantities only: (a) the median over 5 subcarriers removes any feature at most 2
+  subcarriers wide (about 0.27 GHz), which is how a clock tone appears on this grid; (b) the window starts
+  at 20.0 GHz, above the sub-multiples of the paper-stated 70 GSa/s sample rate that fall in the band
+  (17.5 GHz and 8.75 GHz; 35 GHz lies above it), and below the published null near 24 GHz; (c) the
+  window is not narrowed or moved after the data are read. If the published estimate lands within
+  0.5 GHz of a sub-multiple of 70 GHz divided by 2^k, the report says "estimator ambiguous" and does not
+  change the rule; a rule change would need a further dated amendment and the C6 result would be labelled
+  post-hoc.
+- Pass: absolute difference of the two null frequencies at most 2.0 GHz (unchanged). The pre-registered
+  zero-chirp expectation of A1 applies; C6 is expected to fail at zero chirp.
+- Reading the Fig.8 column happens only in the scoring step, after the freeze hash (rule 2).
+
+### A6. Unchanged
+
+The label stays **`LITERATURE BENCHMARK / CALIBRATION ONLY`**. Fibre parameters are not fitted; no
+per-fibre retuning; at most 6 free Tx/Rx parameters; holdout read only by the scoring step after the
+freeze hash. Tolerances are judgement, not noise-derived. No criterion is dropped, relaxed or added after
+a number is seen except by a further dated amendment with a new pin.
