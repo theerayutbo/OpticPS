@@ -156,3 +156,13 @@ Docs: ROADMAP_STATUS, FEATURE_GAP_MATRIX, DEPENDENCY_EXCEPTIONS; CLEAN_ROOM_DECL
 
 Loki FAILed C1 (docs only). Fixed in a second commit: gap matrix now walks every roadmap section D bullet; clean-room section 2 states the rule and the evidence limit instead of "not used"; anchor also re-hashes the committed files and compares regenerated checksums.sha256 (metadata lines excluded), metadata floats at rel 1e-12; lockfile comparison recorded (installed set equals the uv.lock Python < 3.12 branch; colorama is win32-only); citations corrected. Baseline timed: 368 passed in 212.10 s. After fixes: 381 passed in 214.32 s; ruff, format, mypy clean.
 
+
+## 2026-10-31 | v1.3-mpam C2 (PAM-M rates)
+
+Dev: Sonnet. Base de1fc73. First commit carries the C1 minors (anchor rehashes committed metadata, compares checksum entry names without the metadata filter, checks regenerated metadata digests; four matrix rows). Anchor now 15 tests; 383 passed.
+
+`rates.py` is generic in M: `noise_sigma_from_psnr_db(psnr, order)`, `gaussian_rates`/`achievable_rates`/`psnr_for_rate` with `order` and `nodes`, `bmd_raw` (unclipped) beside the clipped `bmd`, `average_snr`. PAM4 uses the original kernel line for line; the other orders use log-sum-exp. PAM4 values equal the pre-change ones exactly (pinned in tests, anchor green).
+
+Findings: (1) GH120 versus GH200 is not below 1e-9: 120 nodes are 1.9e-8 (M=16), 3.7e-8 (M=8), 2.6e-8 (M=2) and 4.1e-8 (M=4) from a 280-node value over PSNR 8-30 dB; 200 nodes 1.5e-9; 240 nodes 1.6e-10 against 320. GH120 versus a 2^15-point trapezoid at M=16 is below 1.2e-8, well inside 1e-6. Not weakened: default nodes are 240 for M != 4, 120 for M=4. numpy hermgauss overflows beyond about 400 nodes (now an error). (2) The PSNR bracket [-10, 45] dB covers M=16 uniform targets 0.5 to 3.99 bits for SMD and BMD; widening is applied only for M != 4, and only for targets within about 1e-8 of H. (3) bmd_raw is negative for nonuniform PMFs at 0 dB: M=8 -0.039, M=16 -0.083 (exp(-0.2 x^2)), M=4 [0.2,0.3,0.1,0.4] negative. (4) PAM4 on PAM16 indices {0,5,10,15}: SMD equal to 1e-9, BMD lower (Gray labels differ). (5) M=8 inner-heavy loses to uniform at fixed peak: at 22 dB SMD 1.954 uniform versus 1.774 at lambda 0.1; 2 bits needs 23.5 dB versus 22.3 dB.
+
+86 new tests in `tests/test_mpam_rates.py`; full run 469 passed in 223.75 s; ruff, format, mypy clean. Not yet reviewed by Loki.

@@ -17,3 +17,14 @@
 | Binomial interval | Clopper, Pearson 1934, doi:10.1093/biomet/26.4.404 |
 
 DOIs were confirmed during the design review by Crossref or index lookup, except Smith 1971, which is cited without a DOI.
+
+## PAM-M rates (`optimization/rates.py`, v1.3-mpam C2)
+
+Derived independently from the definitions; no other simulator was consulted. On the unipolar alphabet x_i = i, i = 0..M-1, with noise sigma:
+
+- PSNR = (M-1)^2 / sigma^2, so sigma = (M-1) / 10^(PSNR_dB/20). M = 4 gives 9 / sigma^2 as before. Equal PSNR across M is equal peak-to-peak swing and equal noise. The average SNR E[x^2] / sigma^2 is reported separately (`average_snr`).
+- R_SMD = I(X;Y) = H(X) - H(X|Y).
+- R_BMD = [H(X) - sum_{k=1..m} H(B_k|Y)]^+, m = log2 M, Gray labels, exact bit posteriors; Boecherer et al. 2015 (the AIR row above). Its unclipped value is returned as `bmd_raw` and can be negative; `bmd` is the explicit clip. It equals the bit-metric GMI evaluated at s = 1 without the clip. The GMI also maximises over s >= 0, which is not done, so the code keeps the name R_BMD.
+- Expectations over Gaussian noise: Gauss-Hermite quadrature (log-sum-exp posteriors). Default 120 nodes for M = 4 (unchanged, bit-identical), 240 otherwise, because 120 nodes are about 1e-8 from converged at M = 2, 8, 16.
+
+Tests: `tests/test_mpam_rates.py` checks closed-form SER 2(1-1/M)Q(1/(2 sigma)) by Monte Carlo (M = 2, 8, 16; PAM2 at 12 dB = 0.0233; a 6 dB error is detected), binary-AWGN capacity by `scipy.integrate.quad`, PAM2 and PAM4 embeddings in larger alphabets, a trapezoid integrator at M = 16, the bounds 0 <= SMD <= H <= log2 M and BMD <= SMD, and exact PAM4 values pinned at de1fc73.

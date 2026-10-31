@@ -1,6 +1,6 @@
 # Roadmap v2 status
 
-Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C1, Gate 0).
+Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C2, PAM-M rates).
 
 ## Baseline (written before any code change)
 
@@ -34,6 +34,14 @@ Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts ab
 | Byte anchor (`tests/test_pam4_anchor.py`, marker `slow`, runs in default pytest) | first version 9 passed in about 5.4 s; after review fixes 13 passed in 5.9 s. No file mismatched; the exclusion table `EXCLUDED` is empty |
 | Lint, format, mypy | pass with the new test file |
 
+### After C2
+
+| Command | Result |
+|---|---|
+| `uv run pytest -o addopts="-q -rN"` | `469 passed in 223.75s` (383 after the C1 fix commit, plus 86 in `tests/test_mpam_rates.py`); anchor included and green |
+| Gauss-Hermite convergence | 120 nodes are 1e-8 to 4e-8 from the 320-node value at 8-30 dB for every order, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (within 2e-10) and 120 for M = 4 |
+| Lint, format, mypy | pass |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
@@ -52,7 +60,10 @@ Result: all equal. The anchor is a valid baseline for Stage 1 on this platform (
 Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERIFIED`, of the claims ladder. Matrix detail: `docs/FEATURE_GAP_MATRIX.md`. A checked box means done and evidenced; an unchecked box carries its status.
 
 - [x] Gate 0 audit (C1), done in this commit and in the fix commit after the first review; independent review of the fix pending. Evidence: this file, `docs/FEATURE_GAP_MATRIX.md`, `docs/DEPENDENCY_EXCEPTIONS.md`, `docs/CLEAN_ROOM_DECLARATION.md`, `tests/test_pam4_anchor.py`.
-- [ ] Stage 1 adaptive M-PAM: NOT STARTED (C2 to C8). PAM4-bound sites: `docs/FEATURE_GAP_MATRIX.md`.
+- [ ] Stage 1 adaptive M-PAM: IN PROGRESS. PAM4-bound sites: `docs/FEATURE_GAP_MATRIX.md`.
+  - [x] C1 Gate 0 and anchor.
+  - [x] C2 `optimization/rates.py` generic in M (SMD, BMD, `bmd_raw`, order-aware PSNR, average SNR) with `tests/test_mpam_rates.py`; PAM4 values bit-identical, anchor green. Independent review pending.
+  - [ ] C3 to C8: NOT STARTED.
 - [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
 - [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
 - [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py:35`.
