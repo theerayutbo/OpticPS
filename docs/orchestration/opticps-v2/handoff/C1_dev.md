@@ -1,27 +1,19 @@
-# C1 Dev handoff (Gate 0 + byte anchor)
+# C1 Dev handoff (Gate 0 + byte anchor), updated after Loki FAIL
 
-Base a2eb969, branch v1.3-mpam. Local commit only; nothing pushed, merged or tagged.
+Base a2eb969, branch v1.3-mpam. Two local commits (C1, then review fixes). Nothing pushed, merged or tagged.
 
-## Baseline at a2eb969
-- pytest: 368 tests, all passed (368 dots, no F/s/x/E; summary line hidden by addopts -q). Collected total now 377.
-- ruff check: pass. ruff format --check: 53 files formatted. mypy: no issues in 44 files.
-- Python 3.11.15, numpy 2.4.6, scipy 1.17.1.
-- license_audit: 34 packages, 0 flagged; sbom.cdx.json unchanged (not stale, not touched).
+## Counts
+- Baseline a2eb969: 368 passed in 212.10 s (-o addopts="-q -rN", anchor file ignored). ruff, format (53 files), mypy (44 files) clean. Python 3.11.15, numpy 2.4.6.
+- After fixes: 381 passed in 214.32 s. Anchor: 13 tests, about 5.9 s, no mismatches, EXCLUDED empty.
+- license_audit: 34 packages, 0 flagged, SBOM unchanged.
 
-## Anchor
-- tests/test_pam4_anchor.py, marker slow, 9 tests, module fixture, tmp dir only.
-- Uses generate_all (the `opticps generate` path) with untouched configs/m8199b_profiles.yaml at full size.
-- Result: all match on unmodified code. No mismatches, EXCLUDED is empty. Runtime about 5.4 s.
-- Also checks file set equality, ignoring validation_results.csv (written by `opticps validate`, not by generate).
+## Review fixes
+1. FEATURE_GAP_MATRIX rewritten to walk roadmap section D bullet by bullet; 1,048,576 caveat kept (verified only if k is 1024).
+2. CLEAN_ROOM section 2: rule plus evidence limit. 3. Section 1 quotes the old wording; standards cited separately via ALGORITHM_PROVENANCE.
+4. Anchor re-hashes committed files and compares regenerated checksums.sha256 minus metadata lines. 5. Metadata numerics at rel 1e-12, ints and strings exact.
+6. DEPENDENCY_EXCEPTIONS: installed vs uv.lock done; all 34 match the lock Python < 3.12 branch; colorama lock-only (win32); numpy/scipy/contourpy differ only on the >= 3.12 branch; pathspec licence is classifier text.
+7. Citations fixed (rates.py:20,27,39,51; export.py:35,125,203; frame.py:70; demo.py pam_levels(4)). 8. ROADMAP_STATUS checkboxes, measured baseline time.
 
-## Files
-- New: tests/test_pam4_anchor.py, docs/ROADMAP_STATUS.md, docs/FEATURE_GAP_MATRIX.md, docs/DEPENDENCY_EXCEPTIONS.md, this file.
-- Edited: docs/CLEAN_ROOM_DECLARATION.md (rewritten), docs/DEPENDENCY_AUDIT.md (re-run line), docs/engineering_log/LOG.md, STATUS.md.
-- No change under src/, output/, results/, configs/. Roadmap files untracked.
-
-## For Loki
-- Check CLEAN_ROOM_DECLARATION wording against the task: no statement about who read the comparison.
-- FEATURE_GAP_MATRIX statuses are from reading code, not from running it; spot-check a few file:line cites.
-- The pytest count comes from dots plus collect count, not a summary line.
-- Anchor was run on macOS only.
-- Observation: PAM4 waveform names must stay (payload RNG uses crc32 of the name).
+## Notes for Loki
+- Matrix statuses are from reading code. Anchor run on macOS only.
+- Correction: assert_disjoint is id-only, but the UXR ingest registry rejects content duplicates (uxr_ingest.py:141-153); matrix and observations now say so.

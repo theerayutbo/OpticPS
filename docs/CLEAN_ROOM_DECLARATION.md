@@ -6,14 +6,16 @@ Updated 2026-10-31. This is a description of the development process and of what
 
 As recorded when the project was built:
 
-- OpticPS was written from published equations, standards and general communication theory.
+- The original wording was: "OpticPS was written from published equations and general communication theory."
 - The four background repositories named at the time (OptiCommPy, Probabilistic_Constellation_Shaping, PAM4Receiver, OpticalSimulation) were not cloned or opened. Only their licence metadata was read through the GitHub API.
 - OptiCommPy (GPL-3.0) is not a dependency and is not installed. `scripts/license_audit.py` fails the build on any GPL, LGPL or AGPL package.
 - Development was AI-assisted (Claude Code; a separate Fable model pass reviewed the design).
 
+Separately from that record, the sources the code cites are listed in `docs/ALGORITHM_PROVENANCE.md`, which includes ITU-T G.652 and peer-reviewed papers as well as equations.
+
 ## 2. Later exposure in comparison discussions
 
-After the original development, ChatGPT and reviewers took part in comparison discussions in which parts of OptiCommPy were shown or described. That comparison was not used as a specification for OpticPS. The roadmap that governs the current work (v2, section B) forbids using it, or any memory of third-party source, as an algorithm specification, and requires features to be derived from original literature and standards.
+After the original development, ChatGPT and reviewers took part in comparison discussions in which parts of OptiCommPy were shown or described. Project rules prohibit using that comparison as a specification: roadmap v2, section B, forbids using it, or any memory of third-party source, as an algorithm specification, and requires features to be derived from original literature and standards. No repository record shows that it was used that way. The absence of a record is not proof that it was not.
 
 This declaration does not state who took part in those discussions or what each person saw.
 

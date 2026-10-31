@@ -152,3 +152,7 @@ Added `tests/test_pam4_anchor.py` (slow marker, runs in default pytest, writes t
 
 Docs: ROADMAP_STATUS, FEATURE_GAP_MATRIX, DEPENDENCY_EXCEPTIONS; CLEAN_ROOM_DECLARATION rewritten to separate the original process from later comparison-discussion exposure and to state what cannot be claimed. License audit: 34 packages, 0 flagged, SBOM unchanged. No code under `src/` changed. Not yet reviewed by Loki.
 
+## 2026-10-31 | v1.3-mpam C1 review fixes
+
+Loki FAILed C1 (docs only). Fixed in a second commit: gap matrix now walks every roadmap section D bullet; clean-room section 2 states the rule and the evidence limit instead of "not used"; anchor also re-hashes the committed files and compares regenerated checksums.sha256 (metadata lines excluded), metadata floats at rel 1e-12; lockfile comparison recorded (installed set equals the uv.lock Python < 3.12 branch; colorama is win32-only); citations corrected. Baseline timed: 368 passed in 212.10 s. After fixes: 381 passed in 214.32 s; ruff, format, mypy clean.
+

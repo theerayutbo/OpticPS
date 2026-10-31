@@ -18,20 +18,20 @@ Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). P
 
 | Command | Result |
 |---|---|
-| `uv run pytest -q` (default addopts hide the summary line) | 368 tests, all passed: the progress output was 368 dots, no F, s, x or E. `pytest --co` at baseline would list 368 tests (377 now including the 9 anchor tests). Wall time about 5 to 10 minutes while other work ran on the machine |
+| `uv run pytest -o addopts="-q -rN"` on the baseline source (run with `--ignore=tests/test_pam4_anchor.py`, since `src/` is unchanged) | `368 passed in 212.10s (0:03:32)`. The first baseline run used default `-q`, which hides the summary; its progress output was 368 dots, no F, s, x or E |
 | `uv run ruff check src tests scripts/license_audit.py` | All checks passed |
 | `uv run ruff format --check src tests` | 53 files already formatted |
 | `uv run mypy` | Success: no issues found in 44 source files |
 | `uv run python scripts/license_audit.py` | 34 installed packages, 0 flagged; SBOM identical to committed |
 
-The pytest count was derived from the dot count and the collected total, not from a summary line, because `addopts = "-q"` plus `-q` suppresses it.
+Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts above use `-o addopts="-q -rN"`.
 
 ### After C1
 
 | Command | Result |
 |---|---|
-| `uv run pytest -o addopts="-q -rN"` | `377 passed in 232.75s` |
-| Byte anchor (`tests/test_pam4_anchor.py`, marker `slow`, runs in default pytest) | 9 passed in about 5.4 s on the first and second run. No file mismatched; the exclusion table `EXCLUDED` is empty |
+| `uv run pytest -o addopts="-q -rN"` | `381 passed in 214.32s` after the review fixes (377 after the first C1 commit) |
+| Byte anchor (`tests/test_pam4_anchor.py`, marker `slow`, runs in default pytest) | first version 9 passed in about 5.4 s; after review fixes 13 passed in 5.9 s. No file mismatched; the exclusion table `EXCLUDED` is empty |
 | Lint, format, mypy | pass with the new test file |
 
 ## Byte anchor
@@ -40,27 +40,26 @@ Regenerates both profiles into a pytest temporary directory with `generate_all` 
 
 - SHA-256 of every `waveforms/**/*.csv`, `references/*/*_symbols.csv` and `*_info_bits.txt` against that profile's `checksums.sha256`.
 - `experiment_manifest.csv` byte-equal.
-- `*_metadata.json` equal after deleting the `generator` key (the version string there is expected to change).
+- `*_metadata.json` equal after deleting the `generator` key (the version string there is expected to change); floats at relative 1e-12, strings and ints exact.
 - `adaptive_selection.json` numerically equal at relative 1e-12.
+- Committed files re-hashed against the committed `checksums.sha256` (a byte flip in `output/` fails); regenerated `checksums.sha256` equal to committed, metadata lines excluded.
 - File set equal, ignoring `validation_results.csv`, which `opticps validate` writes and `generate_all` does not.
 
 Result: all equal. The anchor is a valid baseline for Stage 1 on this platform (macOS, Python 3.11.15, numpy 2.4.6, scipy 1.17.1). It was not run on Linux here; CI runs the full suite on ubuntu and macos.
 
 ## Stage checklist
 
-Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERIFIED`, of the claims ladder. Matrix detail: `docs/FEATURE_GAP_MATRIX.md`.
+Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERIFIED`, of the claims ladder. Matrix detail: `docs/FEATURE_GAP_MATRIX.md`. A checked box means done and evidenced; an unchecked box carries its status.
 
-| Stage | Status | Evidence |
-|---|---|---|
-| Gate 0 audit (C1) | DONE in this commit, pending independent review | this file, `docs/FEATURE_GAP_MATRIX.md`, `docs/DEPENDENCY_EXCEPTIONS.md`, `docs/CLEAN_ROOM_DECLARATION.md`, `tests/test_pam4_anchor.py` |
-| Stage 1 adaptive M-PAM | NOT STARTED (C2 to C8) | PAM4-bound sites listed in `docs/FEATURE_GAP_MATRIX.md` |
-| Stage 2 IM/DD impairments, receiver | NOT STARTED | |
-| Stage 3 campaign engine, UXR intake | NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED` | |
-| Stage 4 calibrated channel | PARTIAL / BLOCKED (laboratory validation needs real captures) | per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py` |
-| Stage 5 causal adaptive feedback | NOT STARTED | |
-| Stage 6 FEC, PAS | NOT STARTED; must be named `FEC-assisted shaped M-PAM` unless PAS is proven | |
-| Stage 7 hardware-in-the-loop | NOT STARTED; `BLOCKED: HARDWARE CONFIGURATION REQUIRED` | |
-| Stage 8 dashboard, publication | NOT STARTED | |
+- [x] Gate 0 audit (C1), done in this commit and in the fix commit after the first review; independent review of the fix pending. Evidence: this file, `docs/FEATURE_GAP_MATRIX.md`, `docs/DEPENDENCY_EXCEPTIONS.md`, `docs/CLEAN_ROOM_DECLARATION.md`, `tests/test_pam4_anchor.py`.
+- [ ] Stage 1 adaptive M-PAM: NOT STARTED (C2 to C8). PAM4-bound sites: `docs/FEATURE_GAP_MATRIX.md`.
+- [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
+- [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
+- [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py:35`.
+- [ ] Stage 5 causal adaptive feedback: NOT STARTED.
+- [ ] Stage 6 FEC, PAS: NOT STARTED; name it `FEC-assisted shaped M-PAM` unless PAS is proven.
+- [ ] Stage 7 hardware-in-the-loop: NOT STARTED; `BLOCKED: HARDWARE CONFIGURATION REQUIRED`.
+- [ ] Stage 8 dashboard, publication: NOT STARTED.
 
 Stopping point for this run: end of S2-3 (PLAN.md).
 

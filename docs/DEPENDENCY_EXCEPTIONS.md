@@ -10,7 +10,7 @@ None needs an exception to the MIT-only distribution. They are recorded so a rev
 
 | Package | Licence as reported | Scope | Note |
 |---|---|---|---|
-| pathspec 1.1.1 | MPL-2.0 | development only (mypy dependency) | file-level copyleft; not imported by `src/`, not redistributed |
+| pathspec 1.1.1 | `Mozilla Public License 2.0 (MPL 2.0)` (classifier text in the audit and SBOM, not an SPDX identifier; the PLAN and `DEPENDENCY_AUDIT.md` call it MPL-2.0) | development only (mypy dependency) | file-level copyleft; not imported by `src/`, not redistributed |
 | matplotlib 3.11.2 | Python Software Foundation License | runtime | PSF-style, permissive |
 | pillow 13.0.0 | MIT-CMU | runtime (via matplotlib, python-pptx) | permissive |
 | numpy 2.4.6 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | runtime | compound expression |
@@ -24,7 +24,16 @@ The licence strings are taken from installed metadata. Metadata can be wrong or 
 
 - Native libraries bundled inside wheels (numpy, scipy, h5py, lxml, pillow and others) were not individually audited. This was already stated in `docs/DEPENDENCY_AUDIT.md`.
 - Licence texts of transitive packages were not read; only metadata strings were checked.
-- `uv.lock` pins were not compared against the installed set in this run.
+
+## Lockfile comparison
+
+Done 2026-10-31 by comparing the installed distributions (Python 3.11.15) with `uv.lock` (38 package entries, `requires-python >=3.11,<3.15`, with separate resolution branches for Python below and at/above 3.12):
+
+- Every one of the 34 installed distributions has the same version as a `uv.lock` entry on the Python < 3.12 branch, including `opticps 1.2.0`. No installed package is missing from the lock.
+- Lock-only entries: `colorama 0.4.6`, required only on `sys_platform == 'win32'` (via pytest); not installed on macOS or Linux.
+- Lock entries for the Python >= 3.12 branch that differ from the installed set: `numpy 2.5.4`, `scipy 1.18.1`, `contourpy 1.4.0`. The installed Python 3.11 set uses `numpy 2.4.6`, `scipy 1.17.1`, `contourpy 1.3.3`, which match the lock's < 3.12 branch.
+- The SBOM was produced from the installed set, so it describes the Python 3.11 branch only. It does not cover the Python >= 3.12 branch or Windows.
+- Licences of the three >= 3.12 versions and of `colorama` were not audited here.
 
 ## Bundled assets check
 

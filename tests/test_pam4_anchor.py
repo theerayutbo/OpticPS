@@ -65,6 +65,7 @@ def _assert_close(actual, expected, path="") -> None:
     elif isinstance(expected, float):
         assert actual == pytest.approx(expected, rel=1e-12, abs=0.0), path
     else:
+        assert type(actual) is type(expected), path
         assert actual == expected, path
 
 
@@ -77,6 +78,32 @@ def test_hashed_files_match_committed_checksums(regenerated, profile):
         name for name in names if sha256_file(regenerated / profile / name) != committed[name]
     ]
     assert mismatched == []
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_committed_files_match_committed_checksums(profile):
+    """A byte flip in output/ must fail, independent of regeneration."""
+    committed = _committed_checksums(profile)
+    names = [name for name in committed if _hashed(name) and name not in EXCLUDED]
+    assert len(names) >= 14
+    names.append("experiment_manifest.csv")
+    mismatched = [
+        name for name in names if sha256_file(COMMITTED / profile / name) != committed[name]
+    ]
+    assert mismatched == []
+
+
+@pytest.mark.parametrize("profile", PROFILES)
+def test_checksum_listing_matches_excluding_metadata(regenerated, profile):
+    """Same entries and digests, minus metadata lines (those embed the version)."""
+
+    def lines(path: Path) -> list[str]:
+        return [line for line in path.read_text().splitlines() if "_metadata.json" not in line]
+
+    new = lines(regenerated / profile / "checksums.sha256")
+    old = lines(COMMITTED / profile / "checksums.sha256")
+    assert len(old) == 16  # 5 waveforms, 10 reference files, manifest
+    assert new == old
 
 
 @pytest.mark.parametrize("profile", PROFILES)
@@ -102,7 +129,7 @@ def test_metadata_equal_without_generator(regenerated, profile):
     assert len(paths) == 5
     for old in paths:
         new = regenerated / old.relative_to(COMMITTED)
-        assert _strip_generator(new) == _strip_generator(old), old.name
+        _assert_close(_strip_generator(new), _strip_generator(old), old.name)
 
 
 def test_adaptive_selection_numerically_equal(regenerated):
