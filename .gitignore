@@ -29,6 +29,9 @@ results/uxr_example/*_eye.npz
 data/private/*
 !data/private/README.md
 
+# Externally sourced datasets and source-data assets are cited, never vendored
+data/external/
+
 # Secrets
 .env
 *.pem
