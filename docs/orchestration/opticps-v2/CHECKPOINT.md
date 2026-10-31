@@ -24,4 +24,12 @@ Owner request 2026-10-31: NANF brief, gates N0-N4, source Hong et al. JLT 39(19)
 Rights: dataset CC BY 4.0 per DataCite rightsList for 10.5258/SOTON/D1889 (readme Licence field blank; eprints page 403 to fetcher, not read). Paper: IEEE copyright per Crossref (vor and am); PDF is Word-produced, version unconfirmed, keep out of repo. Attribution required. Raw xlsx stays out of Git until owner decides; CC BY would permit redistribution with attribution, but policy here keeps external data outside.
 C5 gate: PASS at 8129eca on second review (handoff/C5_qa2.md, 853 passed). Aria spot-check: net rates by hand 111.125, 106.67 Gb/s. 9 MINORs carried into C6a; finding 1 (BestFixed name not compared with argmax) is closest to MAJOR and must be fixed first.
 
-NEXT ACTION: gate E0; then Dev N0 (declare calibration/holdout before reading xlsx values), then remaining E and N gates; C6-C8, Stage 3, Stage 2 after.
+E0 Dev done at 94a3ec9, 905 passed. The curl Dev flagged was Aria's, owner-approved, no action needed. E0 docs say MD5 supplied: update to locally verified in E1.
+
+E0 first review: FAIL at 94a3ec9 (handoff/E0_qa.md): 5 MAJOR (duplicate YAML keys, no value validation, CW claim, NC conflict, shared-sequence leakage). Plan must be amended before E1 reads B2B.
+
+N0 gate: PASS at ee74d05 on second review (handoff/N0_qa2.md, 1107 passed). Aria spot-check: first-null 29.4 GHz by hand. 9 MINORs; items 2-7 need Amendment 2 and new pin before N1 scoring.
+
+E0 second review: FAIL at eba060a (handoff/E0_qa2.md, 1105 passed): MAJOR: require_frozen_criterion passes re-commit, amend, backdate, assume-unchanged. Plus 6 MINOR incl. verbatim NC-ND sentences committed locally. Repros 1-12 and 14 closed. Stop condition reached for E0: owner decision needed. E1 and E2 held.
+
+NEXT ACTION: await owner decision on E0; Dev N1 running (Amendment 2 first). Then E1, N2, N3, E2-E4, C6a minors, C6-C8, Stage 3, Stage 2.
