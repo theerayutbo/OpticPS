@@ -1,0 +1,25 @@
+# Benchmark source: Wiegart et al., JLT 39(2), 400-405 (2021). Bibliographic data from Crossref (fetch tool).
+# The IEEE page was not readable; the paper body was NOT read in gate E0, so every technical field is null.
+benchmark_config_version: 1
+source:
+  source_id: wiegart_2021_jlt
+  kind: publication
+  title: "Probabilistically Shaped 4-PAM for Short-Reach IM/DD Links With a Peak Power Constraint"
+  doi: "10.1109/JLT.2020.3029371"
+  url: "https://doi.org/10.1109/JLT.2020.3029371"
+  version: "J. Lightwave Technol. 39(2), 400-405, 2021-01-15"
+  retrieved: "2026-10-31"
+  licenses:
+    - scope: article
+      status: UNVERIFIED
+      license_id: null
+      private_research_use: UNVERIFIED
+      public_redistribution: UNVERIFIED
+      note: "Publisher copyright (IEEE). Crossref lists only IEEE licence links, not an open licence. Author manuscript terms (arXiv 2005.12428v2 or institutional archive) not read. Digitised or re-plotted figures are not cleared."
+      read_how: unconfirmed
+  parameters:
+    modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "title: 4-PAM", read_how: summary}
+    constraint: {value: "peak power constraint", provenance: PUBLISHED_MEASUREMENT, source_ref: "title", read_how: summary}
+    distribution_family: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
+    noise_definition: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
+    reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "not applicable until experimental data are identified"}

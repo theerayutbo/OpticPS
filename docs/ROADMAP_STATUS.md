@@ -91,6 +91,45 @@ Realised-rate equalisation per member, Protocol B, reported never applied (`rate
 | PAM16_Fixed_Outer_H388 | 3911 | +4.73 % FEASIBLE | 254.8 GSa/s FEASIBLE |
 | PAM16_Fixed_Outer_H372 | 3749 | +9.26 % FEASIBLE | 265.8 GSa/s INFEASIBLE |
 
+## Roadmap v2.1 delta (Stage 3A, gate E0, written 2026-10-31)
+
+Documents compared (both untracked, never committed; the hashes are the record):
+
+| File | SHA-256 |
+|---|---|
+| `OpticPS_Claude_Code_Roadmap_v2.md` | `c9896ffcb86572a993710e737a315d32df1e4ae3bb549eff86bc49d469847368` (equals the baseline record above) |
+| `OpticPS_Master_Roadmap_v2.1.md` | `e81cb2c80c53006d5045ebbe53586531a3df193b8e5e04def9ca30e1549d5938` |
+| `OpticPS_External_Benchmark_Claude_Code_Brief.md` | `15cdf18b626869a7af0b57b625222ecd2a08595e6bbbb1b549a9ec2de2d18848` |
+
+Method: `diff` of the two files. v2.1 differs from v2 in 9 hunks and removes only 5 lines (title, status line, "Supersedes", the sequencing sentence, the J2 assignment sentence). Everything else is addition. Sections A, B, C, stage definitions 0 to 8 other than the new Stage 3A, E, G, H, I (one added row), J1, J3 and K are byte-identical.
+
+| Change in v2.1 | Effect on gated or planned Stage 1 to 3 work |
+|---|---|
+| New Stage 3A (external published-dataset benchmark) and milestone row M3E (depends on M0 + M3 offline; M1/M2 where relevant) | New work only. No Stage 1 to 3 exit gate text changed. Stage 3 exit gate (synthetic campaign, real import `BLOCKED: REAL UXR EXPORT REQUIRED`) is unchanged. |
+| New section L (gates E0 to E4, error codes, L4 tests) | New package `src/opticps/benchmarks/` and `configs/benchmarks/`; tests are additive. L4 "no changed historic PAM4 outputs" repeats A2 and the byte anchor. |
+| Sequencing sentence: M3E source registration and fixtures start in parallel with M3 | Scheduling only. |
+| File table row `src/opticps/benchmarks/` | Additive. |
+| J2 prompt: "complete the source/provenance inventory plus test fixtures for Stage 3A / Section L" | Additive; "Do not bulk-download external datasets without authorization". |
+| "Supersedes" now names v2 and calls v2.1 the single master roadmap | Documents that cite "Roadmap v2" (this file, `PLAN.md`, the C1 to C5 handoffs) now cite the superseded file. Their content and the recorded v2 hash stay correct for the gates passed under it. |
+| Section B list of allowed references | Unchanged in v2.1 (Wiegart DOI was already there). |
+
+Gate check: **no passed or planned Stage 1 to 3 gate (C1 to C5, M-PAM, byte anchor, profiles) is invalidated by v2.1.** No existing API, golden, committed waveform, result or `configs/m8199b_profiles.yaml` was touched by E0.
+
+Points to carry, none a gate failure:
+- Stage 3's UXR importers stay `UNVERIFIED AGAINST REAL FILES`; the E0 importer audit (docs/benchmarks/MISSING_PARAMETERS.md) shows an unknown-format `.bin` is rejected by `read_bin`, so external TERIPHIC captures need their own adapter (E1) rather than the UXR path.
+- The brief says "where there is tension, apply the stricter rule" and tells the executor not to download without authorisation. A transfer of two TERIPHIC files into `data/external/teriphic/` was found running at E0 time, started outside E0 (see SOURCE_REGISTER.md). Authorisation for it is the owner's to confirm.
+- v2.1 L2/E0 says "Record actual repository HEAD and current tests": E0 baseline below.
+
+### Gate E0 record
+
+| Item | Value |
+|---|---|
+| Base HEAD at E0 start | `8129eca77e71ea712c20c124e7a75bad4b32bac8` (`v1.3-mpam`; tracked tree clean except the pre-existing `docs/orchestration/opticps-v2/CHECKPOINT.md` edit, which E0 did not touch) |
+| E0 deliverables | `docs/benchmarks/{SOURCE_REGISTER,MISSING_PARAMETERS,FIT_HOLDOUT_PLAN}.md`, `src/opticps/benchmarks/{provenance,catalog}.py`, `configs/benchmarks/*.yaml`, `tests/test_benchmark_provenance.py`, `.gitignore` rule `data/external/` |
+| Plan hash | `6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a`, committed before any other E0 file (commit 8900748) |
+| Baseline and final test counts | see the entry at the end of this section, filled at the end of the gate |
+| Downloads, push, merge, tag, hardware | none by E0 |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:

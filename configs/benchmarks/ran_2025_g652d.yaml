@@ -1,0 +1,37 @@
+# Benchmark source: Ran et al., Nature Communications 16, 6268 (2025). Publication only; no source-data file fetched.
+# Read 2026-10-31 through a fetch tool on the Europe PMC copy of the full text (PMC12234763) and Crossref; the
+# nature.com article page itself was not readable (cookie handshake redirect). Unknown fields stay null.
+benchmark_config_version: 1
+source:
+  source_id: ran_2025_nature_comms
+  kind: publication
+  title: "A 4x256 Gbps silicon transmitter with on-chip adaptive dispersion compensation"
+  doi: "10.1038/s41467-025-61408-7"
+  url: "https://www.nature.com/articles/s41467-025-61408-7"
+  version: "Nat. Commun. 16, 6268 (published 2025-07-07); corrected publication"
+  retrieved: "2026-10-31"
+  licenses:
+    - scope: article
+      status: VERIFIED
+      license_id: "CC-BY-NC-ND-4.0"
+      private_research_use: ALLOWED_WITH_CONDITIONS
+      public_redistribution: ALLOWED_WITH_CONDITIONS
+      note: "Non-commercial, attribution, NO derivatives: verbatim sharing only; modified or re-plotted figures are not covered. Read from Crossref and the Europe PMC full text through a fetch tool."
+      read_how: summary
+    - scope: data
+      status: UNVERIFIED
+      license_id: null
+      private_research_use: UNVERIFIED
+      public_redistribution: UNVERIFIED
+      note: "Source Data (41467_2025_61408_MOESM3_ESM.xlsx) is stated as provided with the paper; no licence for it was read. File not fetched; schema, size and hash unknown."
+      read_how: unconfirmed
+  parameters:
+    wavelength_nm: {value: 1271, provenance: PUBLISHED_MEASUREMENT, unit: nm, source_ref: "abstract: [article text removed: CC BY-NC-ND])", read_how: summary}
+    dispersion_ps_per_nm_km: {value: -3.99, provenance: PUBLISHED_MEASUREMENT, unit: "ps/(nm km)", source_ref: "Results: measured fibre dispersion coefficient at 1271 nm", read_how: summary}
+    fibre_type: {value: "G.652.D", provenance: PUBLISHED_MEASUREMENT, source_ref: "figure captions and text: standard G652.D fibre", read_how: summary}
+    modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "text: PAM-4", read_how: summary}
+    equalizer: {value: "155-tap FFE (RLS), optionally with MLSD", provenance: PUBLISHED_MEASUREMENT, source_ref: "Results", read_how: summary}
+    fec_threshold: {value: "SD-FEC 20% 2.4e-2; HD-FEC 6.7% 3.8e-3", provenance: PUBLISHED_MEASUREMENT, source_ref: "text", read_how: summary}
+    rate_definition: {value: null, provenance: UNKNOWN, as_stated: "gross versus net 256 and 200 Gb/s not stated in the text read"}
+    ber_definition: {value: null, provenance: UNKNOWN, as_stated: "no formal BER definition found in the text read"}
+    chirp_model_status: {value: "MODEL_GAP", provenance: INFERRED, source_ref: "OpticPS MZM model is chirp-free; paper controls chirp in a silicon MZM"}
