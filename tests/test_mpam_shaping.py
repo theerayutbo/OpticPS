@@ -443,20 +443,21 @@ def test_composition_preserving_errors_decode_silently_to_wrong_bits():
     # matcher returns wrong bits with error=None. C6 block erasure must report this.
     matcher = ConstantCompositionMatcher.from_symmetric_probabilities(PS70, 256)
     rng = np.random.default_rng(3)
-    silent = wrong_bits = 0
+    tried = silent = wrong_bits = 0
     for _ in range(100):
         bits = rng.integers(0, 2, matcher.k).astype(np.int8)
         block = matcher.encode(bits)
         i, j = rng.choice(256, 2, replace=False)
         if block[i] == block[j]:
-            continue
+            continue  # equal symbols: not an error
+        tried += 1
         block[i], block[j] = block[j], block[i]
         result = matcher.try_decode(block)
         if result.error is None:
             silent += 1
             wrong_bits += int(np.sum(result.bits != bits))
-    # the other swaps land on a rank >= 2^k and are reported as RankOverflowError
-    assert silent > 50
+    # unequal swaps only; a rank overflow needs a swap at a very early position
+    assert tried > 50 and silent >= 0.9 * tried
     assert wrong_bits / silent > 10
 
 
@@ -533,3 +534,32 @@ def test_symmetric_quantiser_is_l1_closest_not_kl_optimal():
     assert sum(abs(np.array(counts[:4]) - scaled[:4])) <= sum(
         abs(np.array((1, 6, 2, 5)) - scaled[:4])
     )
+
+
+def test_block_shape_error_hierarchy():
+    assert issubclass(BlockShapeError, ValueError)
+    assert issubclass(BlockShapeError, DistributionMatcherError)
+    assert not issubclass(BlockShapeError, CompositionError)
+
+
+def test_ragged_input_raises_in_decode_and_is_typed_by_try_decode():
+    matcher = small_matcher()
+    with pytest.raises(ValueError):
+        matcher.decode([[0, 1], [1]])
+    assert matcher.try_decode([[0, 1], [1]]).error == "BlockShapeError"
+
+
+def test_try_decode_types_a_type_error_from_conversion():
+    class Unconvertible:
+        def __array__(self, *args, **kwargs):
+            raise TypeError("cannot convert")
+
+    result = small_matcher().try_decode(Unconvertible())
+    assert result.bits is None and result.error == "BlockShapeError"
+
+
+def test_masked_array_decodes_with_mask_ignored():
+    matcher = small_matcher()
+    block = [0, 1, 1, 2]
+    masked = np.ma.masked_array(block, mask=[True, False, False, False])
+    assert matcher.decode(masked).tolist() == matcher.decode(np.array(block)).tolist()

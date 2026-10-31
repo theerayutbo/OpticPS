@@ -68,8 +68,10 @@ def quantize_symmetric_composition(probabilities: object, n: int) -> tuple[int, 
     The lower half of the alphabet (outermost level first) is quantised to n/2 symbols
     by the largest-remainder rule and mirrored, so counts[i] == counts[M-1-i] and the
     total is exactly n. n must be even and the PMF symmetric with an even alphabet.
-    quantize_composition is untouched. For M = 4 the two agree at n = 32..16384 on the
-    PS70, PS80, Outer70, uniform and p_outer-grid PMFs, but not at ties: the legacy rule can
+    quantize_composition is untouched. For M = 4 the two agree on the PS70, PS80,
+    Outer70, uniform and p_outer-grid PMFs at n = 32, 64, 128, 256, 512, 1000, 1024, 2048,
+    4096, 16384 and 65536 only (not at every even n: uniform differs at 4088 even n, first
+    at 34, and PS70 at n = 50). They differ at ties: the legacy rule can
     split a pair (PS70, n = 10: legacy (2, 4, 3, 1), this rule (2, 3, 3, 2)). The result is
     closest to n p in L1 over symmetric compositions, not KL-optimal, and it raises when a
     positive probability gets a zero count.
@@ -214,9 +216,11 @@ class ConstantCompositionMatcher:
 
         Failures are detected only when the block is malformed (wrong shape, non-integer or
         out-of-range symbol, wrong composition, rank >= 2^k). Symbol errors that preserve
-        the composition (a swap of two unequal symbols, an adjacent +1/-1 pair) decode
-        without error to wrong bits, so error=None does not mean the bits are right. The
-        outer FEC or a CRC must catch those.
+        the composition (a swap of two unequal symbols; a +1/-1 pair only when it swaps
+        adjacent values) almost always decode without error to wrong bits, so error=None
+        does not mean the bits are right. The outer FEC or a CRC must catch those.
+        decode raises ValueError on ragged input, which this method types as
+        BlockShapeError; a masked array is read through its data, the mask is ignored.
         """
         try:
             return CcdmBlockResult(self.decode(symbols), None)
