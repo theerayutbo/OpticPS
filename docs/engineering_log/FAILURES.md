@@ -36,3 +36,9 @@
 
 ## X-009 Rounding in a test
 - `//` was used where the code rounds a resampled length. Test bug, fixed.
+
+## X-010 Guards too strict for real use
+- Rework 2 made comparison guards so strict that every step-6 sidecar set was withheld. Found by following the lab guide end to end. Set-points and measured outcomes were then separated.
+
+## X-011 Capture chain lacked a matched filter
+- About 2 dB SNR penalty, which could be misread as a hardware penalty. Fixed. The filter can harm when noise is narrower than the symbol rate; compare with `--no-matched-filter` on real data.

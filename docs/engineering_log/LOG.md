@@ -125,3 +125,17 @@ Result: the exported waveform CSV format is confirmed against pp129-133: mandato
 Dev: Sonnet. Loki: Opus. First review FAIL at 8a3b425 (two provenance and override defects; physics and standard numbers passed). Second review PASS at cd443f9 with 7 low findings, recorded in CHANGELOG.
 
 Results: v1.0 fiber sweep reproduced 45 of 45 points on the default path. Before/after at Profile A, Uniform, 40 km, seed 42: v1.0 SER 0.5901, R_BMD 0.196, -27.01 dBm; G.652.D representative SER 0.6739, R_BMD 0.042, -30.01 dBm. The difference comes from attenuation, 0.275 versus 0.2 dB/km, over 40 km. The beta3 term changes at most 8 symbol errors. Waveform CSV tree identical to v1.0.0. All simulated; nothing here is experimentally validated.
+
+## 2026-10-31 | v1.2 UXR gate
+
+Dev: Sonnet. Loki: Opus. Reviews: 44ce954 FAIL; 26453ab FAIL; e1d7a9b FAIL; 5e6db48 FAIL; 1c821ca PASS; ca83b24 PASS; 870d3cd PASS.
+
+What each review found mattered: silent loss of frames; one acquisition counted as five runs; hostile HDF5 metadata; guards blocking every real run; a confident verdict from wrong references; and no matched filter in the capture chain (about 2 dB SNR loss). The last was found by asking why mock and simulated SER differed.
+
+Results (synthetic only): 368 tests pass. Waveform CSV tree identical to main. Mock versus simulated SER at 18.4 dB, Uniform: 1.5e-3 before the filter, 9.5e-5 after, simulated 2.4e-5; the remaining gap is not fully explained.
+
+Orchestrator errors: the UXR brief omitted the required receiver-analysis report, found only at the final check. The merge state in rework 1's brief was wrong and was corrected by message.
+
+Crew deviations: the final text-only fixes at 2b8eaad were made by the orchestrator, checked by machine gates, not by a Loki, to save tokens. Grok could not be used: auto-approve launch was denied by the harness, and a read-only run returned no findings. A Dev spawn repeated its report on a timer and was stopped.
+
+Accepted limitation: sample loss below about 1 symbol, synchronous with the frame period on one waveform in every run, may not be detected.
