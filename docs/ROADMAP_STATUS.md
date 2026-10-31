@@ -1,6 +1,6 @@
 # Roadmap v2 status
 
-Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C2, PAM-M rates).
+Owner roadmap: `OpticPS_Claude_Code_Roadmap_v2.md` (untracked, not committed). Plan: `docs/orchestration/opticps-v2/PLAN.md`. Last updated 2026-10-31 (C4, generic adaptive selection, constraints, acquisition guard).
 
 ## Baseline (written before any code change)
 
@@ -42,6 +42,14 @@ Default `addopts = "-q"` plus `-q` suppresses the summary line, so the counts ab
 | Quadrature | equal sigma: 120 nodes are 1.9e-8 to 4.1e-8 from the 320-node value at 8-30 dB, so the 1e-9 requirement fails; default nodes are 240 for M = 2, 8, 16 (within 4.2e-10 of 320 nodes, 3.9e-10 of independent integrators, 8-30 dB, 3 PMFs) and 120 for M = 4. Unequal sigma: per-level Gauss-Hermite is unreliable (M = 4 at 120 nodes 2.0e-4 at spread 4, 6.3e-3 at 9); M != 4 now uses a common-grid Gauss-Legendre integrator (1.0e-13 vs `quad_vec`, 8-30 dB, spreads 2-64, 10 ms per call at M = 16); M = 4 stays legacy and warns above spread 3.0. See ALGORITHM_PROVENANCE |
 | Lint, format, mypy | pass |
 
+### After C4
+
+| Command | Result |
+|---|---|
+| `uv run pytest -o addopts="-q -rN"` | `678 passed` (604 before C4: +4 in `tests/test_mpam_rates.py`, +32 `tests/test_mpam_adaptive.py` of which 1 slow, +24 `tests/test_constraints.py`, +14 `tests/test_leakage.py`); anchor included and green. The three new files without the slow test run in about 20 s |
+| Optimiser | M = 8, 16: all 11 starts agree to 6e-13 bit (SMD and BMD); runtime per call M = 16 13 to 23 s, M = 8 2 to 3 s (note: `docs/notes/mpam_adaptive_constraints.md`) |
+| Lint, format, mypy | pass |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
@@ -64,10 +72,11 @@ Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERI
   - [x] C1 Gate 0 and anchor.
   - [x] C2 `optimization/rates.py` generic in M (SMD, BMD, `bmd_raw`, order-aware PSNR, average SNR) with `tests/test_mpam_rates.py`; PAM4 values bit-identical, anchor green. Independent review pending.
   - [x] C3 `shaping/distributions.py` pair family (`symmetric_from_pairs`, `pairs_of`, `mb_for_entropy`; lam > 0 inner-heavy), `distribution_matching/ccdm.py` `quantize_symmetric_composition` (equal to legacy at M=4 wherever legacy does not split a pair; legacy untouched), `symmetric_rate_loss`, `InvalidSymbolError`, `scripts/profile_ccdm.py` and `docs/notes/ccdm_profile.md` (M=16, n=1024: 9.3 ms encode, 9.9 ms decode, threshold 1 s not exceeded), `tests/test_mpam_shaping.py`. Independent review pending.
-  - [ ] C4 to C8: NOT STARTED.
+  - [x] C4 `optimization/adaptive.py` generic in M (`estimate_channel`, `simulate_training_capture` with `order`; `optimise_symmetric` for M = 4, 8, 16 over the pair simplex with bounds [1/(4n), 1/2]; SMD multistart agreement check, BMD best of 11 starts, every start and candidate logged; exact quantised objective evaluated after the continuous fit; `fixed_menu`, `best_fixed`, `oracle_not_a_baseline`; `AcquisitionId`, `assert_independent`, `simulate_acquisitions`, `select_on_acquisitions`; `Selection` gains `order, family, parameters, starts, claim`, legacy serialisation unchanged), `optimization/constraints.py` (`FixedPeak`, `FixedAverageOpticalPower`, `FixedOMA`, `EqualRealizedUserRate`, `Feasibility`), rates.py minors (separate commit C4a), `tests/test_mpam_adaptive.py`, `tests/test_constraints.py`, `tests/test_leakage.py`, `docs/notes/mpam_adaptive_constraints.md`. Anchor green. Independent review pending.
+  - [ ] C5 to C8: NOT STARTED.
 - [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
 - [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
-- [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py:35`.
+- [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py` (generic in M since C4).
 - [ ] Stage 5 causal adaptive feedback: NOT STARTED.
 - [ ] Stage 6 FEC, PAS: NOT STARTED; name it `FEC-assisted shaped M-PAM` unless PAS is proven.
 - [ ] Stage 7 hardware-in-the-loop: NOT STARTED; `BLOCKED: HARDWARE CONFIGURATION REQUIRED`.
@@ -81,6 +90,7 @@ Stopping point for this run: end of S2-3 (PLAN.md).
 2. M3 is described as depending only on M0. For M-PAM intake it also needs the frame and export work in C5 and C6.
 3. The Stage 5 latency budget is an assumption, to be treated as an experimental design parameter, not a hardware fact.
 4. The clean-room rule can only mean not searching for or recalling third-party code on purpose. It cannot certify the model's training data. See `docs/CLEAN_ROOM_DECLARATION.md`.
+5. C3 process deviation: the independent review (Loki, Opus) returned FAIL twice on C3. The code was found correct; both rounds were about documentation statements that were false (M = 4 equivalence n lists, silent-misdecode statistics, error-hierarchy wording). Aria continued to C4 without waiting for a third review because the findings were documentation-only and involved no design decision, and informed the owner. C3 is therefore not review-PASS at the time C4 starts; its second fix commit is 5a851dd.
 
 Other differences, from PLAN.md: work is on `v1.3-mpam` with local commits only (no push, merge or tag); `ruff format --check` passed at baseline, so no separate format commit is needed; the roadmap files stay untracked.
 
