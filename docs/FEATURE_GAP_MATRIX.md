@@ -125,9 +125,9 @@ Rows changed by C5 (frame, export, validator, profiles) carry `(C5)`; the other 
 | Level calibration | PARTIAL | `receiver/dsp.py:92`, 4 levels |
 | Prior-aware MAP for all M | PARTIAL | `receiver/dsp.py:174` `detect_map`, M=4 |
 | FFE, training-only fit | EXISTS | `receiver/dsp.py:102,119` |
-| DFE with training-only fit and independent test scores | MISSING | |
+| DFE with training-only fit and independent test scores | PARTIAL | `receiver/dfe.py`: RLS DFE and FFE-only mode (training, then decision-directed), validated on synthetic ISI channels (NANF gate N3a); not wired into `capture_dsp.py`; no independent-test-score harness |
 | Soft bit LLR with correct priors | MISSING | `log_likelihoods` (`dsp.py:163`) is symbol-level |
-| Equaliser stability / condition guards, no payload-label leakage | PARTIAL | tap-count and rate checks (`capture_dsp.py:700-704`); training uses preamble/head only; no condition-number guard |
+| Equaliser stability / condition guards, no payload-label leakage | PARTIAL | tap-count and rate checks (`capture_dsp.py:700-704`); training uses preamble/head only; no condition-number guard in the FFE path; the RLS DFE has symmetry, trace-cap and Cholesky guards (`receiver/dfe.py`) |
 | Per-level confusion matrix | MISSING | level histogram only (`capture_dsp.py:729,844`) |
 | Eye / level separation | PARTIAL | eye traces (`capture_dsp.py:45,148`) |
 | EVM | MISSING | |

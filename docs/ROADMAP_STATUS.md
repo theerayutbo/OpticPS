@@ -180,6 +180,17 @@ Points to carry, none a gate failure:
 | Tests, anchor, lint | 1535 passed, 6 skipped (clean pin 7bd6ab9, data absent, `-o addopts=-rN`, 11 min 20 s, independent QA run; the 1513 of the Dev run on a shared checkout is superseded); anchor green; ruff check, ruff format --check, mypy clean; `license_audit.py` 34 packages, 0 flagged; no dependency added (stdlib `zipfile` and `xml.etree`) |
 | Fit, scoring, Fig. 4 and Fig. 6 simulation, push, merge, tag, hardware | none |
 
+### Gate N3 part a record (NANF workstream, 2026-11-01)
+
+| Item | Value |
+|---|---|
+| Step 1 (commit b7f4ac0) | plan Amendment 5 (previous pin bc85d32c): grid multiple of 140 (capture 655200, 647008 scored, 1 294 016 bits), corrected counts (129 bit errors at BER 1e-4, not 65) and unit of N, RIN note, noise seed, generator, oversampling, timing phase, D1 wording, DFE assumptions; N2 leftovers; QA5 survivors killed |
+| Step 2 deliverables | `receiver/dfe.py`, `measurement/nanf_chain.py`, `nanf_scoring.py`, `nanf_freeze.py`, `tests/test_nanf_n3a_*.py`, `tests/test_nanf_n3_step1.py`, mutants in `scripts/mutate_nanf.py`, handoff `N3a_dev.md` |
+| Freeze guard | `read_nanf_workbook(include_holdout=True)` needs the hash of a committed freeze record (default deny, `HOLDOUT_LOCKED`); no record exists, nothing is frozen |
+| Roadmap S2-2 | PARTIAL: RLS DFE and FFE-only mode with stability guards, DFE-versus-FFE high-ISI example in tests; not wired into `capture_dsp`, no independent-test-score harness, rest of the Stage 2 exit gate not started |
+| Not done | any fit, any calibration, any holdout read, OFDM chain, push, merge, tag |
+| Tests, anchor, lint | 1746 tests (full run 1742 passed before the last 4, which pass); anchor 15 passed; ruff, mypy clean; license_audit 0 flagged; `mutate_nanf.py` 147 of 147 killed |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
@@ -207,7 +218,7 @@ Statuses follow PLAN.md. Nothing here exceeds step 3, `SYNTHETIC END-TO-END VERI
   - [x] C5 `ModulationSpec` (frozen) and `order: int = 4` in `modulation/pam.py`, `transmitter/frame.py` (`Frame.order` last; head 512 + {512, 512, 1536, 2560}, head multiple of 1024, direct uniform at log2 M bits per symbol, PAM4 byte-identical), `configs/mpam_profiles.yaml` (`config_schema_version: 2`, Protocol A 8 / 56 GBd, Protocol B 112 Gb/s) with loader `transmitter/mpam_config.py` (pinned menu, M8199B fit check with INFEASIBLE, rate-equalisation report, DAC step diagnostic), `transmitter/export.py` M-PAM generator (manifest schema v2, stream keys, evidence label; PAM4 path and its 40 columns unchanged), `measurement/validate_export.py` (both schemas, per-order head and level checks, default-deny on unknown schema), `tests/test_mpam_frame_rx.py`, `tests/test_mpam_config.py`. Independent review FAILED (2 MAJOR: `reportable` decorative, free evidence label); fixed in the C5 fix round (see below), re-review pending.
   - [ ] C6 to C8: NOT STARTED.
 - [ ] Tracked for C7: PLAN describes `assert_disjoint` as checking content; it is id-only. Migrate `compare`, `uxr_compare` and `demo` callers to `assert_independent` (`AcquisitionId` with content hash), which recomputes the digest of an `Acquisition`.
-- [ ] Stage 2 IM/DD impairments, receiver: NOT STARTED.
+- [ ] Stage 2 IM/DD impairments, receiver: PARTIAL. S2-2 in progress: `receiver/dfe.py` (RLS DFE, FFE-only mode, guards) with synthetic DFE-versus-FFE tests (NANF gate N3a); not wired into the capture DSP; S2-1 and S2-3 NOT STARTED; exit gate not met.
 - [ ] Stage 3 campaign engine, UXR intake: NOT STARTED; real-file import `BLOCKED: REAL UXR EXPORT REQUIRED`.
 - [ ] Stage 4 calibrated channel: PARTIAL / BLOCKED (laboratory validation needs real captures). A per-level Gaussian `ChannelEstimate` exists in `optimization/adaptive.py` (generic in M since C4).
 - [ ] Stage 5 causal adaptive feedback: NOT STARTED.

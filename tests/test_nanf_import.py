@@ -7,6 +7,7 @@ flags of the typed series and prints nothing.
 
 import hashlib
 import io
+import json
 import math
 import re
 import traceback
@@ -17,7 +18,8 @@ import pytest
 
 from nanf_workbook_fixture import SENTINEL, build_cells, make_workbook, serialise, write_xlsx
 from opticps.benchmarks.provenance import ErrorCode
-from opticps.measurement import nanf_import
+from opticps.measurement import nanf_freeze, nanf_import
+from opticps.measurement.nanf_chain import TxRxParameters
 from opticps.measurement.nanf_import import (
     EXPECTED_SHEETS,
     NANF_WORKBOOK_SHA256,
@@ -41,7 +43,26 @@ def fixture_file(tmp_path):
     return path, digest
 
 
+_FREEZE: dict[str, str] = {}
+
+
+@pytest.fixture(autouse=True)
+def _holdout_unlocked_for_synthetic_fixtures(tmp_path_factory, monkeypatch):
+    """A test-only freeze record in a temporary directory, so the schema tests can read the holdout.
+
+    The committed record path is patched for the duration of one test; nothing is frozen and no
+    record is written to the repository (plan F8, D6).
+    """
+    record = nanf_freeze.build_freeze_record(TxRxParameters())
+    path = tmp_path_factory.mktemp("freeze") / "record.json"
+    path.write_text(json.dumps(record))
+    monkeypatch.setattr(nanf_freeze, "FREEZE_RECORD_PATH", path)
+    _FREEZE["hash"] = record["freeze_hash"]
+
+
 def read(path, digest, **kw):
+    if kw.get("include_holdout"):
+        kw.setdefault("freeze_hash", _FREEZE["hash"])
     return read_nanf_workbook(path, expected_sha256=digest, **kw)
 
 
@@ -762,7 +783,7 @@ def test_fig4_points_above_the_minus_five_dbm_cap_are_flagged_on_return(tmp_path
 
 @pytest.mark.skipif(not REAL.is_file(), reason="data/external/nanf_hong2021 is absent")
 def test_the_real_workbook_matches_the_recorded_layout_schema_only():
-    wb = read_nanf_workbook(REAL, include_holdout=True)
+    wb = read_nanf_workbook(REAL, include_holdout=True, freeze_hash=_FREEZE["hash"])
     assert wb.sha256 == NANF_WORKBOOK_SHA256 and len(wb.series) == 69
     counts = {}
     for s in wb.series.values():

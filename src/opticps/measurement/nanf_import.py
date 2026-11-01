@@ -40,6 +40,7 @@ from pathlib import Path
 from types import MappingProxyType
 from xml.etree import ElementTree
 
+from opticps.measurement.nanf_freeze import HOLDOUT_LOCKED, HoldoutLockedError, require_freeze
 from opticps.optical_channel.fiber import ProvenanceCategory
 
 NANF_WORKBOOK_SHA256 = "0753aeadd215e894e46de6cb7ac10df4c9edf32386ffdc37871381d80cc19cc0"
@@ -644,13 +645,22 @@ def read_nanf_workbook(
     *,
     include_holdout: bool = False,
     expected_sha256: str = NANF_WORKBOOK_SHA256,
+    freeze_hash: str | None = None,
 ) -> NanfWorkbook:
     """Read and verify the NANF workbook at an explicit local path (offline, read-only).
 
     `expected_sha256` is the recorded digest; pass another one only for a synthetic fixture. With
-    `include_holdout=False` (the default) the holdout series are validated but not returned; ask
-    for them only in the scoring step, after the Tx/Rx parameter vector is frozen and hashed.
+    `include_holdout=False` (the default) the holdout series are validated but not returned.
+    `include_holdout=True` needs `freeze_hash`, the hash of the committed freeze record (plan
+    Amendment 4 D6 and Amendment 5 F8; see `nanf_freeze`); a bare True, a wrong hash, no record, a
+    changed plan or changed code raises `NanfImportError` with code `HOLDOUT_LOCKED` before the
+    file is opened.
     """
+    if include_holdout:
+        try:
+            require_freeze(freeze_hash)
+        except HoldoutLockedError as err:
+            raise NanfImportError(HOLDOUT_LOCKED, str(err).split(": ", 1)[-1]) from None
     file = Path(path)
     if not file.is_file():
         raise NanfImportError(SOURCE_MISSING, f"{file.name} is not present locally")

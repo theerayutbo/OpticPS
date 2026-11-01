@@ -296,3 +296,9 @@ Findings: (1) B2B is a Keysight BIN v10 (cookie `AG10`, every size field consist
 
 Tests: 1600 passed in the full suite (59 new in `tests/test_benchmark_external_capture.py`; E1a added tests to `test_benchmark_provenance.py` and `test_uxr.py`), anchor 15 passed.. `ruff check`, `ruff format --check`, `mypy` pass; license_audit 34 packages, 0 flagged.
 
+## 2026-11-01 | NANF gate N3, part a (plan Amendment 5, RLS DFE, simulation chain, scoring, freeze guard)
+
+Dev: Opus 5.5 session. Step 1 (b7f4ac0): plan Amendment 5 corrects the grid (a multiple of 140, because the 80 GSa/s scope adds a factor 7 at 56 GBd: 655360 x 10/7 is not whole; capture 655200), the error counts (129 bit errors at BER 1e-4; N is symbols), the RIN note and declares seeds, generator, 280 GSa/s oversampling, timing phase and the DFE unknowns; N2 leftovers and the 7 survivors closed (NotImplementedError is a subclass of RuntimeError, so that mutant is equivalent and the code names only RuntimeError).
+
+Step 2: RLS DFE derived from the normal equations (checked against a from-scratch solve), chain on synthetic data only, C1 to C8 scoring, B2B-copy, d, B2B gate, verdict, identifiability check, and the holdout read tied to a freeze record. The SRRC roll-off 0.1 was verified in the paper text. Finding: with the SRRC matched filter the T/2 regressor is band-limited, so the trace cap in the RLS acts continuously and the equaliser behaves as a constant-trace RLS (3% BER change between caps of 1e4 and 1e8); disclosed in NANF_MODEL_VALIDITY. One full-size point runs in about 14 s. Nothing was fitted, no holdout or workbook value was read, nothing frozen. Another agent's edits to `src/opticps/benchmarks` and `CHECKPOINT.md` in the shared checkout were not touched or staged.
+

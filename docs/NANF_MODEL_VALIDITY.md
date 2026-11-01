@@ -135,3 +135,19 @@ share one, and each record stays separate.
 - Pre-registered zero-chirp null check (plan A1.3, tolerance 0.3 GHz), from this propagation model with square-law
   detection of a small-signal tone: SSMF D 15.95, L 4.53 km: 29.386 GHz (29.39); L 5 km: 27.970 GHz (27.97); NANF
   D 2.04, L 4.76 km: 80.158 GHz (80.2). Agreement is within 0.05 GHz. This tests the simulator, not the paper.
+
+## 8. The simulation chain of Gate N3 part a (synthetic only)
+
+Written 2026-11-01. Scope: `measurement/nanf_chain.py`, `receiver/dfe.py`, `measurement/nanf_scoring.py`, `measurement/nanf_freeze.py`. Nothing here is a fit, a score of the paper's curves, or a validation; no workbook value was read in this gate.
+
+**What the chain models.** PAM4 symbols, SRRC shaping with roll-off 0.1, an 8-bit DAC at 70 GSa/s, ideal band-limited up-sampling to a 280 GSa/s analogue grid, a 4th-order Butterworth (zero-phase magnitude) Tx filter, the existing sine-law MZM, the existing profile propagation (all-pass dispersion, loss), square-law detection with shot and thermal noise, the Rx filter, ideal band-limited resampling to the 80 GSa/s scope, an additive white electrical SNR ceiling, exact rational resampling to 2 samples per symbol, an SRRC matched filter, and a T/2 (17, 7) RLS DFE (17 feed-forward taps, 7 feedback taps, lambda 0.998, 8192 training symbols then decision-directed). BER is bit-error counting over 647008 scored symbols (1 294 016 bits); SNR is plan B6. The sample grid needs a multiple of 140 symbols (F1) and refuses anything else.
+
+**Declared assumptions (all `user-assumed`, plan F4 and F6).** Zero chirp; no RIN; ideal AWG reconstruction and ideal scope resampling (brick wall, no aliasing, no scope quantisation or jitter); zero timing phase; zero-phase filters; extinction ratio 30 dB; matched received power; the DFE tap split, cursor, training and initialisation of F6. The SSMF SNR is biased optimistically by the missing level-dependent intensity noise and by the phase-to-intensity conversion of laser phase noise (F3); the size is unknown.
+
+**Validity and known behaviour.**
+
+- The first null reproduced through the full analogue path in tone mode agrees with the closed form to better than the 0.3 GHz of plan A1.3 (SSMF 4.53 and 5 km, NANF 4.76 km); this checks the path, not any fibre.
+- The DFE is checked on synthetic ISI channels: noise-free it removes the ISI to 143 to 175 dB output SNR (the test bound is 80 dB) with zero decision errors, and at a spectral null with 27 dB channel SNR it has no decision errors where a 17-tap linear FFE has a symbol error rate near 0.18. On AWGN the slicer and a one-tap RLS match the Gray PAM4 Q-function expressions within 2 binomial standard deviations (z from -1.5 to 1.9 at BER 1.6e-3 to 2.7e-2).
+- With a band-limited T/2 input the trace cap acts continuously (the equaliser is a constant-trace RLS, with an effectively unit forgetting factor in the excited subspace). At one point the BER changed by 3% between caps of 1e4 and 1e8.
+- Cost: one full-size point (655200 symbols) takes about 14 s on one core of the development machine, of which about 12 s is the RLS loop.
+- Not modelled: OFDM, chirp, RIN, laser phase noise, polarisation, TIA nonlinearity above -5 dBm, scope noise other than the ceiling. The propagation model refuses a wavelength outside the validity range of any profile property it needs, as before.
