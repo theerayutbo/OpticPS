@@ -720,3 +720,214 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 the 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, and the rule that no criterion is
 dropped, relaxed or added after a number is seen except by a dated amendment with a new pin. OFDM transmitters and
 the OFDM simulation chain are not implemented; only the scoring arithmetic of C6 to C8 is.
+
+## Amendment 6 (2026-11-01, Gate N3 part a fix round after the independent review of N3 part a)
+
+Previous SHA-256 of this file, pinned until now (Amendment 5, commit bd5a557):
+`c5da4067f6c58cf4d9ddc9372cad79dd0e63e4f74d70374e8a0241cd1e06dcff`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration and before any holdout scoring: no
+fit has run, no freeze record exists, no calibration artefact exists, and no Fig.4, Fig.6 or Fig.8 value and no holdout
+value was used for any change below. The synthetic evidence for each change comes from the first review of N3 part a
+(`handoff/N3a_qa.md`, findings 1 to 11, with its repro scripts on synthetic data and the mid-point B4 vector), reproduced
+in this round on the same synthetic chain; where this round added a measurement of its own it is labelled. No tolerance or
+threshold of section 4, A3 or B1 to B3 is changed, the label **`LITERATURE BENCHMARK / CALIBRATION ONLY`** stays, C6 stays
+pre-registered as an expected FAIL at 2.0 GHz, and chirp stays unfitted (A1).
+
+### G0. What had been seen (adds to A0, B0.2, D0 and F0)
+
+Nothing from the workbook beyond the disclosures already recorded. One event of the same class as D0 is disclosed in G7:
+a test that parsed the withheld series in process on every full run in a checkout holding the data. No holdout value is
+known to have been printed or recorded; G7 gives the evidence and its limits.
+
+### G1. The trace cap of the RLS is pinned at 1e10 (replaces the Stability row of F6)
+
+F6 said "a cap on trace(P); neither changes the result when P stays bounded". That is wrong for the cap that was coded
+(1e4), and the sentence is replaced. Evidence (review finding 1, reproduced here with identical error counts; synthetic,
+mid-point vector, 1 294 016 scored bits):
+
+| Point | errors, cap 1e4 | errors, cap 1e10 | errors, no cap (1e300) | largest trace(P), uncapped |
+|---|---|---|---|---|
+| 100 Gb/s B2B, -9 dBm | 4639 (BER 3.585e-3) | 5144 (3.975e-3) | 5144 | 2.77e8 |
+| 112 Gb/s NANF, -7 dBm | 141 (1.09e-4) | 173 (1.34e-4) | 173 | 3.90e8 |
+| 112 Gb/s SSMF, -5 dBm | 75 (5.8e-5) | 81 (6.3e-5) | 81 | 7.91e8 |
+| 80 Gb/s B2B, -12 dBm | 72203 (5.58e-2) | 80298 (6.21e-2) | 80298 | 1.81e8 |
+
+At cap 1e4 the cap acted on 653 447 to 653 520 of 655 200 symbols; at 1e10 and with no cap it never acted. The caps 1e10
+to 1e300 give identical decisions. The effect on the outcome is real: at 100 Gb/s B2B -9 dBm the BER is 3.585e-3 at cap
+1e4 and 3.975e-3 without a cap, on opposite sides of the threshold 3.8e-3. The rule now is:
+
+1. `p_trace_cap` is fixed at 1e10 (`PINNED_P_TRACE_CAP`), the default of the equaliser, so the equaliser that runs is the
+   plain exponentially weighted RLS with forgetting factor 0.998. At every run that held lock in the synthetic sweep of
+   G1.4 the largest trace(P) was 1.1e8 to 8.3e8 (mid-point vector; 1.2e9 at most at the corners of the B4 box).
+2. A run in which the cap acts (`n_trace_caps > 0`) is invalid. `simulate_point` raises `TraceCapActedError` for it; a
+   diagnostic run (below) is marked and can never score. A result is `scorable` only for the declared chain: default chain
+   configuration, default equaliser with the pinned cap, noise on, the cap never acted, not a diagnostic run. Scoring takes
+   points through `require_scorable`, which refuses anything else. There is no route to raise or lower the cap in a scoring
+   run: a different cap, equaliser or configuration is accepted only for a diagnostic result that cannot score.
+3. Tests: the real chain at 100 Gb/s B2B -9 dBm with cap 1e10 against no cap (same decisions, same errors, 0 caps, and
+   the first scorable, the second not); a run whose cap acts cannot score; a lowered pin makes the pinned run raise.
+4. Measured in this round (synthetic, mid-point vector, 3 rates x 3 links x ROP -16 to -5 dBm in 1 dB steps, cap 1e300):
+   86 of 108 runs held lock with 0 caps and trace(P) below 8.3e8. 22 runs did not: the decisions collapse (BER 0.23 to
+   0.48, SNR near 0 dB where measured) and trace(P) grows past 1e10, so at the pinned cap the cap acts in 12 of them
+   (32 608 to 514 537 times) and P loses positive definiteness (`RlsInstabilityError`) in the other 10; with no cap
+   (1e300) the same 22 runs also fail. All 22 lie at least 3 dB below the 3.8e-3 crossing of their own curve, at the noise-limited end where that curve is
+   above BER 0.05. The corner of the B4 box with 10 GHz bandwidths, modulation depth 0.2 and a 15 dB ceiling lost lock at 17
+   of 18 points, even at -5 dBm. At 1460, 1500, 1580 and 1620 nm, -5 dBm, all 24 runs (NANF and SSMF, 3 rates) held lock
+   with 0 caps (trace(P) at most 8.3e8). Such a run is an invalid evaluation: it is not scored, never substituted, and in a
+   calibration it is an invalid evaluation of that vector. This amendment does not decide how a criterion that needs such a
+   point is read, because it was not checked whether any published ROP axis contains one (no workbook axis was read); that
+   is reported to the owner before the freeze.
+
+### G2. No crossing in the common ROP range (resolves B1.3 against F7.2)
+
+B1.3 says a simulated curve with no crossing fails a published rate with a bracket; F7.2 says a simulated bound is read at
+its first or last scored ROP. They differ when the published crossing is a point and the simulated curve has no crossing in
+the common ROP range (a left or right bound). The rule is: **the criterion FAILs, and this resolves B1.3 against F7.2 in
+favour of B1.3.** F7.2's reading of a bound at its first or last ROP applies only where the published side is itself a
+bound or an interval. Review repro (finding 2, synthetic): published point at -12.4 dBm, simulated left bound at -13 dBm,
+code FAIL, literal F7.2 would PASS (-13 lies in the widened region [-13.4, -11.4]); the repro is now a test, with the
+end-to-end curve that produces it.
+
+### G3. Default deny for BER values (corrects F7.1)
+
+F7.1 said a BER is censored if it is "not finite or below 1e-5". That text is replaced. Only a finite BER below the
+declared floor 1e-5, zero included, can be censored (a simulated BER comes from an error count, so it is finite and in
+[0, 1]). NaN, infinity, a negative value and a BER above 1 are invalid data and the criterion FAILs, for a simulated series
+and for the B2B-copy comparator alike, and D3.1 stays honoured (only uncensored B2B points are BER nodes; an unbracketed NANF
+ROP is reported and not scored, it is never read as a censored point). One class of NaN is not invalid: the importer's
+published series carry NaN where the workbook cell was zero, below 1e-5 or "-Inf", with a flag (N2), and in a published
+series NaN is that flagged censored cell; infinity, negative values and values above 1 are invalid there too. In code an
+invalid curve gives a crossing of kind `invalid`, which fails against any published crossing; C3, C4, the B2B copy and the other
+functions refuse invalid values with an error, so that none can contribute to a pass. Review evidence (finding 3,
+synthetic): an all-NaN simulated curve gave a left bound that passed a published left bound, and [1e-1, 5e-3, NaN, NaN] gave an
+interval that passed a published point at -10.16.
+
+### G4. The freeze record binds a named calibration artefact (strengthens F8)
+
+The record of F8 gains three fields and the checks below; its seven fields are `plan_sha256`, `code_identity`,
+`parameters`, `unidentifiable`, `calibration`, `calibration_partition_sha256` and `freeze_hash`, the last being the
+SHA-256 of the canonical JSON of the other six. `calibration` is an object with `path` (a `.json` file under
+`docs/benchmarks/`, relative, without `..`), `sha256` (SHA-256 of that file) and `commit` (the 40-digit commit that holds it).
+The artefact has exactly the fields `parameters` (the six names of B4, the vector that is hashed), `unidentifiable`,
+`fit_result` (`method`, `converged`, `n_evaluations`, `n_calibration_points`, `cost`) and `calibration_partition_sha256`. A
+record is refused (`HOLDOUT_LOCKED`) if the artefact is absent, a symbolic link or too large; if its SHA-256 differs from the
+record; if it is not tracked by Git or differs from HEAD (uncommitted); if the named commit does not hold exactly those bytes
+at that path or is not an ancestor of HEAD; if it holds no fit result, or the default vector with no fit result, or a fit
+result that is not valid; if its vector, flags or partition differ from the record; if a flagged parameter is not at its prior
+of B4.4 (checked on the record and on the artefact, and when the record is built); if the partition differs from the
+importer's calibration partition now (SHA-256 of the sorted lines `key TAB role` of the 21 non-holdout series: Fig.1, Fig.5
+and the six B2B series of Fig.4); or if the record is malformed in any way. Malformed includes a 400-digit integer, deep
+nesting, wrong types, duplicate keys, extra or missing fields and a size over 65 536 bytes; every one gives
+`HOLDOUT_LOCKED`, never a raw `OverflowError` or `RecursionError`. If `git` cannot be run the record is refused.
+
+What this does not prove. The checks make an accidental or casual freeze detectable and a freeze without a calibration
+impossible to forge by editing one file. They do not prove order. Records inside the repository cannot prove that the
+calibration was complete before the holdout was first read, because commit dates and authors are typed by whoever commits
+and history can be rewritten; only an external timestamp can give a date proof. This is the promise of
+`docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md` and it is not widened here: the guard catches accidents and casual re-tuning
+by ordinary commits, and does not stop deliberate tampering by someone who controls the repository. That the record file is
+committed to Git before the holdout read remains a process requirement.
+
+### G5. The code identity is computed from imports; `simulate_point` obeys the record (amends F8)
+
+The `code_identity` of F8 listed four files. It is now the SHA-256 of the lines `path NUL sha256(file)`, in sorted path
+order, over every source file reachable by imports from the scoring entry modules (`dfe`, `nanf_chain`, `nanf_scoring`,
+`nanf_freeze`, `nanf_import`, `nanf_benchmark`, `link`, `fiber`), found by parsing the imports (function-level and
+`TYPE_CHECKING` imports included, and the `__init__.py` of every parent package), not from a hand list; with `pyproject.toml`
+and `uv.lock`. The plan file is pinned by `plan_sha256` as before. Editing any of these files after the freeze relocks the
+holdout; a test edits each file of the computed set in turn. Review evidence (finding 5, synthetic): changing the Butterworth
+order in `link.py` and editing `nanf_import.py` left the old identity unchanged. Dynamic imports (`importlib`) are not followed;
+this is a listed limit. After a freeze (any file at the committed record path) `simulate_point` loads and verifies the record
+on every call and uses its vector; a different vector, a chain configuration, an equaliser or `noise=False` is refused
+(`FrozenOverrideError`); only a diagnostic run, which cannot score, may differ.
+
+### G6. The real workbook is unlocked only by the committed record
+
+`read_nanf_workbook` checks the workbook hash before parsing; when it is the real workbook's recorded SHA-256 the proof is
+read from the committed path `docs/benchmarks/NANF_FREEZE_RECORD.json` and from no other, so a record in a temporary directory,
+as the synthetic tests use, cannot unlock the real file. The autouse fixture of `tests/test_nanf_import.py` applies to
+synthetic workbooks only (its helper refuses the real path), and the test that read the real workbook with
+`include_holdout=True` is replaced by a test that the real file refuses with `HOLDOUT_LOCKED` before it is opened, plus a
+test that a test-only record cannot unlock a file carrying the real hash. A truthy `include_holdout` that is not `True` is
+guarded like `True`. Because the default read of the real workbook parses every sheet in process and then withholds the
+holdout series, the test that did the same (G7) is removed and not replaced by a default read of the real file; the layout
+facts it checked (counts of series per sheet, flagged cells) remain covered on the synthetic workbook.
+
+### G7. Disclosed event: a test read the withheld series of the real workbook in process
+
+Found by the first review of N3 part a (finding 6) and investigated in this round by reading the code and the Git history
+only; the workbook was not opened and no test that opens it was run before the test was replaced.
+
+- Which commits. `test_the_real_workbook_matches_the_recorded_layout_schema_only` was added in `ba55025` (N2) and kept its
+  body at `7bd6ab9` (N2 fix round) and `b7f4ac0`: `read_nanf_workbook(REAL, include_holdout=True)`, with the real path
+  `data/external/nanf_hong2021/extracted/dataset_JLT_NANF_vs_SMF.xlsx`. It was skipped when that file is absent. At `b7eaab5`
+  (N3a) the same call carried `freeze_hash=` the hash of a test-only record that an autouse fixture put on the record
+  path, so under N3a it also defeated D6 and F8 for the real file. In a checkout that holds the file (the main checkout of the
+  project does; `data/external/` is ignored by Git) every run of that test, therefore every full run of the suite, parsed all
+  69 series including the 48 holdout series into process memory. The second review of N2 recorded a run with the workbook
+  linked (`handoff/N2_qa2.md`: 75 tests passed, no skip, at `7bd6ab9`); the N2 and N3a development runs in the main checkout
+  probably did the same (their handoffs do not say whether the data was linked, so this is not confirmed). This round ran
+  nothing of the kind.
+- What the test did with the values. It held them as `NanfSeries` tuples and asserted: the workbook SHA-256; 69 series;
+  for every series equal lengths of `x`, `y` and flags, a non-empty series and finite `x` (the axis column, ROP, wavelength or
+  frequency); the count of series per sheet name (Fig.1 12, Fig.4 18, Fig.5 3, Fig.6 18, Fig.7 4, Fig.8 2, Fig.9 4, Fig.10 2,
+  Fig.11 2, Fig.12 4); `n_non_finite` of the Fig.11 `240sub-SMF-DMT` series equal to 24 and the total equal to 24; `n_censored`
+  equal to 0 for every non-BER series; then the default read has 21 series and 48 withheld, none with the holdout role. So
+  counts, sheet names, lengths, finiteness of axis values and flag counts were asserted; no assertion compared a y value
+  (BER or SNR) with anything.
+- Could a value have reached output. On a passing run nothing is printed by the test. On a failing assertion, pytest prints
+  the operands it rewrites; `all(math.isfinite(v) for v in s.x)` could print an axis value of one series and the dictionary
+  comparison prints counts. No failure of this test is recorded: the cache of the last run in the main checkout lists other
+  failures and not this test (a cache that holds failures only, so it does not prove that the test ran). I cannot exclude that
+  a run in some session, not recorded, failed and printed such a line, and I cannot exclude that a reviewer or agent
+  displayed series values interactively; I found no record of either.
+- Search for values in records. `handoff/`, `docs/`, `reports/` and the logs under the project were searched for the figure
+  names of the holdout sheets, together with numeric tokens, without opening the workbook. The only hits are the counts and
+  ranges already disclosed (A0, B0.2, D0, `N0_dev.md`: counts of ROP points per figure and the 22.15 to 25.43 GHz band of the 24
+  flagged Fig.11 cells; `N0_qa.md`: one raw cell, Fig.11 C164, shown in passing during N0, disclosed there). No BER or SNR value
+  of a holdout series was found in any of them. The search can only find what looks like a figure name next to a number; it is
+  not proof of absence.
+- Standing of the record. Amendment 4 D6 said "the only real-data use is a schema test that prints nothing". That was accurate
+  about printing and silent about the test parsing the withheld series on every full run in a checkout with the data, and
+  N3a made it run under a fake proof. The plan's holdout discipline was therefore weaker in practice than stated from `ba55025`
+  on. The event is disclosed here whatever its effect; no calibration or score depends on it, none had been made.
+
+### G8. Corrections of review findings 8 to 11
+
+1. F2 report string: a simulated BER from 1e-5 up to but not including 1e-4 (13 to 129 bit errors at 1 294 016 bits) reads
+   "below 1e-4"; the number stays in the result for scoring. Zero errors still reads "below 1/N_b" and below 1e-5 stays
+   censored. BER exactly 1e-5 is not censored (A3: below 1e-5).
+2. C4: a simulated point that is censored (zero errors, or non-zero but below 1e-5, so with no usable magnitude) against an
+   uncensored published BER counts as a miss, never within (this declares the case F7.3 left open for non-zero values; it is
+   the stricter reading, default deny). A NaN ROP is refused instead of silently dropping a point. A point at exactly -5.0 dBm
+   is scored.
+3. C3(b): the simulated SSMF BER must lie in [0, 1]; a value of 2.0 is invalid data. The test stays strictly above 3.8e-3.
+4. `overall_verdict` accepts only boolean inputs; a truthy string or NaN is refused. `Crossing` is validated (kind, finite
+   point, ordered interval, no NaN except `invalid`); a published point at infinity no longer passes anything.
+5. C5: only 1630 and 1640 nm may lie outside the 17 wavelengths of B2; any other wavelength above 1620 nm (for example 1700 nm)
+   is refused instead of being filed as excluded.
+6. C7: `capacity_gbps` requires exactly 240 subcarriers (F7.4).
+7. `b2b_copy`: invalid input is refused; an unbracketed NANF ROP is dropped for the copy's C1 (`copy_crossing`), not read as
+   a censored point (D3.1).
+
+### G9. Declared items of the chain that F4 did not state
+
+1. `np.clip(., -1, 1)` is applied to the waveform after the band-limited up-sampling from 70 to 280 GSa/s and before the Tx
+   filter, because the brick-wall interpolation of the quantised waveform can overshoot full scale. `user-assumed`, not a
+   free parameter.
+2. B6: the simulator SNR has a 0 dB floor at low SNR from the MMSE bias of the equaliser output; it is not tuned away.
+3. Cost estimate for all planned figures (measured on the development machine, one core, one full-size point 14 to 16 s;
+   about 40 s per point when six run at once, so about 2.2 times faster with six processes): Fig.4, 3 rates x 3 links x 11 ROP,
+   99 points; Fig.6, 3 rates x 3 links x 17 wavelengths, 153 points; the no-fibre runs of d, 33 points for C1 and C2 and 51 for
+   C5, 84 points; total 336 points, about 90 minutes on one core and about 40 minutes with six processes. One calibration
+   evaluation is the 33 B2B points of Fig.4 (about 9 minutes on one core), and the identifiability check of B4 needs 12
+   evaluations (about 1.8 hours on one core). OFDM (C6 to C8) is not implemented and is not in these numbers.
+
+### G10. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the
+6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, C6 pre-registered as an expected FAIL at 2.0
+GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added after a number is seen except by a dated
+amendment with a new pin.

@@ -40,7 +40,12 @@ from pathlib import Path
 from types import MappingProxyType
 from xml.etree import ElementTree
 
-from opticps.measurement.nanf_freeze import HOLDOUT_LOCKED, HoldoutLockedError, require_freeze
+from opticps.measurement.nanf_freeze import (
+    COMMITTED_RECORD_PATH,
+    HOLDOUT_LOCKED,
+    HoldoutLockedError,
+    require_freeze,
+)
 from opticps.optical_channel.fiber import ProvenanceCategory
 
 NANF_WORKBOOK_SHA256 = "0753aeadd215e894e46de6cb7ac10df4c9edf32386ffdc37871381d80cc19cc0"
@@ -426,6 +431,23 @@ def series_key(sheet: str, block: str, header: str) -> str:
     return f"{sheet}/{block}/{header}"
 
 
+def calibration_partition_sha256() -> str:
+    """SHA-256 of the lines `key TAB role` for every series that is not holdout, sorted.
+
+    This is the calibration partition of plan A4 as the importer declares it (Fig. 1, Fig. 5 and the
+    six B2B series of Fig. 4). It is computed from the static layout and reads no workbook; the
+    freeze record binds it so that a record cannot silently refer to another partition.
+    """
+    lines = sorted(
+        f"{series_key(layout.name, block.label, ser.header)}\t{ser.role.value}"
+        for layout in SHEET_LAYOUTS
+        for block in layout.blocks
+        for ser in block.series
+        if ser.role is not DataRole.HOLDOUT
+    )
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
 # --- reading ------------------------------------------------------------------------------------
 
 
@@ -673,6 +695,13 @@ def read_nanf_workbook(
         raise NanfImportError(
             NOT_COMPARABLE, "the SHA-256 of the file differs from the recorded value"
         )
+    if include_holdout and digest == NANF_WORKBOOK_SHA256:
+        # the real workbook: only the record committed at the fixed path unlocks it, whatever
+        # record path the first check used (Amendment 6 G6). Nothing has been parsed yet.
+        try:
+            require_freeze(freeze_hash, record_path=COMMITTED_RECORD_PATH)
+        except HoldoutLockedError as err:
+            raise NanfImportError(HOLDOUT_LOCKED, str(err).split(": ", 1)[-1]) from None
     try:
         archive = zipfile.ZipFile(io.BytesIO(data))
     except zipfile.BadZipFile as err:

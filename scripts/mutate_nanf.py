@@ -10,11 +10,14 @@ killed.
     python scripts/mutate_nanf.py [-j JOBS] [-k LABEL_SUBSTRING]
 
 The list is a hand-written sample of the guards (the 14 gaps of the third N1 review, the N2a
-guards and the N2 fix-round guards). It proves nothing about mutants that are not in it.
+guards, the N2 fix-round guards, the N3 part a guards, the 14 survivors of the first N3 part a
+review and the guards added in the N3 part a fix round). It proves nothing about mutants that are
+not in it.
 The label says what the mutant does.
 """
 
 # SPDX-License-Identifier: MIT
+# ruff: noqa: E501  (mutant texts are source lines and may be long)
 from __future__ import annotations
 
 import argparse
@@ -36,6 +39,7 @@ CH = "src/opticps/measurement/nanf_chain.py"
 SC = "src/opticps/measurement/nanf_scoring.py"
 FZ = "src/opticps/measurement/nanf_freeze.py"
 TESTS = (
+    "tests/nanf_freeze_support.py",
     "tests/test_nanf_profiles.py",
     "tests/test_nanf_propagation.py",
     "tests/test_nanf_n2a.py",
@@ -45,6 +49,7 @@ TESTS = (
     "tests/test_nanf_n3_step1.py",
     "tests/test_nanf_n3a_dfe.py",
     "tests/test_nanf_n3a_chain.py",
+    "tests/test_nanf_n3a_fix.py",
     "tests/test_nanf_n3a_scoring.py",
     "tests/test_nanf_n3a_freeze.py",
 )
@@ -475,19 +480,17 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "if not path.is_file():",
     ),
     ("freeze: own hash not recomputed", FZ, 'if record["freeze_hash"] != recomputed:', "if False:"),
-    ("freeze: caller hash not compared", FZ, "if freeze_hash != recomputed:", "if False:"),
-    ("freeze: plan pin not compared", FZ, 'if record["plan_sha256"] != plan_now:', "if False:"),
-    (
-        "freeze: code identity not compared",
-        FZ,
-        'if record["code_identity"] != code_now:',
-        "if False:",
-    ),
     (
         "freeze: duplicate keys accepted",
         FZ,
-        "object_pairs_hook=_no_duplicates",
-        "object_pairs_hook=None",
+        '        record = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)\n    except',
+        '        record = json.loads(raw.decode("utf-8"))\n    except',
+    ),
+    (
+        "freeze: duplicate keys accepted in the artefact",
+        FZ,
+        '    artefact = json.loads(raw.decode("utf-8"), object_pairs_hook=_no_duplicates)\n    if not isinstance(artefact, dict) or set(artefact) != ARTIFACT_KEYS:',
+        '    artefact = json.loads(raw.decode("utf-8"))\n    if not isinstance(artefact, dict) or set(artefact) != ARTIFACT_KEYS:',
     ),
     (
         "freeze: extra fields accepted",
@@ -557,8 +560,8 @@ MUTANTS: list[tuple[str, str, str, str]] = [
     (
         "scoring: C4 zero errors count as within",
         SC,
-        "a miss (F7.3)\n            continue\n",
-        "a miss (F7.3)\n            within += 1\n            continue\n",
+        "G3)\n            continue\n",
+        "G3)\n            within += 1\n            continue\n",
     ),
     (
         "scoring: C5 NANF tolerance 2.1",
@@ -640,7 +643,7 @@ MUTANTS: list[tuple[str, str, str, str]] = [
     (
         "scoring: B2B copy uses censored BER nodes",
         SC,
-        "nodes = ~is_censored(ber)",
+        "nodes = ~is_censored(ber, published=True)  # inf, negative or above 1 raises",
         "nodes = np.isfinite(ber)",
     ),
     (
@@ -673,6 +676,565 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "        if scores[rate].b2b_poor\n        or not (scores[rate].c1_discriminating",
         "        if not (scores[rate].c1_discriminating",
     ),
+    # N3 part a fix round: the 14 real survivors of the first review (finding 7)
+    (
+        "chain: Tx filter dropped",
+        CH,
+        "    if tx_bandwidth_hz is not None:\n        drive = lowpass(drive, fs_hz, tx_bandwidth_hz)\n",
+        "    if False:\n        drive = lowpass(drive, fs_hz, tx_bandwidth_hz)\n",
+    ),
+    (
+        "chain: Tx bandwidth not passed to the analogue path",
+        CH,
+        "tx_bandwidth_hz=params.tx_bandwidth_ghz * 1e9,",
+        "tx_bandwidth_hz=None,",
+    ),
+    (
+        "chain: matched filter call removed from the receiver",
+        CH,
+        "matched = matched_filter_t2(ac / rms, cfg.roll_off)",
+        "matched = ac / rms",
+    ),
+    (
+        "chain: one-sample T/2 timing shift",
+        CH,
+        "matched = matched_filter_t2(ac / rms, cfg.roll_off)",
+        "matched = np.roll(matched_filter_t2(ac / rms, cfg.roll_off), 1)",
+    ),
+    (
+        "chain: noise not Rx filtered",
+        CH,
+        "        if noise is not None:\n            noise = lowpass(noise, fs_hz, bandwidth)\n",
+        "        if False:\n            noise = lowpass(noise, fs_hz, bandwidth)\n",
+    ),
+    (
+        "chain: noise draw order, thermal before shot",
+        CH,
+        "    z_shot = rng.standard_normal(n_a) if noise else None\n"
+        "    z_thermal = rng.standard_normal(n_a) if noise else None\n",
+        "    z_thermal = rng.standard_normal(n_a) if noise else None\n"
+        "    z_shot = rng.standard_normal(n_a) if noise else None\n",
+    ),
+    (
+        "chain: ceiling noise drawn before the analogue noise",
+        CH,
+        "    z_shot = rng.standard_normal(n_a) if noise else None\n"
+        "    z_thermal = rng.standard_normal(n_a) if noise else None\n"
+        '    z_ceiling = rng.standard_normal(counts["scope"]) if noise else None\n',
+        '    z_ceiling = rng.standard_normal(counts["scope"]) if noise else None\n'
+        "    z_shot = rng.standard_normal(n_a) if noise else None\n"
+        "    z_thermal = rng.standard_normal(n_a) if noise else None\n",
+    ),
+    ("chain: mean not removed", CH, "ac = two_sps - two_sps.mean()", "ac = two_sps"),
+    ("chain: DAC steps 2**bits", CH, "steps = 2**bits - 1", "steps = 2**bits"),
+    (
+        "chain: DAC resolution not passed",
+        CH,
+        "dac = dac_quantise(awg, cfg.dac_bits)",
+        "dac = dac_quantise(awg, 6)",
+    ),
+    (
+        "dfe: default cap 1e8 in the config",
+        D,
+        "    p_trace_cap: float = PINNED_P_TRACE_CAP\n",
+        "    p_trace_cap: float = 1e8\n",
+    ),
+    ("dfe: pinned cap 1e8", D, "PINNED_P_TRACE_CAP = 1e10", "PINNED_P_TRACE_CAP = 1e8"),
+    (
+        "chain: BER floor boundary, 1e-5 censored",
+        CH,
+        "        if ber < BER_CENSOR_FLOOR:\n",
+        "        if ber <= BER_CENSOR_FLOOR:\n",
+    ),
+    (
+        "scoring: C4 ROP cap strict",
+        SC,
+        "    keep = r <= ROP_CAP_DBM\n    p, s = p[keep], s[keep]",
+        "    keep = r < ROP_CAP_DBM\n    p, s = p[keep], s[keep]",
+    ),
+    (
+        "scoring: C7 ratio boundary strict",
+        SC,
+        "and er <= C7_RATIO_TOL",
+        "and er < C7_RATIO_TOL",
+    ),
+    (
+        "scoring: C7 capacity boundary strict",
+        SC,
+        "ok = en <= C7_CAPACITY_TOL_GBPS and es <= C7_CAPACITY_TOL_GBPS",
+        "ok = en < C7_CAPACITY_TOL_GBPS and es <= C7_CAPACITY_TOL_GBPS",
+    ),
+    (
+        "scoring: simulated left bound read at its lower end",
+        SC,
+        'x = simulated.hi if simulated.kind == "left" else simulated.lo',
+        "x = simulated.lo",
+    ),
+    (
+        "freeze: record size limit, at equals refused",
+        FZ,
+        "    if len(raw) > MAX_RECORD_BYTES:\n",
+        "    if len(raw) >= MAX_RECORD_BYTES:\n",
+    ),
+    (
+        "freeze: record size limit raised",
+        FZ,
+        "MAX_RECORD_BYTES = 65_536",
+        "MAX_RECORD_BYTES = 1_000_000",
+    ),
+    (
+        "freeze: artefact size limit removed",
+        FZ,
+        '    if len(raw) > MAX_ARTIFACT_BYTES:\n        raise _refuse("the calibration artefact is too large")\n    if hashlib',
+        "    if hashlib",
+    ),
+    (
+        "importer: include_holdout is True",
+        M,
+        "    if include_holdout:\n        try:\n            require_freeze(freeze_hash)",
+        "    if include_holdout is True:\n        try:\n            require_freeze(freeze_hash)",
+    ),
+    # N3 part a fix round: guards of decisions 1 to 6 and the minors
+    (
+        "chain: a cap that acts does not raise",
+        CH,
+        "        if not diagnostic:\n            raise TraceCapActedError(",
+        "        if False:\n            raise TraceCapActedError(",
+    ),
+    (
+        "chain: a cap that acts is not recorded as a reason",
+        CH,
+        "    if result.n_trace_caps > 0:\n        reasons.append(",
+        "    if False:\n        reasons.append(",
+    ),
+    (
+        "chain: an overridden equaliser is scorable",
+        CH,
+        "    if eq != declared_eq:\n        reasons.append(",
+        "    if False:\n        reasons.append(",
+    ),
+    (
+        "chain: an overridden configuration is scorable",
+        CH,
+        "    if cfg != ChainConfig():\n        reasons.append(",
+        "    if False:\n        reasons.append(",
+    ),
+    (
+        "chain: a noise-free run is scorable",
+        CH,
+        "    if not noise:\n        reasons.append(",
+        "    if False:\n        reasons.append(",
+    ),
+    (
+        "chain: a diagnostic run is scorable",
+        CH,
+        "    if diagnostic:\n        reasons.append(",
+        "    if False:\n        reasons.append(",
+    ),
+    (
+        "chain: the declared equaliser uses the config default not the pin",
+        CH,
+        "training_symbols=cfg.training_symbols, p_trace_cap=PINNED_P_TRACE_CAP",
+        "training_symbols=cfg.training_symbols, p_trace_cap=1e4",
+    ),
+    (
+        "chain: require_scorable accepts an unscorable point",
+        CH,
+        "        if not isinstance(point, PointResult) or not point.scorable:",
+        "        if not isinstance(point, PointResult):",
+    ),
+    (
+        "chain: a freeze is not looked for",
+        CH,
+        "    if nanf_freeze.freeze_record_present() and not diagnostic:",
+        "    if False and not diagnostic:",
+    ),
+    (
+        "chain: overrides allowed after a freeze",
+        CH,
+        "        if reasons:\n            raise FrozenOverrideError(",
+        "        if False:\n            raise FrozenOverrideError(",
+    ),
+    (
+        "chain: parameters other than the record allowed after a freeze",
+        CH,
+        "        if params is not None and params != record.parameters:",
+        "        if False:",
+    ),
+    (
+        "chain: the record vector is not used after a freeze",
+        CH,
+        "        params = record.parameters\n",
+        "",
+    ),
+    (
+        "chain: the record is not verified after a freeze",
+        CH,
+        "record: FreezeRecord = nanf_freeze.load_freeze_record()",
+        "record: FreezeRecord = nanf_freeze.FreezeRecord(\n"
+        '            "", "", params or TxRxParameters(), (), "", "", "", "", ""\n'
+        "        )",
+    ),
+    (
+        "chain: F2 string for BER below 1e-4 removed",
+        CH,
+        "        if ber < BER_REPORT_FLOOR:\n",
+        "        if False:\n",
+    ),
+    (
+        "freeze: second gate for the real workbook removed",
+        M,
+        "    if include_holdout and digest == NANF_WORKBOOK_SHA256:",
+        "    if False:",
+    ),
+    (
+        "freeze: the real workbook is unlocked by the patched record path",
+        M,
+        "require_freeze(freeze_hash, record_path=COMMITTED_RECORD_PATH)",
+        "require_freeze(freeze_hash)",
+    ),
+    (
+        "freeze: artefact not required to be tracked",
+        FZ,
+        "    if tracked.returncode != 0 or head_blob is None:",
+        "    if head_blob is None:",
+    ),
+    (
+        "freeze: uncommitted changes to the artefact allowed",
+        FZ,
+        '    if head_blob != ref["sha256"]:',
+        "    if False:",
+    ),
+    (
+        "freeze: the named commit need not hold the artefact",
+        FZ,
+        '    if commit_blob != ref["sha256"]:',
+        "    if False:",
+    ),
+    (
+        "freeze: the commit need not be an ancestor of HEAD",
+        FZ,
+        "    if ancestor.returncode != 0:",
+        "    if False:",
+    ),
+    (
+        "freeze: artefact SHA-256 not compared",
+        FZ,
+        '    if hashlib.sha256(raw).hexdigest() != ref["sha256"]:',
+        "    if False:",
+    ),
+    (
+        "freeze: an absent artefact is not refused",
+        FZ,
+        '    if file.is_symlink() or not file.is_file():\n        raise _refuse("the calibration artefact is absent")\n    raw = file.read_bytes()\n    if len(raw) > MAX_ARTIFACT_BYTES:',
+        "    raw = file.read_bytes()\n    if len(raw) > MAX_ARTIFACT_BYTES:",
+    ),
+    (
+        "freeze: default vector with no fit result accepted",
+        FZ,
+        "    if not isinstance(fit, dict) or not fit:",
+        "    if not isinstance(fit, dict):",
+    ),
+    (
+        "freeze: fit result contents not checked",
+        FZ,
+        "    if set(fit) != FIT_RESULT_KEYS:",
+        "    if False:",
+    ),
+    (
+        "freeze: fit cost may be negative",
+        FZ,
+        "        or cost < 0\n",
+        "",
+    ),
+    (
+        "freeze: record vector need not be the artefact vector",
+        FZ,
+        '    if TxRxParameters.from_mapping(artefact["parameters"]) != parameters:',
+        "    if False:",
+    ),
+    (
+        "freeze: record flags need not be the artefact flags",
+        FZ,
+        '    if _check_flags(artefact["unidentifiable"]) != flags:',
+        "    if False:",
+    ),
+    (
+        "freeze: artefact partition not compared",
+        FZ,
+        '    if artefact["calibration_partition_sha256"] != partition:',
+        "    if False:",
+    ),
+    (
+        "freeze: flagged parameters need not be at their priors",
+        FZ,
+        "        if values[name] != _prior_of(name):",
+        "        if False:",
+    ),
+    (
+        "freeze: flagged priors not checked when loading",
+        FZ,
+        '    flags = _check_flags(record["unidentifiable"])\n    _check_priors(parameters, flags)\n',
+        '    flags = _check_flags(record["unidentifiable"])\n',
+    ),
+    (
+        "freeze: current partition not compared",
+        FZ,
+        '    if record["calibration_partition_sha256"] != current_partition():',
+        "    if False:",
+    ),
+    (
+        "freeze: artefact path may leave docs/benchmarks",
+        FZ,
+        "        or not path.startswith(CALIBRATION_ARTIFACT_DIR)\n",
+        "",
+    ),
+    (
+        "freeze: artefact path may climb with ..",
+        FZ,
+        '        or ".." in pure.parts\n',
+        "",
+    ),
+    (
+        "freeze: huge integers raise a raw error",
+        FZ,
+        "_MALFORMED = (ValueError, TypeError, OverflowError, RecursionError, KeyError, AttributeError)",
+        "_MALFORMED = (ValueError, TypeError, KeyError, AttributeError)",
+    ),
+    (
+        "freeze: deep nesting raises a raw error",
+        FZ,
+        "_MALFORMED = (ValueError, TypeError, OverflowError, RecursionError, KeyError, AttributeError)",
+        "_MALFORMED = (ValueError, TypeError, OverflowError, KeyError, AttributeError)",
+    ),
+    (
+        "freeze: deep nesting in the JSON parse not typed",
+        FZ,
+        '    except (ValueError, UnicodeDecodeError, RecursionError):\n        raise _refuse("the freeze record is not valid JSON',
+        '    except (ValueError, UnicodeDecodeError):\n        raise _refuse("the freeze record is not valid JSON',
+    ),
+    (
+        "freeze: Git failure is not a refusal",
+        FZ,
+        '    except (OSError, subprocess.SubprocessError):\n        raise _refuse("Git could not be run',
+        '    except subprocess.SubprocessError:\n        raise _refuse("Git could not be run',
+    ),
+    (
+        "freeze: the identity ignores function-level imports",
+        FZ,
+        "    for node in ast.walk(tree):",
+        "    for node in tree.body:",
+    ),
+    (
+        "freeze: the identity ignores from-import module names",
+        FZ,
+        '                found.update(f"{module}.{alias.name}" for alias in node.names)',
+        "                pass",
+    ),
+    (
+        "freeze: the identity omits parent packages",
+        FZ,
+        '        queue.extend(".".join(parts[:i]) for i in range(1, len(parts)))',
+        "        pass",
+    ),
+    (
+        "freeze: the identity omits the lock file",
+        FZ,
+        'CONFIG_FILES = ("pyproject.toml", "uv.lock")',
+        'CONFIG_FILES = ("pyproject.toml",)',
+    ),
+    (
+        "freeze: the identity omits the project configuration",
+        FZ,
+        'CONFIG_FILES = ("pyproject.toml", "uv.lock")',
+        'CONFIG_FILES = ("uv.lock",)',
+    ),
+    (
+        "freeze: the identity omits the link model",
+        FZ,
+        '    "opticps.optical_channel.link",\n',
+        "",
+    ),
+    (
+        "freeze: the identity omits the importer",
+        FZ,
+        '    "opticps.measurement.nanf_import",\n',
+        "",
+    ),
+    (
+        "freeze: the identity omits the benchmark helpers",
+        FZ,
+        '    "opticps.measurement.nanf_benchmark",\n',
+        "",
+    ),
+    (
+        "freeze: the identity hashes paths not contents",
+        FZ,
+        'name.encode() + b"\\x00" + _sha256(base / name).encode() + b"\\n"',
+        'name.encode() + b"\\x00" + name.encode() + b"\\n"',
+    ),
+    (
+        "freeze: the record vector is not part of the hash",
+        FZ,
+        '        "parameters": dict(parameters),\n        "unidentifiable": list(unidentifiable),\n        "calibration": dict(calibration),',
+        '        "unidentifiable": list(unidentifiable),\n        "calibration": dict(calibration),',
+    ),
+    (
+        "freeze: the calibration reference is not part of the hash",
+        FZ,
+        '        "calibration": dict(calibration),\n',
+        "",
+    ),
+    (
+        "freeze: the partition is not part of the hash",
+        FZ,
+        '        "calibration_partition_sha256": partition,\n    }\n    return hashlib',
+        "    }\n    return hashlib",
+    ),
+    (
+        "freeze: the caller's hash is not compared",
+        FZ,
+        "    if freeze_hash != record.freeze_hash:",
+        "    if False:",
+    ),
+    (
+        "freeze: a record is accepted without comparing its own hash",
+        FZ,
+        '    if record["freeze_hash"] != recomputed:',
+        "    if False:",
+    ),
+    (
+        "freeze: plan pin not compared",
+        FZ,
+        '    if record["plan_sha256"] != plan_sha256(plan_path):',
+        "    if False:",
+    ),
+    (
+        "freeze: code identity not compared",
+        FZ,
+        '    if record["code_identity"] != code_identity(base):',
+        "    if False:",
+    ),
+    (
+        "scoring: invalid simulated BER (NaN, inf) read as censored",
+        SC,
+        "    if (nan.any() and not published) or np.any(np.isinf(b)):\n",
+        "    if np.any(np.isinf(b)):\n",
+    ),
+    (
+        "scoring: infinite BER read as censored",
+        SC,
+        "    if (nan.any() and not published) or np.any(np.isinf(b)):\n",
+        "    if nan.any() and not published:\n",
+    ),
+    (
+        "scoring: negative or above-one BER accepted",
+        SC,
+        "    if np.any(finite < 0) or np.any(finite > 1):\n",
+        "    if False:\n",
+    ),
+    (
+        "scoring: an invalid curve is not an invalid crossing",
+        SC,
+        '        return Crossing("invalid", math.nan, math.nan)\n    unc =',
+        '        return Crossing("left", -math.inf, float(r[0]))\n    unc =',
+    ),
+    (
+        "scoring: an invalid crossing is scored",
+        SC,
+        '    if published.kind == "invalid" or simulated.kind == "invalid":',
+        "    if False:",
+    ),
+    (
+        "scoring: Crossing kind not validated",
+        SC,
+        "        if self.kind not in _KINDS:",
+        "        if False:",
+    ),
+    (
+        "scoring: Crossing point at infinity allowed",
+        SC,
+        "            ok = math.isfinite(lo) and lo == hi",
+        "            ok = lo == hi",
+    ),
+    (
+        "scoring: Crossing NaN fields allowed",
+        SC,
+        "        elif math.isnan(lo) or math.isnan(hi):\n            ok = False\n",
+        "",
+    ),
+    (
+        "scoring: C4 simulated censored non-zero BER counted within",
+        SC,
+        "        if sim_censored[i]:",
+        "        if s[i] == 0.0:",
+    ),
+    (
+        "scoring: C4 NaN ROP not refused",
+        SC,
+        '    if not np.all(np.isfinite(r)):\n        raise ValueError("the ROP axis must be finite (a NaN',
+        '    if False:\n        raise ValueError("the ROP axis must be finite (a NaN',
+    ),
+    (
+        "scoring: C4 published BER not validated",
+        SC,
+        "    cens = is_censored(p, published=True)\n    within = 0",
+        "    cens = np.asarray(~np.isfinite(p) | (p < BER_CENSOR_FLOOR))\n    within = 0",
+    ),
+    (
+        "scoring: C3 BER range not checked",
+        SC,
+        "np.any(ber_scored < 0) or np.any(ber_scored > 1):",
+        "False:",
+    ),
+    (
+        "scoring: C3 BER at the threshold passes",
+        SC,
+        "ber_ok = bool(np.all(ber_scored > BER_THRESHOLD))",
+        "ber_ok = bool(np.all(ber_scored >= BER_THRESHOLD))",
+    ),
+    (
+        "scoring: C5 files any wavelength above 1620 apart",
+        SC,
+        "    if not np.all(np.isfinite(wl)) or any(",
+        "    if False and any(",
+    ),
+    (
+        "scoring: C7 any number of subcarriers",
+        SC,
+        "    if b.size != C7_SUBCARRIERS or np.any(b < 0):",
+        "    if b.size == 0 or np.any(b < 0):",
+    ),
+    (
+        "scoring: RateScores accepts truthy junk",
+        SC,
+        "            if not isinstance(getattr(self, name), bool | np.bool_):",
+        "            if False:",
+    ),
+    (
+        "scoring: unbracketed copy point read as a censored point",
+        SC,
+        "        ok = ~np.isnan(self.ber)\n        return q[ok], self.ber[ok]",
+        "        return q, self.ber",
+    ),
+    (
+        "scoring: an empty copy is not invalid",
+        SC,
+        '    if q.size == 0:\n        return Crossing("invalid", math.nan, math.nan)\n    return c1_crossing(q, b)',
+        "    return c1_crossing(q, b)",
+    ),
+    (
+        "scoring: B2B copy accepts an invalid BER",
+        SC,
+        "    nodes = ~is_censored(ber, published=True)  # inf, negative or above 1 raises",
+        "    nodes = ~np.isnan(ber)",
+    ),
+    (
+        "scoring: B2B copy accepts non-finite SNR",
+        SC,
+        "    if not np.all(np.isfinite(snr)) or not np.all(np.isfinite(q)):",
+        "    if False:",
+    ),
 ]
 
 
@@ -683,6 +1245,8 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
         shutil.copytree(ROOT / "src", work / "src", ignore=shutil.ignore_patterns("__pycache__"))
         for folder in ("configs", "docs", "reports"):
             shutil.copytree(ROOT / folder, work / folder, ignore=shutil.ignore_patterns("*.pyc"))
+        for name in ("pyproject.toml", "uv.lock"):
+            shutil.copy(ROOT / name, work / name)
         (work / "tests").mkdir()
         shutil.copy(ROOT / "tests/nanf_profile_helpers.py", work / "tests")
         for test in TESTS:

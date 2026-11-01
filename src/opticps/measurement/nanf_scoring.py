@@ -34,11 +34,17 @@ C3_TOL_DB = 3.0
 C4_LOG_TOL, C4_FRACTION = 0.5, 0.8
 C5_TOL_DB = {"nanf": 2.0, "ssmf": 3.0, "b2b": 2.0}
 C5_WAVELENGTHS_NM = tuple(1460.0 + 10.0 * k for k in range(17))  # 1460 to 1620 (B2)
+C5_REPORTED_ONLY_NM = (1630.0, 1640.0)  # reported apart, never scored (B2, F7.5)
+C7_SUBCARRIERS = 240
 C6_TOL_GHZ = 2.0
 C6_WINDOW_GHZ = (20.0, 32.8125)
 C7_CAPACITY_TOL_GBPS, C7_RATIO_TOL = 10.0, 0.10
 C8_TOL_DB = {"nanf": 2.0, "ssmf": 3.0}
 B2B_GATE_MEAN_DB, B2B_GATE_MAX_DB, B2B_GATE_CROSSING_DB = 1.0, 2.0, 0.5
+
+
+class InvalidDataError(ValueError):
+    """A value that cannot be data: refused, and it never contributes to a pass (Amendment 6 G3)."""
 
 
 def _arr(values: Sequence[float] | FloatArray, name: str) -> FloatArray:
@@ -61,15 +67,28 @@ def _scored(rop: FloatArray, *columns: FloatArray) -> tuple[FloatArray, ...]:
     return (rop[keep], *(c[keep] for c in columns))
 
 
-def is_censored(ber: float | FloatArray) -> NDArray[np.bool_]:
-    """A BER is censored if it is not finite or below 1e-5 (zero included), plan A3 and F7.1."""
+def is_censored(ber: float | FloatArray, *, published: bool = False) -> NDArray[np.bool_]:
+    """Which BER values are censored (plan A3, F7.1 as corrected by Amendment 6 G3).
+
+    Only a finite BER in [0, 1) below 1e-5 is censored (zero included). Infinity, a negative value
+    or a value above 1 is invalid data (`InvalidDataError`). NaN is invalid for a simulated or
+    derived BER; for a published series (`published=True`) NaN is the importer's flagged censored
+    cell (zero, below 1e-5 or "-Inf" in the workbook) and counts as censored.
+    """
     b = np.asarray(ber, dtype=float)
-    return np.asarray(~np.isfinite(b) | (b < BER_CENSOR_FLOOR))
+    nan = np.isnan(b)
+    if (nan.any() and not published) or np.any(np.isinf(b)):
+        raise InvalidDataError("a BER is not finite")
+    finite = b[~nan]
+    if np.any(finite < 0) or np.any(finite > 1):
+        raise InvalidDataError("a BER lies outside [0, 1]")
+    return np.asarray(nan | (b < BER_CENSOR_FLOOR))
 
 
 # --- C1: the crossing rule (A3, B1, C1-R) --------------------------------------------------------
 
-Kind = Literal["point", "left", "right", "interval"]
+Kind = Literal["point", "left", "right", "interval", "invalid"]
+_KINDS = ("point", "left", "right", "interval", "invalid")
 
 
 @dataclass(frozen=True)
@@ -77,12 +96,36 @@ class Crossing:
     """A crossing of BER 3.8e-3 on the ROP axis: a point, a bound, or an interval (all in dBm).
 
     point: lo == hi. left ("at or below r0"): region (-inf, r0]. right ("above r0"): [r0, inf).
-    interval: [lo, hi].
+    interval: [lo, hi]. invalid: the curve held invalid data, lo and hi are NaN and it never scores.
+    The fields are validated: an unknown kind, a non-numeric or NaN field (except invalid) or an
+    infinite point is refused.
     """
 
     kind: Kind
     lo: float
     hi: float
+
+    def __post_init__(self) -> None:
+        if self.kind not in _KINDS:
+            raise ValueError(f"unknown crossing kind {self.kind!r}")
+        for v in (self.lo, self.hi):
+            if isinstance(v, bool) or not isinstance(v, int | float):
+                raise ValueError("crossing fields must be numbers")
+        lo, hi = self.lo, self.hi
+        if self.kind == "invalid":
+            ok = math.isnan(lo) and math.isnan(hi)
+        elif math.isnan(lo) or math.isnan(hi):
+            ok = False
+        elif self.kind == "point":
+            ok = math.isfinite(lo) and lo == hi
+        elif self.kind == "left":
+            ok = lo == -math.inf and math.isfinite(hi)
+        elif self.kind == "right":
+            ok = math.isfinite(lo) and hi == math.inf
+        else:
+            ok = math.isfinite(lo) and math.isfinite(hi) and lo <= hi
+        if not ok:
+            raise ValueError(f"the fields do not describe a {self.kind} crossing: {lo}, {hi}")
 
     @property
     def x(self) -> float:
@@ -95,6 +138,8 @@ def c1_crossing(
     rop: Sequence[float] | FloatArray,
     ber: Sequence[float] | FloatArray,
     threshold: float = BER_THRESHOLD,
+    *,
+    published: bool = False,
 ) -> Crossing:
     """The ROP at which BER crosses `threshold`, by rule C1-R (Amendment 3), at most -5 dBm.
 
@@ -105,16 +150,20 @@ def c1_crossing(
     censored point after P]; otherwise the right-censored bound "above ROP of P". Adjacent means
     adjacent among the uncensored points (A3: "keep those uncensored and scored"). A value equal to
     the threshold counts as above. With no uncensored point the curve is left-censored.
+
+    Invalid data (Amendment 6 G3) gives `Crossing("invalid")`, which fails: see `is_censored`.
+    `published=True` is for a published series, where NaN is a flagged censored cell.
     """
     r, b = _scored(_arr(rop, "rop"), _arr(ber, "ber"))
     if r.size == 0:
         raise ValueError("no scored point (every ROP is above the cap)")
-    censored = is_censored(b)
+    try:
+        censored = is_censored(b, published=published)
+    except InvalidDataError:
+        return Crossing("invalid", math.nan, math.nan)
     unc = np.flatnonzero(~censored)
     if unc.size == 0:
         return Crossing("left", -math.inf, float(r[0]))
-    if np.any(b[unc] <= 0) or np.any(b[unc] > 1):
-        raise ValueError("an uncensored BER must lie in (0, 1]")
     last = int(unc[-1])
     if b[last] < threshold:
         log_t = math.log10(threshold)
@@ -145,13 +194,17 @@ class C1Score:
 
 
 def score_c1(published: Crossing, simulated: Crossing, tol: float = C1_TOL_DB) -> C1Score:
-    """Score a simulated crossing against a published one (A3, B1.3; F7.2 for the open cases).
+    """Score a simulated crossing against a published one (A3, B1.3; F7.2 and Amendment 6 G2).
 
     The published region is widened by `tol` on each finite side. A simulated point must lie in
-    it. A published point with a simulated bound ("no crossing in the scored range") fails (B1.3);
-    a simulated interval passes if any part of it lies in the widened region. A simulated bound
-    against a published bound or interval is read at its ROP.
+    it. If the published crossing is a point and the simulated curve has no crossing in the common
+    ROP range (a left or right bound), the criterion FAILs: B1.3 governs and F7.2's reading of a
+    bound at its first or last ROP does not apply to a published point. A simulated interval passes
+    if any part of it lies in the widened region. A simulated bound against a published bound or
+    interval is read at its ROP. A crossing from invalid data fails on either side.
     """
+    if published.kind == "invalid" or simulated.kind == "invalid":
+        return C1Score(False, "invalid data", False)
     lo, hi = _widened(published, tol)
     both = published.kind == "point" and simulated.kind == "point"
     if simulated.kind == "point":
@@ -241,6 +294,10 @@ def score_c5(
         raise ValueError("series must have one value per wavelength")
     keep = wl <= 1620.0 + 1e-9
     kept = wl[keep]
+    if not np.all(np.isfinite(wl)) or any(
+        not any(abs(w - ex) <= 1e-6 for ex in C5_REPORTED_ONLY_NM) for w in wl[~keep]
+    ):
+        raise ValueError("only 1630 and 1640 nm may lie outside the 17 wavelengths of plan B2")
     if kept.size != len(C5_WAVELENGTHS_NM) or not np.allclose(kept, C5_WAVELENGTHS_NM, atol=1e-6):
         raise ValueError("C5 needs exactly the 17 wavelengths 1460 to 1620 nm (plan B2)")
     if not (np.all(np.isfinite(s[keep])) and np.all(np.isfinite(p[keep]))):
@@ -310,8 +367,8 @@ def score_c3(
     _, ber_scored = _scored(s_rop, s_ber)
     if not (np.all(np.isfinite(n_snr)) and np.all(np.isfinite(s_snr))):
         raise ValueError("SNR values must be finite")
-    if np.any(~np.isfinite(ber_scored)):
-        raise ValueError("simulated BER must be finite (zero errors is 0.0, never NaN)")
+    if np.any(~np.isfinite(ber_scored)) or np.any(ber_scored < 0) or np.any(ber_scored > 1):
+        raise InvalidDataError("simulated BER must lie in [0, 1] (zero errors is 0.0, never NaN)")
     published = None
     if published_nanf_snr is not None and published_ssmf_snr is not None:
         pen, _ = _penalty(
@@ -357,23 +414,25 @@ def score_c4(
     For an uncensored published BER: |log10 simulated - log10 published| at most 0.5, counted over
     the points; at least 80% must be within. A simulated zero-error point has BER below 1/n_bits
     (7.7e-7 at the declared capture), more than a factor 10 under any published BER of at least
-    1e-5, so it is a miss (F7.3); for any n_bits it is counted as a miss, never as within (default
-    deny). A censored published point is scored only as "simulated BER below 1e-4", reported, and
-    not counted in the 80%.
+    1e-5, so it is a miss (F7.3). A simulated censored point (zero, or non-zero but below 1e-5, a
+    BER carrying no magnitude) against an uncensored published BER is also a miss, never within
+    (Amendment 6 G8: default deny). A censored published point is scored only as "simulated BER
+    below 1e-4", reported, and not counted in the 80%.
     """
     r = _arr(rop, "rop")
     p, s = _arr(published_ber, "pub"), _arr(simulated_ber, "sim")
     if not (r.size == p.size == s.size) or r.size == 0 or n_bits <= 0:
         raise ValueError("series must have equal length; n_bits must be positive")
+    if not np.all(np.isfinite(r)):
+        raise ValueError("the ROP axis must be finite (a NaN would silently drop a point)")
     keep = r <= ROP_CAP_DBM
     p, s = p[keep], s[keep]
-    if np.any(~np.isfinite(s)) or np.any(s < 0) or np.any(s > 1):
-        raise ValueError("simulated BER must lie in [0, 1]")
-    cens = is_censored(p)
+    sim_censored = is_censored(s)  # invalid simulated data raises; NaN is invalid here
+    cens = is_censored(p, published=True)
     within = 0
     unc = np.flatnonzero(~cens)
     for i in unc:
-        if s[i] == 0.0:  # below the detection floor 1/n_bits: a miss (F7.3)
+        if sim_censored[i]:  # zero errors or below 1e-5: no usable magnitude, a miss (F7.3, G3)
             continue
         within += int(abs(math.log10(s[i]) - math.log10(p[i])) <= C4_LOG_TOL)
     cp = np.flatnonzero(cens)
@@ -484,10 +543,10 @@ def bit_loading(snr_db: Sequence[float] | FloatArray) -> NDArray[np.int64]:
 def capacity_gbps(
     bits: Sequence[int] | NDArray[np.int64], sample_rate_gsa: float = 70.0, fft_size: int = 512
 ) -> float:
-    """Sum of bits loaded x 70 GSa/s / 512, in Gb/s (A3, C7)."""
+    """Sum of bits loaded x 70 GSa/s / 512, in Gb/s over exactly 240 subcarriers (A3, C7, F7.4)."""
     b = np.asarray(bits)
-    if b.size == 0 or np.any(b < 0):
-        raise ValueError("bits must be non-empty and not negative")
+    if b.size != C7_SUBCARRIERS or np.any(b < 0):
+        raise ValueError(f"bits must hold exactly {C7_SUBCARRIERS} subcarriers, none negative")
     return float(b.sum() * sample_rate_gsa / fft_size)
 
 
@@ -525,6 +584,17 @@ class B2bCopy:
     unbracketed_snr: tuple[float, ...]
     unbracketed_ber: tuple[float, ...]
 
+    def bracketed_ber(
+        self, nanf_rop: Sequence[float] | FloatArray
+    ) -> tuple[FloatArray, FloatArray]:
+        """The ROPs and copy BER where a bracket exists. An unbracketed ROP is not scored (D3.1):
+        it is dropped here, never passed on as a censored point."""
+        q = _arr(nanf_rop, "nanf rop")
+        if q.size != self.ber.size:
+            raise ValueError("the ROP axis is not the one the copy was made for")
+        ok = ~np.isnan(self.ber)
+        return q[ok], self.ber[ok]
+
 
 def b2b_copy(
     b2b_rop: Sequence[float] | FloatArray,
@@ -540,12 +610,14 @@ def b2b_copy(
         _arr(b2b_rop, "b2b rop"), _arr(b2b_snr, "b2b snr"), _arr(b2b_ber, "b2b ber")
     )
     q = _arr(nanf_rop, "nanf rop")
+    if not np.all(np.isfinite(snr)) or not np.all(np.isfinite(q)):
+        raise InvalidDataError("B2B SNR and the NANF ROP axis must be finite")
+    nodes = ~is_censored(ber, published=True)  # inf, negative or above 1 raises
     snr_out = np.full(q.size, math.nan)
     ber_out = np.full(q.size, math.nan)
     if r.size >= 2:
         ok = (q >= r[0]) & (q <= r[-1])
         snr_out[ok] = np.interp(q[ok], r, snr)
-    nodes = ~is_censored(ber)
     if nodes.sum() >= 2:
         rn, ln = r[nodes], np.log10(ber[nodes])
         ok = (q >= rn[0]) & (q <= rn[-1])
@@ -555,6 +627,18 @@ def b2b_copy(
         tuple(float(x) for x in q[np.isnan(snr_out)]),
         tuple(float(x) for x in q[np.isnan(ber_out)]),
     )  # fmt: skip
+
+
+def copy_crossing(copy: B2bCopy, nanf_rop: Sequence[float] | FloatArray) -> Crossing:
+    """C1 of the B2B copy: the crossing of the copy BER at the scored NANF ROPs with a bracket.
+
+    An unbracketed ROP is reported and not scored (D3.1); it is not read as a censored point. With
+    no bracketed ROP at all there is nothing to score and the result is invalid (fails).
+    """
+    q, b = copy.bracketed_ber(nanf_rop)
+    if q.size == 0:
+        return Crossing("invalid", math.nan, math.nan)
+    return c1_crossing(q, b)
 
 
 def d_c1(model: Crossing, no_fibre: Crossing) -> float | None:
@@ -632,6 +716,15 @@ class RateScores:
     c3_passed: bool
     c5_passed: bool  # NANF, SSMF and B2B all pass
     b2b_poor: bool = False
+
+    def __post_init__(self) -> None:
+        """Only real booleans: a truthy string or NaN must not read as a pass (Amendment 6 G8)."""
+        for name in (
+            "c1_passed", "c1_discriminating", "c2_passed", "c2_discriminating",
+            "c3_passed", "c5_passed", "b2b_poor",
+        ):  # fmt: skip
+            if not isinstance(getattr(self, name), bool | np.bool_):
+                raise ValueError(f"{name} must be a boolean, got {getattr(self, name)!r}")
 
 
 @dataclass(frozen=True)

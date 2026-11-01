@@ -25,3 +25,12 @@ Branch v1.3-mpam. Step 1 commit b7f4ac0 (plan Amendment 5). Step 2 commit: see g
 4. `NotImplementedError` mutant is equivalent (subclass of RuntimeError); code names RuntimeError only.
 5. Another agent edits `src/opticps/benchmarks`, `CHECKPOINT.md`; not touched. A repo-wide `ruff check` fails on their `teriphic.py` line length if still present.
 6. Gates: full pytest 1746 collected; 1742 passed in the full run before 4 last tests (all pass); anchor 15; ruff check, ruff format --check, mypy clean; license_audit 34 packages, 0 flagged; mutate_nanf 147 of 147 killed, unmutated copy ok.
+
+## Fix round (2026-11-01, after handoff/N3a_qa.md)
+- Plan Amendment 6 added (append-only, 0 lines removed; previous pin c5da4067...dcff, new pin in `tests/test_nanf_benchmark.py`). Made before any fit, freeze or holdout scoring; evidence is the review's synthetic repros.
+- 1 Trace cap pinned at 1e10 (`PINNED_P_TRACE_CAP`); a run where it acts raises or is unscorable (`require_scorable`); no scoring route to change it. Review points reproduced exactly (errors cap 1e4 / 1e10 / none: 4639/5144/5144, 141/173/173, 75/81/81, 72203/80298/80298). OPEN: 22 of 108 synthetic mid-vector runs (ROP -16..-5) lose lock at BER 0.23+ (cap acts or P loses positive definiteness); not checked against the real ROP axes. Owner decision needed.
+- 2 No-crossing rule is B1.3 (FAIL); 3 default deny (kind `invalid`, `InvalidDataError`); 4 freeze binds a committed artefact (path, SHA-256, commit ancestor of HEAD, vector, partition); 5 code identity from parsed imports (18 files) and `simulate_point` obeys the record; 6 real workbook unlocked only by the record at the committed path.
+- 6 Fixture event: the real-workbook test parsed all 69 series (48 holdout) in process on every run with the data present since ba55025; asserted counts, sheet names, lengths, finite x, flag counts; no y value; nothing printed on pass. Test replaced; disclosed in G7. I ran nothing that opens the workbook.
+- 7 Mutants: the 14 survivors and the guards of 1 to 6 added to `scripts/mutate_nanf.py`; behaviour tests in `tests/test_nanf_n3a_fix.py` (known-answer matched filter, timing, draw order, filters, DAC).
+- 8 Minors fixed (F2 string, C4, NaN ROP, C3(b), truthy verdicts, `Crossing`, C5 1700 nm, C7 240, `b2b_copy`); np.clip declared; sweep estimate in G9: 336 points, about 90 min one core.
+- Gate results: see the final report of the round (pytest count, mutants).

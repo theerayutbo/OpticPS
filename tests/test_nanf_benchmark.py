@@ -39,12 +39,14 @@ DATA_DIR = Path("data/external/nanf_hong2021")
 # amendment must change the current pin and add a dated section to the plan.
 PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
 # Pin after Amendment 1 (commit 843d223); replaced at Amendment 2 (Gate N1), then at Amendment 3
-# (N1 fix round), then at Amendment 4 (N2 fix round), then at Amendment 5 (Gate N3 step 1).
+# (N1 fix round), then at Amendment 4 (N2 fix round), then at Amendment 5 (Gate N3 step 1), then at
+# Amendment 6 (N3 part a fix round).
 PLAN_SHA256_AMENDMENT1 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
 PLAN_SHA256_AMENDMENT2 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
 PLAN_SHA256_AMENDMENT3 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
 PLAN_SHA256_AMENDMENT4 = "bc85d32c0fa3264034bfeb87872950ed2a8e7a4105b53b84c7b6256c10d17dbe"
-PLAN_SHA256 = "c5da4067f6c58cf4d9ddc9372cad79dd0e63e4f74d70374e8a0241cd1e06dcff"
+PLAN_SHA256_AMENDMENT5 = "c5da4067f6c58cf4d9ddc9372cad79dd0e63e4f74d70374e8a0241cd1e06dcff"
+PLAN_SHA256 = "2127d883702715a3432cb8d25ed2f5a970a8910b46368ad2ed50cb8905f60905"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -216,6 +218,44 @@ def test_plan_text_before_amendment_5_is_unchanged_and_amendment_5_records_the_p
     # nothing is relaxed
     assert "No tolerance or threshold of section 4, A3 or B1 to B3 is changed" in amendment
     assert LABEL in amendment.split("### F9")[1]
+
+
+def test_plan_text_before_amendment_6_is_unchanged_and_amendment_6_records_the_previous_pin() -> (
+    None
+):
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 6")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT5
+    text = raw.decode()
+    amendment = text.split("## Amendment 6")[1]
+    assert PLAN_SHA256_AMENDMENT5 in amendment and PLAN_SHA256 not in text
+    assert "2026-11-01" in amendment.splitlines()[0]
+    assert text.count("## Amendment 6") == 1
+    for needle in (
+        "before any calibration and before any holdout scoring",  # when it was made
+        "synthetic evidence for each change comes from the first review",
+        "`PINNED_P_TRACE_CAP`",  # G1: 1e10, the equaliser is the plain RLS
+        "`p_trace_cap` is fixed at 1e10",
+        "cannot score",
+        "favour of B1.3",  # G2: B1.3 against F7.2
+        "published point at -12.4 dBm",
+        "Only a finite BER below the\ndeclared floor 1e-5",  # G3
+        "invalid data and the criterion FAILs",
+        "`calibration_partition_sha256`",  # G4
+        "Records inside the repository cannot prove that the\ncalibration was complete before the holdout was first read",
+        "only an external timestamp can give a date proof",
+        "found by parsing the imports",  # G5
+        "`FrozenOverrideError`",
+        "committed path",  # G6
+        "Disclosed event",  # G7
+        "`ba55025`",
+        "`np.clip(., -1, 1)`",  # G9
+    ):
+        assert needle in amendment, needle
+    assert LABEL in amendment.split("### G10")[1]
+    assert "pre-registered" in amendment.split("### G10")[1] or "expected FAIL" in amendment
+    # append-only: the previous plan is a byte-for-byte prefix of this one, so no line was removed
+    assert raw.startswith(prefix) and len(raw) > len(prefix)
 
 
 def test_plan_amendment_2_records_previous_pin_and_closes_review_items() -> None:

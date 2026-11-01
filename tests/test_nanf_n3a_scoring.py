@@ -54,19 +54,26 @@ def test_c1_last_downward_bracket_is_taken_when_there_are_several():
 def test_c1_left_and_right_censoring_and_all_censored():
     c = crossing([1e-4, 1e-5, 1e-5, 1e-5])  # first scored point already below
     assert (c.kind, c.hi) == ("left", -12.0)
-    c = crossing([float("nan")] * 4)
+    c = sc.c1_crossing(R, [float("nan")] * 4, published=True)  # the importer's flagged cells
     assert (c.kind, c.hi) == ("left", -12.0)
     c = crossing([1e-1, 5e-2, 2e-2, 1e-2])  # never below
     assert (c.kind, c.lo) == ("right", -9.0)
-    c = crossing([1e-2, 1e-3, 5e-6, float("nan")])  # censored points are never nodes
+    c = sc.c1_crossing(R, [1e-2, 1e-3, 5e-6, float("nan")], published=True)  # never nodes
     assert c.kind == "point" and -12.0 < c.x < -11.0
 
 
 def test_c1_censoring_boundary_is_below_1e_minus_5():
     assert sc.is_censored(1e-5).item() is False
     assert sc.is_censored(9.99e-6).item() is True
-    assert sc.is_censored(0.0).item() is True and sc.is_censored(float("nan")).item() is True
-    assert sc.is_censored(float("inf")).item() is True
+    assert sc.is_censored(0.0).item() is True
+    # Amendment 6 G3: only a finite BER below the floor is censored; a published NaN is a flagged cell
+    assert sc.is_censored(float("nan"), published=True).item() is True
+    for bad in (float("nan"), float("inf"), -float("inf"), -1e-9, 1.0000001, 2.0):
+        with pytest.raises(sc.InvalidDataError):
+            sc.is_censored(bad)
+    for bad in (float("inf"), -1e-9, 2.0):
+        with pytest.raises(sc.InvalidDataError):
+            sc.is_censored(bad, published=True)
 
 
 def test_c1_drops_points_above_the_rop_cap_and_refuses_bad_axes():
@@ -84,8 +91,7 @@ def test_c1_drops_points_above_the_rop_cap_and_refuses_bad_axes():
         sc.c1_crossing([-9.0, float("nan")], [1e-2, 1e-3])
     with pytest.raises(ValueError):
         sc.c1_crossing([-9.0, -8.0], [1e-2])
-    with pytest.raises(ValueError, match="in \\(0, 1\\]"):
-        sc.c1_crossing([-9.0, -8.0], [2.0, 1e-3])
+    assert sc.c1_crossing([-9.0, -8.0], [2.0, 1e-3]).kind == "invalid"  # G3: BER above 1
 
 
 def P(x):
@@ -406,8 +412,7 @@ def test_bit_loading_thresholds_follow_the_gray_qam_approximation():
 def test_capacity_is_bits_times_70_gsa_over_512():
     assert sc.capacity_gbps([4] * 240) == pytest.approx(240 * 4 * 70.0 / 512)
     assert sc.capacity_gbps([0] * 240) == 0.0
-    assert sc.capacity_gbps([2, 6]) == pytest.approx(8 * 70 / 512)
-    for bad in ([], [-1, 2]):
+    for bad in ([], [-1, 2], [2, 6], [4] * 239, [4] * 241, [-1] + [4] * 239):  # exactly 240 (F7.4)
         with pytest.raises(ValueError):
             sc.capacity_gbps(bad)
 

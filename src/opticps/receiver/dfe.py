@@ -29,12 +29,20 @@ point (a product of two numbers is commutative) and P stays exactly symmetric; t
 k u^T P loses symmetry by rounding. P is also symmetrised explicitly every `symmetrize_every`
 symbols (a no-op while the update keeps it exact, a guard if the form is ever changed). With
 lambda < 1 and no excitation P grows like lambda^-n and overflows, so trace(P) is capped
-(`p_trace_cap`; a scaled P stays symmetric and positive definite). The cap does not act while every
-direction of the regressor carries some energy. It does act when part of the regressor space is
-empty, which is the case for a band-limited T/2 input (nothing between 0.55 and 1 cycle per symbol
-after an SRRC matched filter): trace(P) is then held at the cap by the empty directions and the
-equaliser behaves as a constant-trace RLS, with an effectively unit forgetting factor in the
-excited subspace. `DfeResult.n_trace_caps` reports how often it acted. A Cholesky factorisation
+(`p_trace_cap`; a scaled P stays symmetric and positive definite). The cap is a safety net, not
+part of the algorithm. Plan Amendment 6 pins it at `PINNED_P_TRACE_CAP` = 1e10. On the real chain
+(synthetic data, N3 part a fix round) the largest trace(P) is 1e8 to 1e9 at every point where the
+equaliser holds lock, so at 1e10 the cap never acts there and the equaliser is the plain
+lambda = 0.998 RLS of the paper. Where the equaliser loses lock (noise-limited points, BER above
+about 0.2, the decisions collapse) P grows past 1e10: the cap acts or P loses positive
+definiteness, and the run is invalid and not scored. A smaller cap (1e4, the earlier default) acts
+on most symbols, because the part of the regressor space with almost no energy (a band-limited T/2
+input has nothing between 0.55 and 1 cycle per symbol after an SRRC matched filter) keeps trace(P)
+large; trace(P) is then held at the cap and the equaliser is a constant-trace RLS, a different
+equaliser, which moved the BER by 8 to 23 percent. `DfeResult.n_trace_caps` reports how often the
+cap acted; a run in which it acted is not a run of the declared equaliser and cannot be scored
+(`nanf_chain`). Overflow is not the reason for a cap on this chain: while the equaliser holds lock,
+P stays bounded without one. A Cholesky factorisation
 of P every `health_check_every` symbols raises `RlsInstabilityError` if P is no longer positive
 definite or any value is not finite: the run fails closed instead of returning a wrong BER.
 
@@ -56,6 +64,10 @@ FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
 
+# Plan Amendment 6: the cap is pinned. A caller may not pick another value in a scoring run.
+PINNED_P_TRACE_CAP = 1e10
+
+
 class RlsInstabilityError(ArithmeticError):
     """The inverse correlation matrix lost positive definiteness or a value is not finite."""
 
@@ -73,7 +85,7 @@ class RlsDfeConfig:
     training_symbols: int = 8192
     levels: tuple[float, ...] = (-3.0, -1.0, 1.0, 3.0)
     decision_directed: bool = True  # False: adaptation stops after training
-    p_trace_cap: float = 1e4
+    p_trace_cap: float = PINNED_P_TRACE_CAP
     symmetrize_every: int = 64
     health_check_every: int = 4096
 

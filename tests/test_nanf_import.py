@@ -1,13 +1,12 @@
 """Gate N2: the NANF workbook importer. Synthetic fixture only; passes with data/external absent.
 
 Holdout discipline: these tests assert schema (counts, types, flags, roles, error codes) and never a
-published value. The one test that opens the real workbook, when it is present, checks counts and
-flags of the typed series and prints nothing.
+published value. No test here opens the real workbook for a holdout read (Amendment 6): the one that
+names it asserts only that the guard refuses before the file is opened.
 """
 
 import hashlib
 import io
-import json
 import math
 import re
 import traceback
@@ -16,10 +15,10 @@ from pathlib import Path
 
 import pytest
 
+from nanf_freeze_support import patch_module_paths, session_repo
 from nanf_workbook_fixture import SENTINEL, build_cells, make_workbook, serialise, write_xlsx
 from opticps.benchmarks.provenance import ErrorCode
 from opticps.measurement import nanf_freeze, nanf_import
-from opticps.measurement.nanf_chain import TxRxParameters
 from opticps.measurement.nanf_import import (
     EXPECTED_SHEETS,
     NANF_WORKBOOK_SHA256,
@@ -48,19 +47,20 @@ _FREEZE: dict[str, str] = {}
 
 @pytest.fixture(autouse=True)
 def _holdout_unlocked_for_synthetic_fixtures(tmp_path_factory, monkeypatch):
-    """A test-only freeze record in a temporary directory, so the schema tests can read the holdout.
+    """A test-only freeze record over a throw-away Git repository, for SYNTHETIC workbooks only.
 
-    The committed record path is patched for the duration of one test; nothing is frozen and no
-    record is written to the repository (plan F8, D6).
+    The record, plan and code paths are patched for one test; nothing is frozen and no record is
+    written to the repository (plan F8, D6). `read` below refuses the real workbook's path, and the
+    importer itself refuses a test record for any file whose hash is the real workbook's
+    (Amendment 6 G6).
     """
-    record = nanf_freeze.build_freeze_record(TxRxParameters())
-    path = tmp_path_factory.mktemp("freeze") / "record.json"
-    path.write_text(json.dumps(record))
-    monkeypatch.setattr(nanf_freeze, "FREEZE_RECORD_PATH", path)
-    _FREEZE["hash"] = record["freeze_hash"]
+    repo = session_repo(tmp_path_factory)
+    patch_module_paths(monkeypatch, repo)
+    _FREEZE["hash"] = repo.hash
 
 
 def read(path, digest, **kw):
+    assert Path(path).resolve() != REAL.resolve(), "the helper unlocks synthetic workbooks only"
     if kw.get("include_holdout"):
         kw.setdefault("freeze_hash", _FREEZE["hash"])
     return read_nanf_workbook(path, expected_sha256=digest, **kw)
@@ -781,28 +781,22 @@ def test_fig4_points_above_the_minus_five_dbm_cap_are_flagged_on_return(tmp_path
 # --- the real workbook, if present: schema only, nothing printed ----------------------------------
 
 
-@pytest.mark.skipif(not REAL.is_file(), reason="data/external/nanf_hong2021 is absent")
-def test_the_real_workbook_matches_the_recorded_layout_schema_only():
-    wb = read_nanf_workbook(REAL, include_holdout=True, freeze_hash=_FREEZE["hash"])
-    assert wb.sha256 == NANF_WORKBOOK_SHA256 and len(wb.series) == 69
-    counts = {}
-    for s in wb.series.values():
-        counts[s.sheet] = counts.get(s.sheet, 0) + 1
-        assert len(s.x) == len(s.y) == len(s.flags) and len(s) > 0
-        assert all(math.isfinite(v) for v in s.x)
-    assert counts == {
-        "Fig.1": 12, "Fig.4": 18, "Fig.5": 3, "Fig.6": 18, "Fig.7": 4, "Fig.8": 2, "Fig.9": 4,
-        "Fig.10": 2, "Fig.11": 2, "Fig.12": 4,
-    }  # fmt: skip
-    # the structure facts of the Sources document, as counts of flagged points
-    assert wb[series_key("Fig.11", "table", "240sub-SMF-DMT")].n_non_finite == 24
-    assert sum(s.n_non_finite for s in wb.series.values()) == 24
-    for s in wb.series.values():
-        if s.quantity != "BER":
-            assert s.n_censored == 0
-    default = read_nanf_workbook(REAL)
-    assert len(default.series) == 21 and len(default.withheld_holdout) == 48
-    assert not any(s.role is DataRole.HOLDOUT for s in default.series.values())
+def test_the_real_workbook_refuses_a_holdout_read_with_no_proof_and_is_never_parsed(
+    monkeypatch, tmp_path
+):
+    """N3a fix round, decision 6. The real file is never read here: the guard comes first.
+
+    This test used to call `read_nanf_workbook(REAL, include_holdout=True, ...)` under a test-only
+    record, which parsed all 48 withheld series in any checkout holding the data (plan Amendment
+    6). It now asserts only the refusal, and the refusal happens before the file is opened.
+    """
+    # no record at all on the record path: every call is refused before the file is opened
+    monkeypatch.setattr(nanf_freeze, "FREEZE_RECORD_PATH", tmp_path / "absent.json")
+    for bare in ({}, {"freeze_hash": "0" * 64}, {"freeze_hash": _FREEZE["hash"]}):
+        with pytest.raises(NanfImportError) as err:
+            read_nanf_workbook(REAL, include_holdout=True, **bare)
+        assert err.value.code == "HOLDOUT_LOCKED"
+        assert err.value.__cause__ is None
 
 
 @pytest.mark.skipif(not REAL.is_file(), reason="data/external/nanf_hong2021 is absent")

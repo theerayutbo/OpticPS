@@ -24,9 +24,10 @@ from __future__ import annotations
 
 import math
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from fractions import Fraction
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -46,8 +47,11 @@ from opticps.optical_channel.link import (
     span_loss_db,
     watt_to_dbm,
 )
-from opticps.receiver.dfe import DfeResult, RlsDfeConfig, rls_equalize
+from opticps.receiver.dfe import PINNED_P_TRACE_CAP, DfeResult, RlsDfeConfig, rls_equalize
 from opticps.transmitter.pulse import rrc_frequency_response
+
+if TYPE_CHECKING:  # nanf_freeze imports this module, so it is imported lazily at run time
+    from opticps.measurement.nanf_freeze import FreezeRecord
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -64,6 +68,7 @@ TRAINING_SYMBOLS = 8192
 GRID_MULTIPLE = 140  # lcm(4, 5, 7), plan F1
 CAPTURE_SYMBOLS = 655_200  # 140 x 4680, plan F1
 BER_CENSOR_FLOOR = 1e-5  # plan A3
+BER_REPORT_FLOOR = 1e-4  # plan F2: a simulated BER below this is reported as "below 1e-4"
 RESPONSIVITY_A_PER_W = 0.8  # plan D2, passed explicitly
 EXTINCTION_DB = 30.0  # plan F4.5 (repository default)
 V_PI = 4.0  # volts; modulation depth and bias are relative to it
@@ -450,12 +455,36 @@ class BerReading:
             return cls(errors, n_bits, 0.0, True, f"below 1/N_b (N_b = {n_bits}, {1 / n_bits:.2g})")
         if ber < BER_CENSOR_FLOOR:
             return cls(errors, n_bits, ber, True, f"{ber:.3g} (censored: below 1e-5)")
+        if ber < BER_REPORT_FLOOR:
+            return cls(errors, n_bits, ber, False, "below 1e-4")  # plan F2: no count is quoted
         return cls(errors, n_bits, ber, False, f"{ber:.3g}")
+
+
+class TraceCapActedError(ArithmeticError):
+    """The trace cap of the RLS equaliser acted, so the run is not the declared lambda 0.998 RLS.
+
+    Plan Amendment 6: the cap is pinned at 1e10 where it never acts on this chain. A run in which it
+    acted is invalid and can never be scored; it is not repaired by changing the cap.
+    """
+
+
+class NotScorableError(ValueError):
+    """A point that is not a run of the declared chain was offered for scoring."""
+
+
+class FrozenOverrideError(ValueError):
+    """After a freeze, parameters, chain configuration or equaliser may not be overridden."""
 
 
 @dataclass(frozen=True)
 class PointResult:
-    """One operating point: error counts, SNR, and what ran."""
+    """One operating point: error counts, SNR, and what ran.
+
+    `scorable` is True only for a run of the declared chain: the default chain configuration, the
+    default equaliser with the pinned trace cap, noise on, the trace cap never acted, and not a
+    diagnostic run. Anything else carries the reasons in `unscorable_reasons` and must not enter a
+    score (`require_scorable`).
+    """
 
     reading: BerReading
     snr_db: float
@@ -465,10 +494,23 @@ class PointResult:
     mean_received_dbm: float
     seconds: dict[str, float]
     dfe: DfeResult = field(repr=False)
+    unscorable_reasons: tuple[str, ...] = ()
 
     @property
     def ber(self) -> float:
         return self.reading.ber
+
+    @property
+    def scorable(self) -> bool:
+        return not self.unscorable_reasons
+
+
+def require_scorable(points: Iterable[PointResult]) -> None:
+    """Raise `NotScorableError` unless every point is a scorable run of the declared chain."""
+    for k, point in enumerate(points):
+        if not isinstance(point, PointResult) or not point.scorable:
+            why = ", ".join(point.unscorable_reasons) if isinstance(point, PointResult) else "type"
+            raise NotScorableError(f"point {k} cannot be scored: {why}")
 
 
 def ceiling_noise_std(scope_signal: FloatArray, ceiling_db: float) -> float:
@@ -489,7 +531,7 @@ def noise_generator(baud_gbd: int, point_index: int) -> np.random.Generator:
 
 
 def simulate_point(
-    params: TxRxParameters,
+    params: TxRxParameters | None,
     rate_gbps: int,
     rop_dbm: float,
     *,
@@ -498,21 +540,55 @@ def simulate_point(
     config: ChainConfig | None = None,
     equalizer: RlsDfeConfig | None = None,
     noise: bool = True,
+    diagnostic: bool = False,
 ) -> PointResult:
     """Simulate one operating point of one rate and link; see the module docstring for the chain.
 
     `link=None` is back-to-back (also the "no-fibre output" of plan B3.1). With `noise=False` no
     noise is added anywhere (analogue noise and the ceiling), for noise-free checks.
+
+    Scoring runs (plan Amendment 6). Before a freeze the vector, configuration and equaliser may
+    be given freely (calibration), but a result is `scorable` only for the declared chain. After a
+    freeze (a record exists at the committed path) the verified record is loaded and used: `params`
+    must be None or equal to the record's vector, and `config`, `equalizer` and `noise=False` are
+    refused (`FrozenOverrideError`), unless `diagnostic=True`, whose results are never scorable. If
+    the trace cap acts the run raises `TraceCapActedError` (diagnostic runs excepted).
     """
+    from opticps.measurement import nanf_freeze  # lazy: nanf_freeze imports this module
+
     cfg = ChainConfig() if config is None else config
     if rate_gbps not in BAUD_GBD:
         raise ValueError(f"rate_gbps must be one of {sorted(BAUD_GBD)}")
     baud = BAUD_GBD[rate_gbps]
     counts = sample_counts(cfg.n_symbols, baud)  # refuses a grid that is not exact
     spec = LinkSpec() if link is None else link
-    eq = RlsDfeConfig(training_symbols=cfg.training_symbols) if equalizer is None else equalizer
+    declared_eq = RlsDfeConfig(
+        training_symbols=cfg.training_symbols, p_trace_cap=PINNED_P_TRACE_CAP
+    )
+    eq = declared_eq if equalizer is None else equalizer
     if eq.samples_per_symbol != 2 or eq.training_symbols != cfg.training_symbols:
         raise ValueError("the chain feeds a T/2 equaliser with the declared training length")
+    reasons: list[str] = []
+    if diagnostic:
+        reasons.append("diagnostic run")
+    if cfg != ChainConfig():
+        reasons.append("chain configuration overridden")
+    if eq != declared_eq:
+        reasons.append("equaliser overridden")
+    if not noise:
+        reasons.append("noise off")
+    if nanf_freeze.freeze_record_present() and not diagnostic:
+        if reasons:
+            raise FrozenOverrideError(
+                "after a freeze the configuration, equaliser and noise cannot be overridden: "
+                + ", ".join(reasons)
+            )
+        record: FreezeRecord = nanf_freeze.load_freeze_record()
+        if params is not None and params != record.parameters:
+            raise FrozenOverrideError("after a freeze the parameters are those of the record")
+        params = record.parameters
+    if params is None:
+        raise ValueError("params is required until a freeze record exists")
     seconds: dict[str, float] = {}
     tick = time.perf_counter()
 
@@ -570,6 +646,13 @@ def simulate_point(
 
     result = rls_equalize(matched, levels, eq)
     lap("equaliser")
+    if result.n_trace_caps > 0:
+        reasons.append(f"trace cap acted {result.n_trace_caps} times")
+        if not diagnostic:
+            raise TraceCapActedError(
+                f"the trace cap ({eq.p_trace_cap:g}) acted {result.n_trace_caps} times: the run is "
+                "not the declared RLS and cannot be scored (plan Amendment 6)"
+            )
 
     scored = slice(cfg.training_symbols, None)
     errors = count_bit_errors(idx[scored], result.decision_indices[scored])
@@ -587,4 +670,5 @@ def simulate_point(
         mean_received_dbm=watt_to_dbm(out.mean_received_w),
         seconds=seconds,
         dfe=result,
+        unscorable_reasons=tuple(reasons),
     )
