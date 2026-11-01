@@ -53,6 +53,20 @@ TESTS = (
     "tests/test_nanf_n3a_scoring.py",
     "tests/test_nanf_n3a_freeze.py",
 )
+# Fast files first, so that most mutants are killed early; the slow chain tests run last.
+RUN_ORDER = (
+    "tests/test_nanf_n3a_scoring.py",
+    "tests/test_nanf_n3a_freeze.py",
+    "tests/test_nanf_n3_step1.py",
+    "tests/test_nanf_n3a_dfe.py",
+    "tests/test_nanf_import.py",
+    "tests/test_nanf_n2a.py",
+    "tests/test_nanf_profiles.py",
+    "tests/test_nanf_propagation.py",
+    "tests/test_nanf_benchmark.py",
+    "tests/test_nanf_n3a_chain.py",
+    "tests/test_nanf_n3a_fix.py",
+)
 # (label, file, old text, new text); `old` must occur exactly once.
 MUTANTS: list[tuple[str, str, str, str]] = [
     # the 14 gaps of the third N1 review (finding 6)
@@ -1273,7 +1287,7 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
                 "-x",
                 "-p",
                 "no:cacheprovider",
-                "tests",
+                *RUN_ORDER,
             ],
             cwd=work,
             env=env,
