@@ -68,7 +68,7 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535"
+PLAN_SHA256 = "b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce"
 PREVIOUS_PLAN_SHA256 = "45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11"
 REVISION_1_PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
 ORIGINAL_PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
@@ -1513,6 +1513,39 @@ def test_a_file_renamed_into_the_fixed_path_is_refused(repo, old):
     refuse(repo, "renamed in")
 
 
+@pytest.mark.parametrize("kept", [10, 20])
+def test_a_rename_in_below_the_default_similarity_is_still_refused(repo, kept):
+    # The threshold is 20 %: a draft rewritten far beyond git's default 50 % is still a rename.
+    filler = lambda tag, n: "".join(f"# {tag} filler line number {i}\n" for i in range(n))  # noqa: E731
+    document = yaml.safe_dump(criterion_document(repo / "plan.md"))
+    other_criterion(repo, "draft.yaml", None, document + filler("old", 40 - kept))
+    (repo / CRITERION).parent.mkdir(parents=True, exist_ok=True)
+    git(repo, "mv", "draft.yaml", CRITERION)
+    retuned = yaml.safe_dump(criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    (repo / CRITERION).write_text(retuned + filler("new", 40 - kept))
+    commit_all(repo, "move the rewritten draft")
+    shown = git(repo, "log", "-1", "--find-renames=60%", "--name-status", "--format=")
+    assert not shown.startswith("R")  # below 60 %: only the 20 % threshold sees the rename
+    assert git(repo, "log", "-1", "--find-renames=20%", "--name-status", "--format=").startswith(
+        "R"
+    )
+    refuse(repo, "renamed in")
+
+
+def test_the_git_wrapper_lists_a_root_commit_even_with_log_showroot_false(repo):
+    git(repo, "config", "log.showRoot", "false")
+    assert git(repo, "log", "-1", "--name-status", "--format=").strip() == ""  # config is live
+    shown = holdout._git_ok(repo, "log", "-1", "--name-status", "--format=", head(repo))
+    assert shown.startswith(b"A\t")
+
+
+def test_a_signature_tells_the_string_one_from_the_number_one(repo):
+    document = criterion_document(repo / "plan.md")
+    freeze(repo, dict(document, limits=dict(document["limits"], M1_level_spacing="0.1")))
+    freeze(repo, document)  # the same text of the number, another type
+    refuse(repo, "changed after the first commit")
+
+
 def test_a_criterion_first_written_at_the_fixed_path_is_the_freeze_whatever_a_draft_said(repo):
     # Named under the promise: a draft elsewhere is not a criterion, the freeze is this commit.
     other_criterion(repo, "draft.yaml", criterion_document(repo / "plan.md"))
@@ -1771,7 +1804,101 @@ def test_a_criterion_symlinked_to_a_file_outside_the_repository_is_refused(repo,
     outside.write_text(yaml.safe_dump(criterion_document(repo / "plan.md")))
     (repo / CRITERION).parent.mkdir(parents=True, exist_ok=True)
     (repo / CRITERION).symlink_to(outside)
-    refuse(repo, "outside the repository")
+    refuse(repo, "symbolic link")
+
+
+def commit_all(repo, message):
+    git(repo, "add", "-A")
+    git(repo, "commit", "-q", "-m", message)
+
+
+def merge_setup(repo):
+    """Branch `side` forked before the freeze; main freezes 1.0; side commits 2.0 (qa4, 1)."""
+    main = git(repo, "rev-parse", "--abbrev-ref", "HEAD")
+    git(repo, "checkout", "-q", "-b", "side")
+    freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    git(repo, "checkout", "-q", main)
+    freeze(repo, criterion_document(repo / "plan.md"))
+    return main
+
+
+def test_a_merge_cannot_launder_a_second_signature_by_add_add_and_theirs(repo):
+    merge_setup(repo)
+    done = subprocess.run(
+        ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t.invalid",
+         "merge", "-q", "side"], capture_output=True, text=True,
+    )  # fmt: skip
+    assert done.returncode != 0  # add/add conflict
+    git(repo, "checkout", "--theirs", CRITERION)
+    commit_all(repo, "merge side")
+    refuse(repo, "changed after the first commit")
+
+
+def test_a_merge_cannot_launder_a_second_signature_by_x_ours_and_fast_forward(repo):
+    main = merge_setup(repo)
+    git(repo, "checkout", "-q", "side")
+    git(repo, "merge", "-q", "-X", "ours", main, "-m", "merge main", "--no-edit")
+    git(repo, "checkout", "-q", main)
+    git(repo, "merge", "-q", "--ff-only", "side")
+    refuse(repo, "changed after the first commit")
+
+
+def test_a_merge_cannot_launder_a_second_signature_by_s_ours_and_re_adding(repo):
+    main = merge_setup(repo)
+    git(repo, "checkout", "-q", "side")
+    git(repo, "merge", "-q", "-s", "ours", main, "-m", "merge main", "--no-edit")
+    git(repo, "rm", "-q", CRITERION)
+    git(repo, "commit", "-q", "-m", "drop")
+    freeze(repo, criterion_document(repo / "plan.md", M1_level_spacing=2.0))
+    refuse(repo, "changed after the first commit")
+
+
+def test_history_lists_both_sides_of_a_merge(repo):
+    merge_setup(repo)
+    subprocess.run(["git", "-C", str(repo), "merge", "-q", "side"], capture_output=True)
+    git(repo, "checkout", "--theirs", CRITERION)
+    commit_all(repo, "merge side")
+    assert len(holdout._history(repo, CRITERION)) == 3  # side, freeze and the merge
+
+
+def symlink_in_git(repo, name):
+    """Replace `name` by a link to a copy of itself, committed (git mode 120000)."""
+    target = repo / (name + ".real")
+    (repo / name).rename(target)
+    (repo / name).symlink_to(target.name)
+    commit_all(repo, f"link {name}")
+    assert git(repo, "ls-tree", "HEAD", "--", name).startswith("120000")
+
+
+def test_a_symlink_at_the_criterion_path_is_refused_in_worktree_and_in_git(repo):
+    # qa4, 2: a link at the fixed path moves the history read to another path.
+    freeze(repo, criterion_document(repo / "plan.md"))
+    assert call(repo) is not None
+    git(repo, "mv", CRITERION, CRITERION + ".moved")
+    (repo / CRITERION).symlink_to(Path(CRITERION).name + ".moved")
+    refuse(repo, "symbolic link")  # worktree link, not yet committed
+    commit_all(repo, "link")
+    refuse(repo, "symbolic link")  # committed, mode 120000
+    assert git(repo, "ls-tree", "HEAD", "--", CRITERION).startswith("120000")
+
+
+def test_a_symlink_at_the_plan_or_a_named_input_is_refused(repo):
+    freeze(repo, criterion_document(repo / "plan.md"))
+    assert call(repo) is not None
+    for name in ("plan.md", "b2b_model.txt"):
+        git(repo, "reset", "-q", "--hard")
+        symlink_in_git(repo, name)
+        refuse(repo, "symbolic link")
+        git(repo, "reset", "-q", "--hard", "HEAD~1")
+        assert call(repo) is not None
+
+
+def test_a_symlink_in_git_is_refused_even_when_the_worktree_holds_a_regular_file(repo):
+    freeze(repo, criterion_document(repo / "plan.md"))
+    symlink_in_git(repo, "b2b_model.txt")
+    (repo / "b2b_model.txt").unlink()
+    (repo / "b2b_model.txt").write_text("b2b_model.txt.real")  # the link text as a regular file
+    refuse(repo, "symbolic link in Git")
 
 
 def test_git_problems_are_typed_errors(repo, tmp_path, monkeypatch):

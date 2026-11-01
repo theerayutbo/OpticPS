@@ -70,3 +70,12 @@ The guard now promises less and is smaller. Promise (identical in the holdout.py
 7. Finding 7: mutation script rewritten (baseline run, exit code 1 only counts as killed, exit 0 only when all killed, equivalent mutants listed in the script). Tests for the survivors: 1 vs 1.0, rel_tol, deleted-commit signature, git returncode, non-mapping limits, still_current size and time; the quotepath code is removed with `--follow`. The `None` guard of `still_current` is equivalent (comparing a size with None is False), left out and listed.
 8. Finding 8: dispersion range enforced (-1e4, 1e4); `equalizer: "none"` accepted, "none" stays a placeholder elsewhere; nil, pending, tbc, "tbd." added; ROADMAP_STATUS record updated, marked pending review.
 
+
+## Fix round 4 (2026-10-31, owner decision after the fourth FAIL; findings in handoff/E0_qa4.md)
+Owner decision: fix the two routes and the minors, then close; later guard routes go on a known-limits list, not another round. Plan Revision 4, previous pin dd2f8000, new pin b638aa1a (full value in the test and config). Not pushed.
+1. Finding 1: `_history` uses `--full-history`; a second distinct signature anywhere in the reachable history is refused. Tests: add/add with `--theirs`, `-X ours` plus fast-forward, `-s ours` plus re-add, history lists both merge sides.
+2. Finding 2: a symlink at the criterion, plan or any named input is refused, worktree and Git mode 120000 (tests for each, and a regular file over a committed link).
+3. Finding 3: the never-merged pre-freeze branch is named in R3.4, the docstring and the known-limits list. Finding 4: the false "prefix in the commit message" sentence is struck in R.1, Revision 2 and Revision 3 and stated false in Revision 4. Finding 5: ALGORITHM_PROVENANCE states the promise.
+4. Finding 6: tests for `--find-renames` 20 vs 60 (similarity 20 to 60 %), the git wrapper under `log.showRoot=false`, string "0.1" vs 0.1 in `_typed`. `log.showRoot` is behaviourally equivalent for the commands used; the test pins the wrapper, not the outcome.
+5. New `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`. Mutation script: 66 applied, 66 killed (6 added: 60 percent rename, showRoot, repr to str, full-history, two symlink checks).
+6. Gate: pytest 1524 passed (shared checkout, includes N2 tests; test_benchmark_provenance.py 366), anchor 15, ruff check, ruff format --check, mypy, license_audit 34 / 0 flagged.

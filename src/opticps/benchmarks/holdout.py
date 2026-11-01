@@ -24,8 +24,10 @@ at any other path is ignored. Any later commit that changes the criterion (limit
 was renamed in. Routes that remain, all under the promise: rewriting history (amend, rebase,
 filter, a new clone), grafts or replace objects the checks below do not see, a hostile
 `.git/config` or hook that makes `git` run another program, commit dates and authors typed by
-whoever commits, and statistics computed outside the tool. A draft kept under another name is not
-a criterion; the freeze is the commit that put the criterion at the fixed path.
+whoever commits, a criterion committed on a branch forked before the freeze and never merged
+(evaluated on that branch the freeze is not in the history), and statistics computed outside the
+tool. A draft kept under another name is not a criterion; the freeze is the commit that put the
+criterion at the fixed path.
 
 Stage gating is declared, not established. `validation_stage`, `sequence_check`, `state` and the
 existence of the input files are what the caller says: the tool checks that the input files are
@@ -291,13 +293,21 @@ def _relative(root: Path, path: Path, what: str) -> str:
 def _committed_bytes(root: Path, path: Path, what: str) -> tuple[bytes, str]:
     """The bytes of `path` at HEAD, after checking that the working file has the same bytes.
 
+    A symbolic link is refused, in the working tree and in Git (mode 120000): a link moves the
+    history that is read to another path.
+
     The comparison is on bytes, never on `git status`, so `--assume-unchanged`,
     `--skip-worktree` and a stale index cannot hide a change.
     """
+    if path.is_symlink():
+        raise BenchmarkError(f"{path.name}: is a symbolic link, refused ({what})")
     relative = _relative(root, path, what)
     committed = _blob(root, "HEAD", relative)
     if committed is None:
         raise BenchmarkError(f"{path.name}: not committed, no commit contains this file ({what})")
+    entry = _git_ok(root, "ls-tree", "HEAD", "--", relative).split(b" ", 1)[0]
+    if entry == b"120000":
+        raise BenchmarkError(f"{path.name}: is a symbolic link in Git (mode 120000) ({what})")
     try:
         working = path.read_bytes()
     except OSError as error:
@@ -373,10 +383,14 @@ def _check_repository(root: Path) -> None:
 def _history(root: Path, relative: str) -> list[tuple[str, str, str]]:
     """Commits that touched the path, oldest first: (commit, committer date, author date).
 
-    No rename is followed. The order is the parent-before-child order of the commit graph, not
-    date order, because a date can be forged.
+    No rename is followed. `--full-history` keeps every parent of a merge in view, so a commit on
+    a side branch is listed even where the merge is identical to the other parent. The order is
+    the parent-before-child order of the commit graph, not date order, because a date can be
+    forged.
     """
-    text = _git_ok(root, "log", "--topo-order", "--format=%H %cI %aI", "--", relative)
+    text = _git_ok(
+        root, "log", "--full-history", "--topo-order", "--format=%H %cI %aI", "--", relative
+    )
     entries = [tuple(line.split(" ")) for line in text.decode("utf-8", "replace").splitlines()]
     if any(len(entry) != 3 for entry in entries):
         raise BenchmarkError("unreadable git log output")

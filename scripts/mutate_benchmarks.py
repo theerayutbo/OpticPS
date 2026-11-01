@@ -32,8 +32,8 @@ H, P, C = "holdout.py", "provenance.py", "catalog.py"
 # baseline` re-check (the history loop has compared the HEAD blob already), the `None` guard of
 # `Checksum.still_current` (comparing a size with None is False anyway), `--topo-order` (the order
 # of the commits that touch one path is the same), a smaller `timeout`, `fstat` for `stat`,
-# `log.showRoot=true` (since no `--name-only` is used it changes no output we read) and the type
-# name in `_typed` (the repr already differs for 1, 1.0, True and "1").
+# the type name in `_typed` (the repr already differs for 1, 1.0, True and "1"). Fix round 4:
+# `log.showRoot=true`, `--find-renames=20%` vs 60% and `repr` vs `str` now have tests.
 MUTANTS: list[tuple[str, str, str]] = [
     (H, "if working != committed:", "if False:"),
     (H, "elif signature != baseline:", "elif False:"),
@@ -55,6 +55,12 @@ MUTANTS: list[tuple[str, str, str]] = [
     (H, "        _refuse_rename_in(repo_root, commit, relative)\n", ""),
     (H, 'if line.startswith("R") and line.split("\\t")[-1] == relative:', "if False:"),
     (H, '"--find-renames=20%"', '"--find-renames=100%"'),
+    (H, '"--find-renames=20%"', '"--find-renames=60%"'),
+    (H, '"-c", "log.showRoot=true", *args]', "*args]"),
+    (H, "    return repr(value)  # the repr", "    return str(value)  # the repr"),
+    (H, '"log", "--full-history", "--topo-order"', '"log", "--topo-order"'),
+    (H, "    if path.is_symlink():\n        raise", "    if False:\n        raise"),
+    (H, '    if entry == b"120000":', "    if False:"),
     (H, "        if not input_bytes:", "        if False:"),
     (H, "    if asset.split not in HOLDOUT_SPLITS:", "    if False:"),
     (H, "    if set(supplied) != set(required):", "    if False:"),

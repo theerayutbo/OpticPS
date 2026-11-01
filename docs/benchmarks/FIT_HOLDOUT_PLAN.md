@@ -139,7 +139,7 @@ Southampton hardware.
 Previous version: SHA-256 `6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a`
 (the text at commit 8900748 as pinned in E0). New version: the pin in
 `tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`
-(a file cannot contain its own hash; the same value is in the commit message).
+(a file cannot contain its own hash; ~~the same value is in the commit message~~ [Revision 4: false, no commit message holds it]).
 
 Reason: the E0 review (`docs/orchestration/opticps-v2/handoff/E0_qa.md`, findings 5 and 6, on
 commit 94a3ec9) showed that the plan did not cover one transmitted sequence shared across
@@ -247,7 +247,7 @@ them in two roles, or under two groups, is `LEAKAGE_DETECTED`.
 Previous version: SHA-256 `42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a`
 (Revision 1, commit 8f57af9; the first version, `6bf4238a...`, is commit 8900748). New version: the
 pin in `tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`
-(a file cannot contain its own hash; the same value is in the commit message).
+(a file cannot contain its own hash; ~~the same value is in the commit message~~ [Revision 4: false, no commit message holds it]).
 
 Reason: the second E0 review (`docs/orchestration/opticps-v2/handoff/E0_qa2.md`, findings 1 to 3)
 showed that the freeze check of Revision 1 passed a re-committed or amended criterion and a
@@ -377,8 +377,9 @@ end `FAILED`, and the shared-sequence check found `NOT_SHARED`; a missing state 
 Previous version: SHA-256 `45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11`
 (Revision 2, commit 0424e9c; Revision 1 is `42a578f5...` at 8f57af9, the first version `6bf4238a...`
 at 8900748). New version: the pin in `tests/test_benchmark_provenance.py` and in
-`configs/benchmarks/teriphic_pd1_pam4.yaml` (a file cannot contain its own hash; the 8-digit
-prefix is in the commit message, and the full value is in the test file).
+`configs/benchmarks/teriphic_pd1_pam4.yaml` (a file cannot contain its own hash; ~~the 8-digit
+prefix is in the commit message, and~~ [Revision 4: false, no commit message holds the prefix; the
+same claim in R.1 and Revision 2 is also struck] the full value is in the test file).
 
 Reason, truthfully. The freeze guard was reopened by three independent reviews in a row
 (`handoff/E0_qa.md`, `E0_qa2.md`, `E0_qa3.md`). Each fix round closed the routes the review had
@@ -432,7 +433,9 @@ sequence marks "the affected holdout" `EXPLORATORY`; `allowed_verdicts` now offe
 
 Rewriting history (amend, rebase, filter, a new clone), a commit date or author typed by whoever
 commits, a hostile `.git/config` or hook that makes `git` start another program, a criterion first
-written at the fixed path after a draft elsewhere, and statistics computed outside the tool. None
+written at the fixed path after a draft elsewhere, a criterion committed on a branch forked before
+the freeze and never merged (evaluated on that branch the freeze is not in its history; Revision 4),
+and statistics computed outside the tool. None
 of these is chased further. The only date proof is an external timestamp of the freeze commit, which
 is an owner action this revision did not take.
 
@@ -441,3 +444,31 @@ is an owner action this revision did not take.
 Struck through and marked above: the `criterion_path` parameter in R.4, the "committed before the
 criterion" sentence of R2.2, the schema sentence, item 3 and the "wrong first commit" bullet of
 R2.3. `git diff 0424e9c -- docs/benchmarks/FIT_HOLDOUT_PLAN.md` shows the whole change.
+
+## Revision 4 (2026-10-31): merge routes and symbolic links closed, later routes listed not chased
+
+Previous version: SHA-256 `dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535`
+(Revision 3, commit 8b84914; earlier: `45d9088c...` at 0424e9c, `42a578f5...` at 8f57af9,
+`6bf4238a...` at 8900748). New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`.
+
+Reason, truthfully. The fourth review (`handoff/E0_qa4.md`) found two routes the guard did not
+refuse, and Revision 3 contained a false statement.
+
+- Finding 1: `git log -- path` simplified history, so a merge identical to one parent hid the other
+  parent's commits. A side branch forked before the freeze, with another limit, could be merged
+  (add/add with `checkout --theirs`; `-X ours` with a fast-forward; `-s ours` with a re-add) and the
+  guard passed the side limit. Fixed: the history is read with `--full-history`, so a second
+  distinct criterion signature anywhere in the reachable history of the path is refused.
+- Finding 2: a symbolic link at the fixed path moved the history read to another path. Fixed: a
+  symbolic link at the criterion path, the plan path or any named input is refused, in the working
+  tree and in Git (mode 120000).
+- Finding 4: Revision 3 said the 8-digit prefix of the plan hash is in the commit message. That was
+  false (Revision 2 and R.1 said the same). The sentence is struck above; the full value is in the
+  test and the config only.
+- Finding 3 (a branch forked before the freeze and never merged) is named in R3.4 above.
+- `docs/ALGORITHM_PROVENANCE.md` now states the promise (it was stale at Revision 2).
+
+Decision of the owner: further routes round the guard are not chased in another fix round. They
+go on a list of known limits, `docs/benchmarks/FIT_HOLDOUT_PLAN.md` R3.4 and
+`docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`. The promise (R3.1) is unchanged.
