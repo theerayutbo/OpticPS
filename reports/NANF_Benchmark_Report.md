@@ -1,6 +1,8 @@
 # LITERATURE BENCHMARK / CALIBRATION ONLY: NANF versus SSMF, Gate N2 (first part)
 
-Written 2026-10-31. Plan: `docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md` (unchanged in this gate; pin in
+Written 2026-10-31; corrected 2026-11-01 (N2 fix round, then Gate N3 step 1). Plan:
+`docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md` (the original text and Amendments 1 to 3 are unchanged; this gate's fix
+round added Amendment 4 and Gate N3 step 1 added Amendment 5, each with a new pin in
 `tests/test_nanf_benchmark.py`). This report makes no claim of experimental validation of any fibre,
 of the propagation model, or of the receiver. Nothing was fitted. Nothing in the holdout set was
 compared with a model. Two blocks were run: Benchmark A recomputes the paper's own numerical model (Fig. 1),
@@ -10,8 +12,10 @@ and Benchmark C reads the Fig. 5 link-loss and ROP columns.
 
 The data come from a local copy of the dataset workbook below, read at an explicit path with the
 SHA-256 checked first (`0753aead...19cc0`, the value recorded in `docs/NANF_SOURCES_AND_PROVENANCE.md`).
-No value, figure or table of the workbook or of the paper is stored in Git; this report holds numbers
-computed here and a few small facts, each with its source.
+No series of the workbook and no figure or table of the paper is stored in Git. This report holds numbers
+computed here and a few small facts, each with its source. Some of them are summary statistics of workbook cells
+(ranges, minima and maxima, and the workbook values printed beside our recomputation in section 3); no cell
+series, plot or table of a holdout series is reproduced.
 
 > Hong, Y., Bradley, T. D., Taengnoi, N., Bottrill, K. R. H., Hayes, J. R., Jasion, G. T., Poletti,
 > F., Petropoulos, P., and Richardson, D. J. (2021). Hollow-core NANF for High-speed Short-reach
@@ -54,7 +58,7 @@ Model: the chirp-free intensity-modulated field sqrt(1 + m cos(2 pi f t)) is sen
 `propagate_profile_field` (all-pass dispersion from D at 1550 nm, 5 km, loss excluded as the paper does) and
 square-law detected; the response is the output tone amplitude over the input one, `20 log10 |H|`.
 The paper's numerical assumptions are `published-numerical-assumption`: D of 15.95, 4.50, 2.04 ps/(nm km) for
-SSMF, NZ-DSF and NANF at 1550 nm; group indices 1.4682, 1.4693, 1.003; length 5 km. The wavelength sweep
+SSMF, NZ-DSF and NANF at 1550 nm; (effective) refractive indices 1.4682, 1.4693, 1.003, used here as group indices; length 5 km. The wavelength sweep
 uses the paper's own D(lambda) curves of Fig. 1(a) as a runtime table (never committed). This is the paper's own
 model recomputed, not a validation of any fibre.
 
@@ -104,7 +108,7 @@ them is allowed. No holdout is needed for this block.
 
 | Item | Value (`derived` from the 19 points) | Paper statement |
 |---|---|---|
-| Points, span | 19, 1460 to 1640 nm | 19 wavelengths, laser 1460 to 1640 nm |
+| Points, span | 19, 1460 to 1640 nm (the workbook grid) | laser tunable 1460 to 1640 nm; the prose gives no point count |
 | NANF link loss, minimum | 6.45 dB at 1610 nm | 6.45 dB at 1610 nm |
 | NANF link loss, maximum | 8.33 dB at 1460 nm | 6.45 to 8.33 dB |
 | ROP at the NANF link (and B2B) | -12.96 to -6.24 dBm | maximum available ROP |
@@ -134,7 +138,7 @@ the fixed-launch and matched-received-power protocols (`optical_channel/link.py`
    decision-directed switch are `unknown` in the paper and must be declared before the freeze hash.
 2. Tx signal chain at the stated rates. PAM4 mapping; SRRC with roll-off 0.1 at 70 samples per symbol,
    then decimation by 40, 50 or 56 (what the paper describes), giving 1.75, 1.40 and 1.25 samples per symbol at the
-   70 GSa/s AWG. `shape` does this on a periodic grid: the symbol count must be a multiple of 4 for 1.75 and 1.25 samples per symbol and of 5 for 1.40 (a multiple of 8 is wrong for 1.40: 8 x 1.4 = 11.2); a multiple of 20 serves all three rates, and `resample_periodic` rounds silently, so N3 must assert an integer sample count.
+   70 GSa/s AWG. `shape` does this on a periodic grid: the symbol count must be a multiple of 4 for 1.75 and 1.25 samples per symbol and of 5 for 1.40 (a multiple of 8 is wrong for 1.40: 8 x 1.4 = 11.2); a multiple of 20 serves all three rates at 70 GSa/s, and `resample_periodic` rounds silently, so N3 must assert an integer sample count. (Correction, Amendment 5 D4: the scope at 80 GSa/s adds a factor 7 at 56 GBd (10/7 samples per symbol), so the grid needs a multiple of 140, not 20.)
 3. Analogue chain on a finer grid. The 70 GSa/s waveform cannot carry the square-law product, so the link must run
    at an oversampled rate (for example 280 GSa/s through `resample_periodic`), with the Tx bandwidth, the
    MZM and the Rx bandwidth as parameters (4th-order Butterworth per plan B4).
@@ -142,7 +146,7 @@ the fixed-launch and matched-received-power protocols (`optical_channel/link.py`
 5. Receiver noise. Thermal and shot noise exist; the additive white "electrical SNR ceiling" ahead of the equaliser (plan B4) does not.
 6. Metrics. SNR per plan B6 (after the equaliser, before the decision, over all scored symbols), BER by error counting
    with censoring below 1e-5, and the C1 crossing rule of A3, B1 and C1-R. A BER floor of 1e-5 needs about 1e7
-   symbols for 100 errors; the RLS loop is per-sample, so cost and seed policy must be set first.
+   bits, which is 5e6 PAM4 symbols (2 bits per Gray symbol), for 100 bit errors (an earlier version said 1e7 symbols); the RLS loop is per-sample, so cost and seed policy must be set first.
 7. Fit machinery. At most 6 parameters (B4 table) by least squares on the B2B calibration points of A4, the Gauss-Newton
    information matrix and the flag rule of B4, the B2B fit-quality gate of B3.2, the parameter freeze and its hash. None exists.
 8. D(lambda) for the sweep. NANF and SSMF at the 17 wavelengths 1460 to 1620 nm: `d_table_from_workbook` gives the
@@ -161,7 +165,8 @@ the fixed-launch and matched-received-power protocols (`optical_channel/link.py`
 13. Fig. 4 points above -5 dBm: the importer now returns them with `NanfSeries.above_rop_cap`; N3 must drop those points
     from the fit and from scoring (A4). The three B2B points per curve above the cap are excluded.
 14. `read_nanf_workbook(include_holdout=True)` is an honour-system flag and `expected_sha256` is caller-set. At N3 the
-    holdout read must be tied to proof of the freeze hash (Amendment 4); not implemented in this gate.
+    holdout read must be tied to proof of the freeze hash (Amendment 4). (Implemented in Gate N3 part a: a bare flag is
+    now an error; see `nanf_freeze.py`.)
 15. OFDM (C6 to C8, Figs. 7 to 12) lies outside the scope of this N3 list: no DMT or OFDM transmitter, loading algorithm
     or per-subcarrier SNR path is described here.
 

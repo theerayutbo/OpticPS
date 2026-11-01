@@ -502,7 +502,9 @@ def _read_cells(
         elif t in (None, "n"):
             cells[pos] = _Cell("n", text, formula)
         elif t == "s":
-            index = int(text) if text is not None and text.isascii() and text.isdigit() else -1
+            # bound the length first: `int` refuses very long digit strings with a raw ValueError
+            digits = text is not None and text.isascii() and text.isdigit() and len(text) <= 9
+            index = int(text) if digits and text is not None else -1
             if not 0 <= index < len(shared):
                 raise _fail(f"{sheet}: cell {ref} has a bad shared-string index")
             cells[pos] = _Cell("s", shared[index], formula)
@@ -681,8 +683,7 @@ def read_nanf_workbook(
                 zipfile.BadZipFile,
                 EOFError,
                 OSError,
-                NotImplementedError,
-                RuntimeError,
+                RuntimeError,  # and its subclass NotImplementedError (unknown method)
             ):
                 # corrupt deflate stream, bad CRC, lying size, unsupported or encrypted member
                 raise _fail(f"the archive member {name} cannot be read") from None

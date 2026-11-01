@@ -38,6 +38,7 @@ TESTS = (
     "tests/test_nanf_import.py",
     "tests/nanf_workbook_fixture.py",
     "tests/test_nanf_benchmark.py",
+    "tests/test_nanf_n3_step1.py",
 )
 # (label, file, old text, new text); `old` must occur exactly once.
 MUTANTS: list[tuple[str, str, str, str]] = [
@@ -303,6 +304,40 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         M,
         "if quantity in _MEASURED_QUANTITIES:",
         "if False:",
+    ),
+    # Gate N3 step 1: the 7 survivors of the second N2 review and the new length and index guards
+    (
+        "importer: negative shared-string index accepted",
+        M,
+        "if not 0 <= index < len(shared):",
+        "if not index < len(shared):",
+    ),
+    (
+        "importer: non-ASCII digit index accepted",
+        M,
+        "text.isascii() and text.isdigit()",
+        "text.isdigit()",
+    ),
+    ("importer: shared index length unbounded", M, " and len(text) <= 9", ""),
+    (
+        "benchmark: loss bound ignores the length argument",
+        B,
+        "    return link_loss_at(wb, wavelength_nm) / length_km",
+        "    return link_loss_at(wb, wavelength_nm) / 4.76",
+    ),
+    (
+        "benchmark: length not validated",
+        B,
+        "    if not valid:",
+        "    if False:",
+    ),
+    ("importer: EOFError not typed", M, "                EOFError,\n", ""),
+    ("importer: OSError not typed", M, "                OSError,\n", ""),
+    (
+        "importer: RuntimeError (and NotImplementedError) not typed",
+        M,
+        "                RuntimeError,  # and its subclass NotImplementedError (unknown method)\n",
+        "",
     ),
 ]
 

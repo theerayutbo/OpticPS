@@ -422,8 +422,15 @@ DISTRIBUTED_LOSS_NOT_SEPARABLE = (
 )
 
 
+def _check_length_km(length_km: float) -> None:
+    valid = isinstance(length_km, int | float) and math.isfinite(length_km) and length_km > 0
+    if not valid:
+        raise ValueError(f"length_km must be a finite positive number, got {length_km!r}")
+
+
 def link_loss_summary(wb: NanfWorkbook, length_km: float = 4.76) -> LinkLossSummary:
     """Summarise Fig. 5 (calibration input). The distributed loss is left unknown."""
+    _check_length_km(length_km)
     loss = wb[series_key("Fig.5", "link", "NANF loss")]
     rop_nanf = wb[series_key("Fig.5", "link", "ROP@NANF")]
     rop_ssmf = wb[series_key("Fig.5", "link", "ROP@SSMF")]
@@ -452,8 +459,10 @@ def distributed_loss_bound_db_per_km(
 ) -> float:
     """Upper bound of the distributed loss at one wavelength: total(lambda) / L (lumped >= 0).
 
-    Valid at that wavelength only. L is the stated length (about 4.76 km), itself approximate.
+    Valid at that wavelength only. L is the stated length (about 4.76 km), itself approximate. The
+    length must be finite and positive: zero, negative, NaN and infinite lengths are refused.
     """
+    _check_length_km(length_km)
     return link_loss_at(wb, wavelength_nm) / length_km
 
 

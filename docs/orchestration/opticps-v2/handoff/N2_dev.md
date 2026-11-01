@@ -38,4 +38,4 @@ Items per the orchestrator's decisions; no fit, no holdout value printed or comp
 - 7: 9 survivors killed by new tests and added to `scripts/mutate_nanf.py`; null tolerance test runs on the synthetic route.
 - 8: `inlineStr` outside the layout refused; the "not a number" error is raised outside the handler, so no cause or context holds the cell text.
 - 10: report states the SSMF 28 GHz exclusion (0.40 dB).
-- Not touched: ROADMAP_STATUS.md (carries uncommitted foreign edits; its 1513 is superseded by the full run below).
+- Not touched: ROADMAP_STATUS.md (carries uncommitted foreign edits; its 1513 is superseded by the full run below). [Annotation 2026-11-01, Gate N3 step 1: no full run follows in this file; the clean-pin count is 1535 passed, 6 skipped (N2_qa2.md), now recorded in ROADMAP_STATUS.]

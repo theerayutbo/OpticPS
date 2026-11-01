@@ -579,3 +579,144 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 the 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, and the rule that no criterion is
 dropped, relaxed or added after a number is seen except by a dated amendment with a new pin. OFDM (C6 to C8) is outside
 the scope of this amendment.
+
+## Amendment 5 (2026-11-01, Gate N3 part a, step 1: grid, counts, declared simulation assumptions)
+
+Previous SHA-256 of this file, pinned until now (Amendment 4, commit 7bd6ab9):
+`bc85d32c0fa3264034bfeb87872950ed2a8e7a4105b53b84c7b6256c10d17dbe`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; the text before the
+Amendment 4 heading still hashes to the Amendment 3 pin `0a3897ad...f2c4`, and a test checks that, and now also that
+the text before this heading hashes to the previous pin). Where this amendment and anything above differ, this
+amendment governs. It is written before any scoring run and before any fit: no fit, no simulation of the paper's
+curves and no model comparison has run, and no Fig.4, Fig.6 or Fig.8 value and no holdout value has been printed or
+compared with a model. No tolerance or threshold of section 4, A3 or B1 to B3 is changed.
+
+### F0. What had been seen (adds to A0, B0.2 and D0)
+
+In this gate the paper PDF (prose, not the workbook) was reread for the DSP chain of Sec. III-B: the SRRC roll-off is
+0.1; the PAM4 signal is 70 times up-sampled, filtered, then 40, 50 or 56 times down-sampled for the 70 GSa/s AWG; the
+receiver re-samples, match-filters and uses a T/2-spaced (17,7)-tap DFE with RLS and forgetting factor 0.998, then
+counts errors. The prose gives no tap split, no training length, no initialisation, no symbol pattern, no capture
+length, no DAC resolution and no scope timing phase. No workbook cell was read in this step.
+
+### F1. The sample grid (corrects D4 and the capture length of D2)
+
+D4 says a multiple of 20 serves all three rates. That holds at 70 GSa/s only. The simulated chain also runs on a
+280 GSa/s analogue grid and samples at 80 GSa/s (F4), and the symbol count N must make every sample count an integer
+(no rounding). Samples per symbol are fs / Rs, so N x fs / Rs must be an integer:
+
+| Rate | Rs (GBd) | 70 GSa/s (AWG) | 280 GSa/s (analogue) | 80 GSa/s (scope) | 2 sps after resampling |
+|---|---|---|---|---|---|
+| 80 Gb/s | 40 | 7N/4 | 7N | 2N | 2N (ratio 1) |
+| 100 Gb/s | 50 | 7N/5 | 28N/5 | 8N/5 | 2N (ratio 5/4) |
+| 112 Gb/s | 56 | 5N/4 | 5N | 10N/7 | 2N (ratio 7/5) |
+
+The denominators are 4 and 5 (at 70 GSa/s), 5 (at 280), and 5 and 7 (at 80); the 280-to-80 ratio 2/7 gives
+(28N/5) x 2/7 = 8N/5 and 5N x 2/7 = 10N/7 (needs 7 divides N at 56 GBd). So N must be a multiple of
+lcm(4, 5, 7) = 140. The earlier length 655360 = 20 x 32768 is not (655360 x 10/7 = 936228.57). The capture length of D2
+is replaced by 655200 symbols = 140 x 4680 per point; the first 8192 are equaliser training and are not scored, so
+647008 symbols and N_b = 2 x 647008 = 1 294 016 bits are scored. The chain refuses (raises) any N that is not a
+multiple of 140, and any resampling whose output length is not an exact integer.
+
+### F2. Error counts, and the unit of N (corrects D2 and D3.3)
+
+N is a number of PAM4 symbols; N_b = 2 x (N - 8192) is the number of scored bits (Gray mapping, 2 bits per symbol).
+BER = bit errors / N_b. The D2 sentence "655360 gives about 65 errors at BER 1e-4" was wrong. At BER 1e-4 the scored
+bits give 1 294 016 x 1e-4 = 129.4 bit errors; with Gray mapping nearly every symbol error is a single bit error, so
+that is also about 129 symbol errors (SER about 2e-4). 65 would be the number at BER 5e-5. The report string
+"below 1e-4 (at most 65 errors)" is replaced by "below 1e-4"; a simulated point with zero bit errors reads
+"below 1/N_b" (N_b = 1 294 016, that is below 7.7e-7); for the simulated BER a point below 1e-5 is censored by the
+same rule as a published one (A3). "Below 1/N" of D3.3 means below 1/N_b. About 1e7 bits (5e6 symbols) are needed
+for 100 bit errors at BER 1e-5; the N2 report's "1e7 symbols" is corrected.
+
+### F3. RIN (corrects the note of D2)
+
+D2 says any intensity noise is absorbed by `electrical_snr_ceiling_db`. That overstates. A ROP-independent additive
+white ceiling has the shape of a RIN-limited SNR (which is also independent of received power), but it does not absorb
+noise that scales with the signal or with the dispersion: level-dependent intensity noise at the modulator, and the
+phase-to-intensity conversion of laser phase noise by chromatic dispersion in the SSMF. Neither is modelled, so the
+simulated SSMF SNR is biased optimistically (direction known, size unknown); RIN stays zero, `user-assumed`.
+
+### F4. Declared items of the simulation (adds to D2; each `user-assumed`, none is a free parameter of B4)
+
+1. Symbol generator: `numpy.random.default_rng(20261101).integers(0, 4, size=N)` (PCG64), the index of the PAM4
+   level (-3, -1, 1, 3), the same sequence at every rate, link and point.
+2. Noise seed policy: at every point a separate PCG64 generator, `numpy.random.default_rng(numpy.random.SeedSequence(
+   [20261101, 7919, Rs_in_GBd, point_index]))`, where `point_index` is the integer index of the point on the published
+   axis. Standard-normal arrays are drawn in this order: shot noise, thermal noise (both on the 280 GSa/s grid), then
+   the ceiling noise (on the 80 GSa/s grid). The stream does not depend on the link, so B2B, NANF, SSMF and the
+   no-fibre run of d share the same standard-normal draws at one point (common random numbers).
+3. Analogue oversampled grid: 280 GSa/s (4 x 70, 3.5 x 80); Tx and Rx filters are the 4th-order Butterworth magnitude
+   response of the existing `lowpass` (zero phase, no group-delay distortion), at the bandwidth parameters of B4.
+4. AWG: ideal band-limited reconstruction of the 8-bit quantised 70 GSa/s waveform (zero spectral padding to 280 GSa/s,
+   no sinc roll-off, no clock leakage); the analogue bandwidth of AWG, driver and modulator is `tx_bandwidth_ghz`.
+5. Modulator: the existing sine-law MZM; peak-to-peak drive = `modulation_depth` x V_pi; bias = `bias_fraction` x V_pi;
+   extinction 30 dB (repository default). Not predistorted. Zero chirp (A1).
+6. Power protocol: matched received power (the mean received power equals the ROP of the point); responsivity 0.8 A/W
+   (D2); shot noise on; thermal noise white with `thermal_noise_pa_per_rthz`, added before the Rx filter.
+7. Scope: ideal band-limited resampling 280 to 80 GSa/s (brick-wall at 40 GHz, no aliasing); no scope quantisation
+   or jitter; the scope clock phase is zero (timing phase below). `electrical_snr_ceiling_db`: white Gaussian noise at
+   the 80 GSa/s scope output of variance P_ac / 10^(ceiling/10), P_ac the variance of the noise-free scope waveform.
+8. Receiver front end: resample (exact rational) to 2 samples per symbol, remove the mean, scale to unit mean square
+   (the equaliser learns the gain), zero-phase SRRC matched filter (roll-off 0.1) at 2 samples per symbol.
+9. Timing phase: zero. Symbol k is centred at sample 2k of the 2-sps grid; there is no clock recovery and no offset.
+   Fractional-symbol timing is left to the T/2 feed-forward taps.
+
+### F5. D1 wording (replaces one phrase; the rule is unchanged)
+
+D1 says the six SSMF points above -5 dBm are "at the rounding of the published column". The column has 0.01 dB
+resolution and the points are 0.01 to 0.02 dB above -5 dBm, so this is scatter of the published operating point about
+the stated cap, not rounding. The phrase is withdrawn; C5 still scores all 17 wavelengths and reports the six apart.
+
+### F6. DFE unknowns, declared (the (17,7) taps, RLS and 0.998 are the paper's; everything below is `user-assumed`)
+
+| Item | Declared value |
+|---|---|
+| Tap split of (17,7) | 17 feed-forward taps at T/2 spacing and 7 feedback taps at symbol spacing |
+| Feed-forward cursor | 8 taps before and 8 after the symbol instant (cursor index 8 of 0 to 16) |
+| Algorithm | exponentially weighted RLS, forgetting factor 0.998, decisions fed back |
+| Training | the first 8192 symbols, known data in the desired signal and in the feedback taps |
+| Switch | after 8192 symbols the desired signal and the feedback are the slicer decisions (levels -3, -1, 1, 3; thresholds -2, 0, 2); adaptation continues to the end of the capture; no freeze |
+| Initialisation | all taps zero; inverse correlation matrix P(0) = I / delta |
+| delta | 1e-2 (input scaled to unit mean square, F4.8) |
+| Stability | rank-one update in a form that keeps P exactly symmetric, an explicit symmetrisation, and a cap on trace(P); neither changes the result when P stays bounded |
+
+### F7. Scoring definitions completed (adds to D3; none changes a tolerance)
+
+1. A published or simulated BER is censored if it is not finite or below 1e-5 (A3); a simulated zero-error count is
+   censored.
+2. C1 with a bound or interval on either side (completes B1.3). Each result is a region of the ROP axis: a crossing is a
+   point; "at or below r0" is (-inf, r0]; "above r0" is [r0, inf); an interval is [lo, hi]. The published region is
+   widened by 1.0 dB on each finite side. A simulated point must lie in it. A simulated bound is read at its first (left)
+   or last (right) scored ROP, as B1.3 says. A simulated interval passes if any part of it lies in the widened published
+   region. A bound or interval on either side is never discriminating.
+3. C4 with a simulated zero-error point against an uncensored published BER of at least 1e-5: the simulated BER is below
+   1/N_b = 7.7e-7, so the log10 difference exceeds 1.1 and the point counts as outside 0.5. A published censored point is
+   scored only as "simulated BER below 1e-4" (A3) and is not counted in the 80%.
+4. C7 loading algorithm (A3 requires it fixed before scoring): bit loading only, no power loading, the same for both
+   fibres. For subcarrier SNR_k, the number of bits is the largest of 2, 4, 6, 8 (square QAM of order 4, 16, 64, 256) for
+   which the Gray bit-error approximation (4 / log2 M) (1 - 1 / sqrt(M)) Q(sqrt(3 gamma / (M - 1))) is at most 3.8e-3 at
+   gamma = 10^(SNR_k/10), else 0. The paper's loading adds power loading; the difference is a known mismatch and is not
+   tuned. Capacity is sum(bits_k) x 70 GSa/s / 512 over the 240 subcarriers, as in A3.
+5. C5 scores wavelengths 1460 to 1620 nm (B2); 1630 and 1640 nm are reported apart and never scored.
+
+### F8. The holdout read and the freeze record (the mechanism of D6)
+
+The freeze record is the JSON file `docs/benchmarks/NANF_FREEZE_RECORD.json`; it does not exist at this amendment and
+nothing is frozen by it. Its fields: `plan_sha256` (the pin of this file at freeze time), `code_identity` (SHA-256 of the
+lines `path NUL sha256(file)` for the files `src/opticps/receiver/dfe.py`, `src/opticps/measurement/nanf_chain.py`,
+`src/opticps/measurement/nanf_scoring.py` and `src/opticps/measurement/nanf_freeze.py`, in that order), `parameters`
+(exactly the six names of B4, each inside its allowed range), `unidentifiable` (the names flagged by B4, a subset),
+and `freeze_hash` (SHA-256 of the canonical JSON of the other four fields: sorted keys, separators "," and ":", UTF-8).
+`read_nanf_workbook(include_holdout=True)` needs the caller's `freeze_hash` and refuses with `HOLDOUT_LOCKED` unless the
+record exists at that path, its stored hash equals the hash recomputed from its fields and the caller's value, its
+`plan_sha256` equals the SHA-256 of the plan file read now, its `code_identity` equals the code identity computed now, and
+its parameters are valid. A bare `include_holdout=True` is an error. That the record file is committed to Git before
+the read is a process requirement, not checked by code.
+
+### F9. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning",
+the 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, and the rule that no criterion is
+dropped, relaxed or added after a number is seen except by a dated amendment with a new pin. OFDM transmitters and
+the OFDM simulation chain are not implemented; only the scoring arithmetic of C6 to C8 is.

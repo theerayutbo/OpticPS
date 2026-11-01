@@ -39,11 +39,12 @@ DATA_DIR = Path("data/external/nanf_hong2021")
 # amendment must change the current pin and add a dated section to the plan.
 PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
 # Pin after Amendment 1 (commit 843d223); replaced at Amendment 2 (Gate N1), then at Amendment 3
-# (N1 fix round), then at Amendment 4 (N2 fix round).
+# (N1 fix round), then at Amendment 4 (N2 fix round), then at Amendment 5 (Gate N3 step 1).
 PLAN_SHA256_AMENDMENT1 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
 PLAN_SHA256_AMENDMENT2 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
 PLAN_SHA256_AMENDMENT3 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
-PLAN_SHA256 = "bc85d32c0fa3264034bfeb87872950ed2a8e7a4105b53b84c7b6256c10d17dbe"
+PLAN_SHA256_AMENDMENT4 = "bc85d32c0fa3264034bfeb87872950ed2a8e7a4105b53b84c7b6256c10d17dbe"
+PLAN_SHA256 = "c5da4067f6c58cf4d9ddc9372cad79dd0e63e4f74d70374e8a0241cd1e06dcff"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -175,6 +176,46 @@ def test_plan_text_before_amendment_4_is_unchanged_and_amendment_4_records_the_p
     ):
         assert needle in amendment, needle
     assert LABEL in amendment.split("### D7")[1]
+
+
+def test_plan_text_before_amendment_5_is_unchanged_and_amendment_5_records_the_previous_pin() -> (
+    None
+):
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 5")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT4
+    text = raw.decode()
+    amendment = text.split("## Amendment 5")[1]
+    assert PLAN_SHA256_AMENDMENT4 in amendment and PLAN_SHA256 not in text
+    assert "2026-11-01" in amendment.splitlines()[0]
+    for needle in (
+        "lcm(4, 5, 7) = 140",  # the grid, with the arithmetic
+        "655360 x 10/7 = 936228.57",
+        "655200 symbols = 140 x 4680",
+        "647008 symbols",
+        "1 294 016",
+        "129.4 bit errors",  # the corrected count
+        "N is a number of PAM4 symbols",  # the unit of N
+    ):
+        assert needle in amendment, needle
+    for needle in (
+        "20261101",  # symbol seed and noise seed policy
+        "SeedSequence",
+        "280 GSa/s",  # oversampling rate
+        "Timing phase: zero",
+        "17 feed-forward taps at T/2 spacing and 7 feedback taps",
+        "forgetting factor 0.998",
+        "8192 symbols",
+        "1e-2",  # delta
+        "HOLDOUT_LOCKED",
+        "A bare `include_holdout=True` is an error",
+        "scatter of the published operating point",
+        "does not absorb",
+    ):
+        assert needle in amendment, needle
+    # nothing is relaxed
+    assert "No tolerance or threshold of section 4, A3 or B1 to B3 is changed" in amendment
+    assert LABEL in amendment.split("### F9")[1]
 
 
 def test_plan_amendment_2_records_previous_pin_and_closes_review_items() -> None:
