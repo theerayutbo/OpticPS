@@ -31,20 +31,21 @@ rests on the DOI-registry record (the readme field is blank, the landing page wa
 | Fig. 1 (numerical curves) | cross-check only, "not a measurement" (section 2) | read and compared with our recomputation |
 | Fig. 5 (ROP columns, NANF link loss) | calibration inputs (section 2) | read; summarised |
 | Fig. 4 B2B | calibration | not read in this gate |
-| Fig. 4 NANF and SSMF, Fig. 6, Figs. 7 to 12 | locked holdout | parsed by the importer's schema check only; no value looked at, compared, plotted or summarised |
+| Fig. 4 NANF and SSMF, Fig. 6, Figs. 7 to 12 | locked holdout | parsed by the importer's schema check only; no value looked at, compared or plotted; per-series counts of censored and non-finite cells were printed once (see the disclosure below), values were not |
 
-The evidence labels below follow the vocabulary of the Sources document: the Fig. 1 curves are
-`published-numerical-assumption` (the paper's own model, not a measurement); Fig. 5 values are
-`published-experimental` as the importer tags them (the Sources document would call the loss a
-`measured` result; the tag follows the owner instruction for this gate); everything computed here is
-`derived`.
+The evidence labels below follow the vocabulary of the Sources document, and the importer tags each
+series the same way: the Fig. 1 curves are `published-numerical-assumption` (the paper's own model,
+not a measurement); BER, SNR, capacity and the Fig. 5 link loss are `measured` (results the paper
+reports); the ROP columns of Fig. 5 stay `published-experimental` (they are settings or operating
+points, never a result); everything computed here is `derived`. The first version of this gate tagged
+every experimental series `published-experimental`; that is corrected here and in the importer.
 
 Disclosure (holdout discipline). While checking the importer against the real workbook, the schema check was
 followed once by a print of the per-series count of censored (zero or below 1e-5) BER points and of
-non-finite cells, for all 69 series including the holdout. Counts only, no value; the same class of
+non-finite cells, for all 69 series including the holdout. Counts only, no value (the values were not printed); the same class of
 summary as the counts already disclosed in plan A0 and B0.2, but new information for some series
-(for example Fig. 6 SSMF at 80 Gb/s has censored points; Fig. 7 and Fig. 10 have some). No threshold, tolerance
-or code path depends on it, and the plan text is unchanged. Also, the paper PDF was reread for the axis
+(for example Fig. 6 SSMF at 80 Gb/s has censored points; Fig. 7 and Fig. 10 have some; the print also covered Fig. 4 SSMF and Figs. 9 and 12). No threshold, tolerance
+or code path depends on it. It is entered in the plan's "what was seen" record by Amendment 4. Also, the paper PDF was reread for the axis
 labels of Figs. 1 and 5 and the DSP description (Section III).
 
 ## 3. Benchmark A: Fig. 1 recomputed with our propagation code
@@ -73,7 +74,7 @@ numbers are reported and no pass is claimed.
 | First null, NZ-DSF 5 km | 52.659 | closed form, same formula | none declared | reported only |
 | First null, NANF 5 km | 78.210 | workbook: none inside 0 to 35 GHz | n/a | reported only |
 | Workbook fading minimum, SSMF | 28 GHz on a 1 GHz grid | simulated null 27.97 | within the 1 GHz grid | reported only |
-| Fading profile, 36 points, stated D: max abs difference (dB) | SSMF 0.0117, NZ-DSF 4.7e-6, NANF 0.0016 | workbook Fig. 1(c) | as in column 2 | reported only |
+| Fading profile, stated D: max abs difference (dB); 36 points for NZ-DSF and NANF, 35 for SSMF (the 28 GHz point lies in the null and is excluded by the -25 dB rule: model -49.55 dB, workbook -49.95 dB, 0.40 dB apart) | SSMF 0.0117, NZ-DSF 4.7e-6, NANF 0.0016 | workbook Fig. 1(c) | as in column 2 | reported only |
 | Same with the workbook's own D at 1550 nm (dB) | SSMF 5.3e-6, NZ-DSF 4.7e-6, NANF 6.8e-6 | workbook Fig. 1(c) | as in column 2 | reported only |
 | D at 1550 nm, stated against the workbook curve | 15.95, 4.50, 2.04 | 15.9485, 4.50, 2.03641 | 0.0015, 0, 0.0036 | the stated values are rounded; explains the line above |
 | 3-dB bandwidth at 1550 nm (GHz) | SSMF 19.764, NZ-DSF 37.207, NANF 55.310 | workbook 19.765, 37.208, 55.31 | at most 0.001 | reported only |
@@ -83,9 +84,13 @@ numbers are reported and no pass is claimed.
 
 Against the paper's prose (no tolerance, not scored). The prose first null "about 25 GHz at 5 km" is 3 GHz below the
 27.97 GHz that both our arithmetic and the workbook give (Sources, mismatch 8; the gap is unexplained and
-chirp is a hypothesis only). The prose "NANF bandwidth above 60 GHz" does not match the workbook: its NANF
-3-dB bandwidth is between 49.76 and 86.14 GHz over the band, and 55.31 GHz at 1550 nm; our recomputation
-gives 49.755 GHz as the band minimum. "More than twice the SSMF bandwidth across the range": the smallest
+chirp is a hypothesis only). The prose "NANF bandwidth above 60 GHz" (Sec. II, p. 3) is a statement about the
+window of about 60 nm in which the NZ-DSF is broader than the NANF, not about the whole band, and it agrees with the
+workbook there: at the grid wavelengths where the NZ-DSF exceeds the NANF (1445 to 1500 nm) the NANF 3-dB bandwidth is
+69.77 down to 60.55 GHz, and over 1430 to 1490 nm it is 73.67 down to 61.84 GHz. (Over the whole band the workbook NANF
+bandwidth runs from 49.76 to 86.14 GHz, and our recomputation gives 49.755 GHz as the band minimum; the paper's sentence
+makes no claim about that.) An earlier version of this report charged a mismatch to the paper here; it was a mistake of
+this report, withdrawn. "More than twice the SSMF bandwidth across the range": the smallest
 ratio is 2.529 simulated and 2.529 in the workbook. NZ-DSF wider than NANF: at the grid wavelengths from 1445 to
 1500 nm, simulated and in the workbook alike (the paper says a window of about 60 nm around 1460 nm).
 
@@ -104,7 +109,7 @@ them is allowed. No holdout is needed for this block.
 | NANF link loss, maximum | 8.33 dB at 1460 nm | 6.45 to 8.33 dB |
 | ROP at the NANF link (and B2B) | -12.96 to -6.24 dBm | maximum available ROP |
 | ROP at the SSMF link | -9.85 to -4.98 dBm; 6 of 19 points lie 0.01 to 0.02 dB above -5 dBm | "capped at -5 dBm" |
-| Upper bound on distributed loss | at most 1.355 dB/km (minimum total / 4.76 km, with lumped loss at least 0) | none |
+| Upper bound on distributed loss | at most 1.355 dB/km at 1610 nm (total at the minimum, 6.45 dB, over about 4.76 km, lumped loss at least 0); at 1460 nm the bound is 1.75 dB/km (8.33 dB over about 4.76 km); in general total(lambda) / L, and L is itself approximate | none |
 
 Separation of distributed and lumped loss: not separable from these data, so the distributed
 attenuation stays unknown. The column is the insertion loss of the assembled link (two NANF pieces, their
@@ -129,7 +134,7 @@ the fixed-launch and matched-received-power protocols (`optical_channel/link.py`
    decision-directed switch are `unknown` in the paper and must be declared before the freeze hash.
 2. Tx signal chain at the stated rates. PAM4 mapping; SRRC with roll-off 0.1 at 70 samples per symbol,
    then decimation by 40, 50 or 56 (what the paper describes), giving 1.75, 1.40 and 1.25 samples per symbol at the
-   70 GSa/s AWG. `shape` does this on a periodic grid (symbol count a multiple of 8 for integer sample counts).
+   70 GSa/s AWG. `shape` does this on a periodic grid: the symbol count must be a multiple of 4 for 1.75 and 1.25 samples per symbol and of 5 for 1.40 (a multiple of 8 is wrong for 1.40: 8 x 1.4 = 11.2); a multiple of 20 serves all three rates, and `resample_periodic` rounds silently, so N3 must assert an integer sample count.
 3. Analogue chain on a finer grid. The 70 GSa/s waveform cannot carry the square-law product, so the link must run
    at an oversampled rate (for example 280 GSa/s through `resample_periodic`), with the Tx bandwidth, the
    MZM and the Rx bandwidth as parameters (4th-order Butterworth per plan B4).
@@ -145,6 +150,20 @@ the fixed-launch and matched-received-power protocols (`optical_channel/link.py`
    attenuation stays unknown, which the matched protocol makes irrelevant.
 9. Chirp. No transmitter chirp parameter exists. The primary run is at zero chirp (A1.2); the sensitivity sweep of A1.5
    needs one, for example a phase term (alpha / 2) ln P(t) on the launched field, labelled a sensitivity.
+
+10. Declared assumptions, one label each (plan Amendment 4, D2): DAC resolution, RIN, the symbol sequence,
+    the capture length and the responsivity are not stated by the paper. Amendment 4 declares each as `user-assumed`;
+    the code default of 0.8 A/W for `responsivity_a_per_w` must not be taken silently (it is degenerate with the
+    thermal-noise density), so the N3 configuration passes it explicitly.
+11. Scoring logic of the plan that has no code yet: the B2B-copy comparator, the discriminating measure d, and the C3
+    penalty and BER test. Amendment 4, D3, specifies them; N3 implements them as written.
+12. The Fig. 5 / C5 conflict (6 SSMF points above -5 dBm) is settled by Amendment 4, D1: C5 scores all 17 wavelengths of B2.
+13. Fig. 4 points above -5 dBm: the importer now returns them with `NanfSeries.above_rop_cap`; N3 must drop those points
+    from the fit and from scoring (A4). The three B2B points per curve above the cap are excluded.
+14. `read_nanf_workbook(include_holdout=True)` is an honour-system flag and `expected_sha256` is caller-set. At N3 the
+    holdout read must be tied to proof of the freeze hash (Amendment 4); not implemented in this gate.
+15. OFDM (C6 to C8, Figs. 7 to 12) lies outside the scope of this N3 list: no DMT or OFDM transmitter, loading algorithm
+    or per-subcarrier SNR path is described here.
 
 Smallest original implementation: (a) `receiver/dfe.py`, a standard exponentially-weighted RLS DFE derived from
 the normal equations, with the unknown choices as declared arguments; (b) `measurement/nanf_chain.py`, one function

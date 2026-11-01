@@ -4,6 +4,7 @@ Offline. These tests need no external data; when `data/external/nanf_hong2021/` 
 check the file hashes, and they pass without it.
 """
 
+import dataclasses
 import hashlib
 import json
 import math
@@ -16,7 +17,12 @@ import pytest
 
 from nanf_workbook_fixture import build_cells, make_workbook
 from opticps.measurement import nanf_benchmark as nb
-from opticps.measurement.nanf_import import DataRole, read_nanf_workbook, series_key
+from opticps.measurement.nanf_import import (
+    DataRole,
+    NanfWorkbook,
+    read_nanf_workbook,
+    series_key,
+)
 from opticps.optical_channel.fiber import (
     FiberProfileError,
     OutOfValidityRangeError,
@@ -33,10 +39,11 @@ DATA_DIR = Path("data/external/nanf_hong2021")
 # amendment must change the current pin and add a dated section to the plan.
 PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
 # Pin after Amendment 1 (commit 843d223); replaced at Amendment 2 (Gate N1), then at Amendment 3
-# (N1 fix round).
+# (N1 fix round), then at Amendment 4 (N2 fix round).
 PLAN_SHA256_AMENDMENT1 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
 PLAN_SHA256_AMENDMENT2 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
-PLAN_SHA256 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
+PLAN_SHA256_AMENDMENT3 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
+PLAN_SHA256 = "bc85d32c0fa3264034bfeb87872950ed2a8e7a4105b53b84c7b6256c10d17dbe"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -131,6 +138,43 @@ def test_plan_text_before_amendment_3_is_unchanged_and_amendment_3_records_the_p
     # B5.3 qualification only: no tolerance restated or moved
     assert "set knowing" in amendment and "23.33" in amendment and "0.67" in amendment
     assert "no criterion changes" in amendment
+
+
+def test_plan_text_before_amendment_4_is_unchanged_and_amendment_4_records_the_previous_pin() -> (
+    None
+):
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 4")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT3
+    text = raw.decode()
+    amendment = text.split("## Amendment 4")[1]
+    assert PLAN_SHA256_AMENDMENT3 in amendment and PLAN_SHA256 not in text
+    assert "2026-11-01" in amendment.splitlines()[0]
+    for needle in (
+        "per-series counts of censored BER points",  # the N2 print, in the what-was-seen record
+        "no value was printed",
+        "the -5 dBm cut of A3 applies to the ROP axis of Fig.4",
+        "all 17",
+        "`user-assumed`",
+        "DAC resolution",
+        "RIN",
+        "Symbol sequence",
+        "Capture length",
+        "Responsivity",
+        "must not be used silently",
+        "B2B-copy comparator",
+        "d is undefined",
+        "no overlap",
+        "multiple of 4",
+        "and of 5",
+        "8 x 1.4 = 11.2",
+        "above_rop_cap",
+        "proof of the freeze hash",
+        "FrozenCriterion",
+        "implemented in N3",
+    ):
+        assert needle in amendment, needle
+    assert LABEL in amendment.split("### D7")[1]
 
 
 def test_plan_amendment_2_records_previous_pin_and_closes_review_items() -> None:
@@ -535,7 +579,17 @@ def test_fig5_summary_leaves_the_distributed_loss_unknown(fig5_workbook) -> None
     assert s.n_points == 19 and s.wavelength_range_nm == (1460.0, 1640.0)
     assert (s.loss_min_db, s.loss_min_wavelength_nm) == (6.45, 1610.0)
     assert (s.loss_max_db, s.loss_max_wavelength_nm) == (8.33, 1460.0)
-    assert s.distributed_upper_bound_db_per_km == pytest.approx(6.45 / 4.76)
+    assert s.distributed_upper_bound_db_per_km == pytest.approx(6.45 / 4.76)  # at 1610 nm only
+    assert s.distributed_upper_bound_wavelength_nm == 1610.0
+    assert nb.distributed_loss_bound_db_per_km(fig5_workbook, 1610.0) == pytest.approx(
+        1.355, abs=1e-3
+    )
+    assert nb.distributed_loss_bound_db_per_km(fig5_workbook, 1460.0) == pytest.approx(
+        1.75, abs=1e-3
+    )
+    text = nb.DISTRIBUTED_LOSS_NOT_SEPARABLE
+    assert "1.355 dB/km" in text and "1610 nm" in text and "1.75 dB/km" in text
+    assert "1460 nm" in text and "about 4.76 km" in text
     assert s.distributed_loss == "unknown"
     assert "stays unknown" in nb.DISTRIBUTED_LOSS_NOT_SEPARABLE
     assert (
@@ -568,6 +622,48 @@ def test_the_link_loss_is_one_number_and_never_added_to_the_pigtail(fig5_workboo
     doc = nb.link_loss_at.__doc__ or ""
     assert "must not be added to the pigtail" in doc and "twice" in doc
     assert not [n for n in dir(nb) if "distributed_from" in n or "net_of_pigtail" in n]
+
+
+def _with_role(wb, keys, role):
+    series = dict(wb.series)
+    for key in keys:
+        series[key] = dataclasses.replace(wb[key], role=role)
+    return NanfWorkbook(wb.sha256, series)
+
+
+def test_the_fig5_summary_refuses_a_series_that_is_not_a_calibration_input(fig5_workbook) -> None:
+    for header in ("ROP@NANF", "ROP@SSMF", "NANF loss"):
+        key = series_key("Fig.5", "link", header)
+        for role in (DataRole.HOLDOUT, DataRole.CALIBRATION, DataRole.CROSS_CHECK):
+            wrong = _with_role(fig5_workbook, [key], role)
+            with pytest.raises(ValueError, match="calibration inputs"):
+                nb.link_loss_summary(wrong)
+    assert nb.link_loss_summary(fig5_workbook).n_points == 19
+
+
+def test_the_fig1_report_refuses_a_series_that_is_not_the_cross_check_class(
+    synthetic_workbook,
+) -> None:
+    keys = [k for k, v in synthetic_workbook.series.items() if v.sheet == "Fig.1"]
+    assert len(keys) == 12
+    for role in (DataRole.HOLDOUT, DataRole.CALIBRATION, DataRole.CALIBRATION_INPUT):
+        wrong = _with_role(synthetic_workbook, keys, role)
+        with pytest.raises(ValueError, match="cross-check class"):
+            nb.fig1_report(wrong)
+    assert nb.fig1_report(synthetic_workbook)
+
+
+def test_the_null_tolerance_of_a1_3_is_declared_and_met_without_the_workbook(
+    synthetic_workbook,
+) -> None:
+    # Plan A1.3: 0.3 GHz. The synthetic route needs no data/external, so a loosened constant
+    # cannot hide behind a skipped real-workbook test.
+    assert nb.NULL_TOLERANCE_GHZ == 0.3
+    report = nb.fig1_report(synthetic_workbook)
+    assert set(report.preregistered_null_check) == {"SSMF 4.53 km", "SSMF 5 km", "NANF 4.76 km"}
+    for label, (sim, expected, ok) in report.preregistered_null_check.items():
+        assert ok and abs(sim - expected) <= 0.3, label
+        assert expected == nb.PREREGISTERED_NULLS_GHZ[label]
 
 
 def test_fig5_columns_are_calibration_inputs(fig5_workbook) -> None:

@@ -32,6 +32,7 @@ import io
 import math
 import re
 import zipfile
+import zlib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -43,6 +44,7 @@ from opticps.optical_channel.fiber import ProvenanceCategory
 
 NANF_WORKBOOK_SHA256 = "0753aeadd215e894e46de6cb7ac10df4c9edf32386ffdc37871381d80cc19cc0"
 BER_CENSOR_FLOOR = 1e-5  # plan A3: a published BER of zero or below this is censored
+ROP_SCORING_CAP_DBM = -5.0  # plan section 2, A3, A4: Fig. 4 points above this are not scored
 MAX_FILE_BYTES = 8 * 1024 * 1024
 MAX_MEMBER_BYTES = 8 * 1024 * 1024
 MAX_MEMBERS = 64
@@ -109,6 +111,17 @@ class NanfSeries:
         return len(self.y)
 
     @property
+    def above_rop_cap(self) -> tuple[bool, ...]:
+        """Per point: True where a Fig. 4 ROP lies above the -5 dBm scoring cap (plan A4).
+
+        Those points are excluded from calibration and scoring; the importer returns them, so the
+        caller must drop them. Empty (all False) for every other sheet.
+        """
+        if self.sheet != "Fig.4":
+            return (False,) * len(self.x)
+        return tuple(x > ROP_SCORING_CAP_DBM for x in self.x)
+
+    @property
     def n_censored(self) -> int:
         return sum(
             f in (PointFlag.CENSORED_ZERO, PointFlag.CENSORED_BELOW_FLOOR) for f in self.flags
@@ -144,6 +157,21 @@ class NanfWorkbook:
         return self.series[key]
 
 
+# Results the paper reports (BER, SNR, capacity, the Fig. 5 link loss) are `measured`; the ROP
+# columns are settings or operating points and stay `published-experimental` (Sources vocabulary:
+# `published-experimental` is "a setting or description ... never a result").
+_MEASURED_QUANTITIES = frozenset({"BER", "SNR", "capacity", "link_loss"})
+
+
+def evidence_for(quantity: str, block_provenance: ProvenanceCategory | None) -> ProvenanceCategory:
+    """The evidence label of a series: the block's own (Fig. 1) or by what the quantity is."""
+    if block_provenance is not None:
+        return block_provenance
+    if quantity in _MEASURED_QUANTITIES:
+        return ProvenanceCategory.MEASURED
+    return ProvenanceCategory.PUBLISHED_EXPERIMENTAL
+
+
 # --- the recorded layout ------------------------------------------------------------------------
 
 
@@ -172,7 +200,7 @@ class BlockLayout:
     first_row: int
     axis_count: int
     series: tuple[SeriesLayout, ...]
-    provenance: ProvenanceCategory = ProvenanceCategory.PUBLISHED_EXPERIMENTAL
+    provenance: ProvenanceCategory | None = None  # None: by quantity, see `evidence_for`
     header_row: int | None = None  # row of the header cells; default first_row - 1
     unit_source: str = "inferred from the paper's axis labels (headers carry no unit)"
 
@@ -467,15 +495,17 @@ def _read_cells(
                     if formula is None:
                         raise _fail(f"{sheet}: cell {ref} uses a shared formula with no master")
         text = None if v is None else (v.text or "")
-        if text is None and formula is None:
+        if element.find(f"{_NS}is") is not None:  # inline string: content, never an empty cell
+            cells[pos] = _Cell("other", None, formula)
+        elif text is None and formula is None:
             cells[pos] = _Cell("empty", None, None)
         elif t in (None, "n"):
             cells[pos] = _Cell("n", text, formula)
         elif t == "s":
-            try:
-                cells[pos] = _Cell("s", shared[int(text or "")], formula)
-            except (ValueError, IndexError) as err:
-                raise _fail(f"{sheet}: cell {ref} has a bad shared-string index") from err
+            index = int(text) if text is not None and text.isascii() and text.isdigit() else -1
+            if not 0 <= index < len(shared):
+                raise _fail(f"{sheet}: cell {ref} has a bad shared-string index")
+            cells[pos] = _Cell("s", shared[index], formula)
         elif t == "e":
             cells[pos] = _Cell("e", text, formula)
         else:
@@ -538,9 +568,11 @@ def _check_sheet(
 
 def _number(cell: _Cell, sheet: str, ref: str) -> float:
     try:
-        value = float(cell.text or "")
-    except ValueError as err:
-        raise _fail(f"{sheet}: cell {ref} is not a number") from err
+        value: float | None = float(cell.text or "")
+    except ValueError:
+        value = None
+    if value is None:  # raised outside the handler: no cause or context holds the cell text
+        raise _fail(f"{sheet}: cell {ref} is not a number")
     if not math.isfinite(value):
         raise _fail(f"{sheet}: cell {ref} is not finite")
     return value
@@ -598,7 +630,7 @@ def _build_series(
                 y=tuple(ys),
                 flags=tuple(flags),
                 role=s.role,
-                provenance=block.provenance,
+                provenance=evidence_for(s.quantity, block.provenance),
                 cells=f"{sheet}!{s.letter}{block.first_row}:{s.letter}{last}",
                 unit_source=block.unit_source,
             )
@@ -642,7 +674,18 @@ def read_nanf_workbook(
         def member(name: str) -> bytes:
             if name not in names:
                 raise _fail(f"the archive has no member {name}")
-            return archive.read(name)
+            try:
+                return archive.read(name)
+            except (
+                zlib.error,
+                zipfile.BadZipFile,
+                EOFError,
+                OSError,
+                NotImplementedError,
+                RuntimeError,
+            ):
+                # corrupt deflate stream, bad CRC, lying size, unsupported or encrypted member
+                raise _fail(f"the archive member {name} cannot be read") from None
 
         book = _parse_xml(member("xl/workbook.xml"), "xl/workbook.xml")
         sheets = [

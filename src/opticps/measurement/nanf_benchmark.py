@@ -399,7 +399,8 @@ class LinkLossSummary:
     loss_min_wavelength_nm: float
     loss_max_db: float
     loss_max_wavelength_nm: float
-    distributed_upper_bound_db_per_km: float  # min loss / length; lumped loss >= 0
+    distributed_upper_bound_db_per_km: float  # min loss / length, valid at the wavelength below
+    distributed_upper_bound_wavelength_nm: float  # the wavelength of the minimum (1610 nm)
     distributed_loss: str  # always "unknown": see the text of `DISTRIBUTED_LOSS_NOT_SEPARABLE`
     rop_nanf_range_dbm: tuple[float, float]
     rop_ssmf_range_dbm: tuple[float, float]
@@ -412,8 +413,12 @@ DISTRIBUTED_LOSS_NOT_SEPARABLE = (
     "approximate, "
     "with no uncertainty, no method and no wavelength dependence stated. Subtracting them would "
     "turn two rounded prose numbers into a per-kilometre loss and a spectrum, so the distributed "
-    "attenuation stays unknown. Only the bound distributed <= minimum total / length holds without "
-    "assumption."
+    "attenuation stays unknown. What holds is a bound at each wavelength: "
+    "distributed(lambda) <= total(lambda) / L, with lumped loss at least 0 and L the stated "
+    "length of about 4.76 km (itself approximate, so the bound is not exact either). At the "
+    "wavelength of the minimum total, 1610 nm, it is 1.355 dB/km; at 1460 nm, where the total is "
+    "largest, it is 1.75 dB/km. A bound taken at "
+    "one wavelength says nothing about another."
 )
 
 
@@ -435,10 +440,21 @@ def link_loss_summary(wb: NanfWorkbook, length_km: float = 4.76) -> LinkLossSumm
         loss_max_db=float(y[hi]),
         loss_max_wavelength_nm=loss.x[hi],
         distributed_upper_bound_db_per_km=float(y[lo]) / length_km,
+        distributed_upper_bound_wavelength_nm=loss.x[lo],
         distributed_loss="unknown",
         rop_nanf_range_dbm=(min(rop_nanf.y), max(rop_nanf.y)),
         rop_ssmf_range_dbm=(min(rop_ssmf.y), max(rop_ssmf.y)),
     )
+
+
+def distributed_loss_bound_db_per_km(
+    wb: NanfWorkbook, wavelength_nm: float, length_km: float = 4.76
+) -> float:
+    """Upper bound of the distributed loss at one wavelength: total(lambda) / L (lumped >= 0).
+
+    Valid at that wavelength only. L is the stated length (about 4.76 km), itself approximate.
+    """
+    return link_loss_at(wb, wavelength_nm) / length_km
 
 
 def link_loss_at(wb: NanfWorkbook, wavelength_nm: float) -> float:

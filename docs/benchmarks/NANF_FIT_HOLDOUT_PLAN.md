@@ -478,3 +478,104 @@ written without testing whether Fig.4 contains any of these cases.
 The threshold of 0.5 GHz in B5.3 was set knowing the paper's "around 24 GHz". A published null of 24.0 GHz misses
 23.33 GHz by 0.67 GHz, so the flag `POSSIBLE CLOCK-SPIKE COINCIDENCE` would not fire for it. This qualifies how the
 flag is read only; the threshold is not moved and no criterion changes.
+
+## Amendment 4 (2026-11-01, N2 fix round after the independent review of Gate N2)
+
+Previous SHA-256 of this file, pinned until now (Amendment 3, commit 6d75b88):
+`0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; the text before the
+Amendment 3 heading still hashes to the Amendment 2 pin `ec0f325a...7aa5`, and a test checks that, and now also that
+the text before this heading hashes to the previous pin). Where this amendment and anything above differ, this
+amendment governs. It is written before any scoring run; no fit and no simulation of the paper's curves has run,
+and no Fig.4, Fig.6 or Fig.8 value, and no holdout value, has been printed or compared with a model. No tolerance or
+threshold of section 4, A3 or B1 to B3 is changed.
+
+### D0. What had been seen (adds to A0 and B0.2)
+
+During Gate N2, after the importer's schema check, the per-series counts of censored BER points (zero, or below 1e-5)
+and of non-finite cells were printed once for all 69 series, including the locked holdout (Fig.4 NANF and SSMF, Fig.6,
+Figs.7 to 12). Counts only: no value was printed, none is recorded here, and no tolerance, rule or code path of this
+plan depends on them. They are disclosed in the same class as the counts of B0.2. Also read in N2, as allowed by
+section 2: the Fig.1 cross-check curves and the Fig.5 ROP and loss columns (summary metrics are in
+`reports/NANF_Benchmark_Report.md`); the paper PDF was reread for axis labels and the DSP description.
+
+### D1. A3 against C5, the 6 SSMF points above -5 dBm (resolves a conflict)
+
+A3 says "ROPs scored are those at most -5 dBm"; C5 and B2 score "each wavelength" of the 17. In Fig.5 six SSMF operating
+points lie 0.01 to 0.02 dB above -5 dBm (1490, 1500, 1540, 1590, 1600 and 1610 nm; -4.98 or -4.99 dBm), all inside the
+17. The rule is: the -5 dBm cut of A3 applies to the ROP axis of Fig.4 (points above it are the paper's TIA-overload
+region). C5 is a wavelength sweep whose ROP is an operating point taken from the Fig.5 column, which the paper itself
+sets as "capped at -5 dBm"; the excess is at the rounding of the published column. C5 therefore scores all 17
+wavelengths including those six points, with no ROP exclusion, and the six are reported separately as
+"ROP above the cap by at most 0.02 dB". Nothing is moved or rounded: the simulated ROP is the published one.
+
+### D2. Unknowns of the simulation, each declared with a label (adds to rule 6 and B4)
+
+None of these is one of the at most 6 free parameters of B4 (the table there stays as it is). Each is fixed here, labelled
+`user-assumed` (plan-author choice; not from the paper, not from a datasheet, not a measurement), and is not changed
+after a result is seen except by a further dated amendment.
+
+| Item | Declared value | Label | Note |
+|---|---|---|---|
+| DAC resolution | 8 bit, uniform quantiser, full scale at the signal peak | `user-assumed` | the paper states the AWG rate (70 GSa/s) but not the resolution |
+| RIN | not modelled (zero) | `user-assumed` | any intensity noise is absorbed by `electrical_snr_ceiling_db` |
+| Symbol sequence | independent uniform PAM4 symbols from one fixed pseudo-random generator seed, 20261101, the same sequence at every rate and every point (no per-point reseed) | `user-assumed` | the paper does not state the pattern |
+| Capture length | 655360 symbols (20 x 32768) per point, the first 8192 of which are equaliser training and are not scored | `user-assumed` | the paper states no capture size; 655360 gives about 65 errors at BER 1e-4, so a simulated BER below 1e-4 is reported as "below 1e-4 (at most 65 errors)" |
+| Responsivity | 0.8 A/W, passed explicitly in the configuration of every run | `user-assumed` | the code default must not be used silently; responsivity is degenerate with the thermal-noise density (a free parameter), so it is fixed and not fitted |
+
+Still `unknown` and to be declared before the freeze hash, as the N2 report says: the split of the (17, 7) DFE taps,
+the DFE initialisation and decision-directed switch, and the DFE training schedule beyond the 8192 symbols above.
+
+### D3. Scoring logic that had no precise text (adds to A2, B3 and A3)
+
+1. B2B-copy comparator. For a rate, the copy predicts the NANF curve by the published B2B series of the same rate:
+   SNR in dB and log10 BER linearly interpolated against ROP, no extrapolation, only uncensored B2B points as BER
+   nodes, only B2B ROPs at most -5 dBm (A4). Scoring of the copy uses the same metric and tolerance as the model: for C1
+   the crossing by the C1-R rule applied to the copy values at the scored NANF ROPs; for C2 the errors of the copy SNR
+   against the published NANF SNR at the scored NANF ROPs; for the NANF part of C5 the errors of the published
+   Fig.6 B2B SNR at the same wavelengths (a holdout series: read only by the scoring step, after the freeze hash, as
+   rule 2 requires; the copy is then the published B2B SNR itself, with no interpolation). A NANF ROP with no B2B
+   bracket is not scored for the copy and is reported. The copy is a reported comparator and never enters d.
+2. d (B3.1), exactly. d compares the model's NANF prediction with the model's own no-fibre output: same frozen Tx/Rx
+   vector, same ROP points, same scored points. C1: d is the absolute difference of the two crossings, each found by
+   C1-R; if either crossing is a bound or an interval, d is undefined and the rate is not discriminating (B1.3).
+   C2: d is the mean absolute difference between the two predicted SNR values at the scored NANF ROPs. C5 NANF: d is
+   the mean absolute difference over the 17 wavelengths of the model's NANF SNR and its no-fibre SNR at the ROP of
+   Fig.5. Discriminating means d strictly greater than the tolerance of that criterion (1.0, 1.5, 2.0 dB); d at most
+   the tolerance reads `PASS, NOT DISCRIMINATING` on a pass.
+3. C3, exactly (A3). Per rate: the ROP set is the published NANF ROPs at most -5 dBm that lie inside the SSMF ROP range,
+   with no extrapolation; if the set is empty C3 fails with the reason "no overlap". Penalty = mean over the set of
+   (NANF SNR minus SSMF SNR in dB, SSMF interpolated in dB). The simulated penalty is formed by the same rule from the
+   simulated SNR values. Pass needs both: (a) |simulated penalty minus the paper's stated 5, 11 or 14 dB| at most 3.0 dB
+   (inclusive); (b) the simulated SSMF BER is above 3.8e-3 at every published SSMF ROP at most -5 dBm of that rate
+   (error-counted BER; a point with zero errors reads "below 1/N" and fails (b)). The comparison is with the stated
+   prose value, not the workbook penalty, which is reported beside it. C3 is scored at zero chirp (A1.2).
+
+### D4. The sample grid (corrects the N2 report's "multiple of 8")
+
+At 70 GSa/s the PAM4 rates 80, 100 and 112 Gb/s are 40, 50 and 56 GBd, giving 1.75, 1.40 and 1.25 samples per symbol. A
+periodic grid needs an integer number of samples: the symbol count must be a multiple of 4 (1.75 and 1.25) and of 5
+(1.40). A multiple of 8 is wrong for 1.40 (8 x 1.4 = 11.2); a multiple of 20 works for all three, and the declared
+capture length (D2) is one. `resample_periodic` rounds silently, so N3 asserts an integer sample count and refuses
+otherwise.
+
+### D5. Fig.4 points above -5 dBm are flagged on return
+
+The importer now exposes `NanfSeries.above_rop_cap`, True where a Fig.4 ROP is above -5.0 dBm (exactly -5.0 is scored).
+The B2B series carry such points (excluded from the fit and from scoring by A4). The fit and scoring code drops flagged
+points and must not rely on the caller remembering to. The flag is derived from the ROP axis, not from any BER or SNR value.
+
+### D6. The holdout read is tied to the freeze hash (requirement; implemented in N3)
+
+`read_nanf_workbook(include_holdout=True)` is a bare flag and `expected_sha256` is set by the caller; that is acceptable
+only because no freeze exists and the only real-data use is a schema test that prints nothing. At N3, before any
+holdout value is returned, the read must take proof of the freeze hash (the hashed Tx/Rx vector, the code identity and
+this plan's pin, recorded in a committed freeze record; compare `FrozenCriterion` in `src/opticps/benchmarks/holdout.py`)
+and refuse without it. A bare `include_holdout=True` is then an error. Until N3 it is a requirement, not a mechanism.
+
+### D7. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning",
+the 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, and the rule that no criterion is
+dropped, relaxed or added after a number is seen except by a dated amendment with a new pin. OFDM (C6 to C8) is outside
+the scope of this amendment.

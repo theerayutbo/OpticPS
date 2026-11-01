@@ -9,8 +9,9 @@ killed.
 
     python scripts/mutate_nanf.py [-j JOBS] [-k LABEL_SUBSTRING]
 
-The list is a hand-written sample of the guards (the 14 gaps of the third N1 review and the N2a
-guards). It proves nothing about mutants that are not in it. The label says what the mutant does.
+The list is a hand-written sample of the guards (the 14 gaps of the third N1 review, the N2a
+guards and the N2 fix-round guards). It proves nothing about mutants that are not in it.
+The label says what the mutant does.
 """
 
 # SPDX-License-Identifier: MIT
@@ -27,6 +28,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 M = "src/opticps/measurement/nanf_import.py"
+B = "src/opticps/measurement/nanf_benchmark.py"
 F = "src/opticps/optical_channel/fiber.py"
 L = "src/opticps/optical_channel/link.py"
 TESTS = (
@@ -231,6 +233,76 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         L,
         "laser_w = target_w / transmission if transmission > 0 else math.inf",
         "laser_w = target_w / transmission",
+    ),
+    # N2 fix round: the 9 survivors of the independent N2 review, then the new guards
+    (
+        "importer: plain-number message echoes the cell",
+        M,
+        'is not a plain number as the layout requires")',
+        'is not a plain number as the layout requires {cell.text}")',
+    ),
+    (
+        "importer: BER message echoes the value",
+        M,
+        'raise _fail(f"{sheet}: BER cell {ref} lies outside [0, 1]")',
+        'raise _fail(f"{sheet}: BER cell {ref} lies outside [0, 1] {value}")',
+    ),
+    ("importer: NUL filter removed", M, 'if b"\\x00" in data or ', "if False or "),
+    (
+        "importer: member-count cap removed",
+        M,
+        "if len(infos) > MAX_MEMBERS or any(",
+        "if any(",
+    ),
+    ("importer: rich-text runs ignored", M, 'elif child.tag == f"{_NS}r":', "elif False:"),
+    (
+        "importer: shared formula without a master accepted",
+        M,
+        "formula = masters.get(si)",
+        'formula = masters.get(si) or "-Inf"',
+    ),
+    (
+        "benchmark: Fig.1 role check removed",
+        B,
+        "if s.role is not DataRole.CROSS_CHECK:",
+        "if False:",
+    ),
+    (
+        "benchmark: Fig.5 role check removed",
+        B,
+        "if s.role is not DataRole.CALIBRATION_INPUT:",
+        "if False:",
+    ),
+    ("benchmark: null tolerance 3.0", B, "NULL_TOLERANCE_GHZ = 0.3", "NULL_TOLERANCE_GHZ = 3.0"),
+    (
+        "importer: inline string outside the layout counts as empty",
+        M,
+        'if element.find(f"{_NS}is") is not None:',
+        "if False:",
+    ),
+    (
+        "importer: corrupt deflate raises the raw zlib error",
+        M,
+        "                zlib.error,\n",
+        "",
+    ),
+    (
+        "importer: bad CRC raises the raw BadZipFile",
+        M,
+        "                zipfile.BadZipFile,\n                EOFError,",
+        "                EOFError,",
+    ),
+    (
+        "importer: cap point at -5 dBm excluded",
+        M,
+        "x > ROP_SCORING_CAP_DBM",
+        "x >= ROP_SCORING_CAP_DBM",
+    ),
+    (
+        "importer: measured results tagged by block only",
+        M,
+        "if quantity in _MEASURED_QUANTITIES:",
+        "if False:",
     ),
 ]
 

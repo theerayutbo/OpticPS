@@ -6,8 +6,10 @@ flags of the typed series and prints nothing.
 """
 
 import hashlib
+import io
 import math
 import re
+import traceback
 import zipfile
 from pathlib import Path
 
@@ -104,8 +106,22 @@ def test_provenance_units_and_counts_per_series(fixture_file):
     assert "axis labels" in fig1.unit_source
     assert wb[series_key("Fig.1", "d-latency", "NANF")].unit == "us"
     for key, s in wb.series.items():
-        if s.sheet != "Fig.1":
-            assert s.provenance is ProvenanceCategory.PUBLISHED_EXPERIMENTAL, key
+        if s.sheet == "Fig.1":
+            continue
+        # results the paper reports are `measured`; ROP columns are settings (Sources vocabulary)
+        expected = (
+            ProvenanceCategory.PUBLISHED_EXPERIMENTAL
+            if s.quantity == "ROP"
+            else ProvenanceCategory.MEASURED
+        )
+        assert s.provenance is expected, key
+    quantities = {s.quantity for s in wb.series.values() if s.sheet != "Fig.1"}
+    assert quantities == {"BER", "SNR", "capacity", "link_loss", "ROP"}
+    assert wb[series_key("Fig.5", "link", "NANF loss")].provenance is ProvenanceCategory.MEASURED
+    assert (
+        wb[series_key("Fig.5", "link", "ROP@NANF")].provenance
+        is ProvenanceCategory.PUBLISHED_EXPERIMENTAL
+    )
     sizes = {
         series_key("Fig.4", "BER@80", "NANF-80-BER"): 6,
         series_key("Fig.4", "BER@80", "B2B-80-BER"): 11,
@@ -504,6 +520,241 @@ def test_the_importer_has_no_spreadsheet_or_network_dependency():
     assert not imports & {"openpyxl", "xlrd", "pandas", "requests", "urllib", "socket", "http"}
     assert "open(" not in source.replace("file.open(", "").replace("archive", "")
     assert '"wb"' not in source and "'w'" not in source
+
+
+# --- Gate N2 fix round: messages, causes, archive faults, inline strings --------------------------
+
+
+def broken_parts(tmp_path, mutate, **read_kw):
+    parts = serialise(build_cells())
+    mutate(parts)
+    path = tmp_path / "broken.xlsx"
+    digest = write_xlsx(path, parts)
+    return path, digest
+
+
+def test_a_cell_that_is_not_a_plain_number_never_echoes_what_it_holds(tmp_path):
+    def text_in_number(cells):
+        cells["Fig.8"]["B7"] = ("s", "424242-secret", None)
+
+    message = refused(tmp_path, mutated(text_in_number))
+    assert "B7" in message and "plain number" in message and "secret" not in message
+
+    def formula_in_number(cells):
+        cells["Fig.8"]["B7"] = ("n", "424242.5", "<f>424242+1</f>")
+
+    message = refused(tmp_path, mutated(formula_in_number))
+    assert "plain number" in message and "424242" not in message
+
+
+def test_a_ber_outside_zero_one_never_echoes_the_value(tmp_path):
+    for bad in ("424242.5", "-424242.5", "1.0000001"):
+
+        def ber(cells, bad=bad):
+            cells["Fig.7"]["B5"] = ("n", bad, None)
+
+        message = refused(tmp_path, mutated(ber))
+        assert "BER" in message and "B5" in message and "424242" not in message
+        assert "1.0000001" not in message
+
+
+def test_a_non_number_leaves_no_cause_or_context_holding_the_cell_text(tmp_path):
+    def junk(cells):
+        cells["Fig.8"]["B7"] = ("n", "abc424242secret", None)
+
+    path = tmp_path / "junk.xlsx"
+    digest = make_workbook(path, mutated(junk))
+    with pytest.raises(NanfImportError) as err:
+        read(path, digest, include_holdout=True)
+    assert err.value.__cause__ is None and err.value.__context__ is None
+    shown = "".join(traceback.format_exception(err.value))
+    assert "secret" not in shown and "424242" not in shown
+
+    def index(parts):
+        parts["xl/worksheets/sheet3.xml"] = re.sub(
+            rb't="s"><v>\d+</v>', b't="s"><v>9999</v>', parts["xl/worksheets/sheet3.xml"], count=1
+        )
+
+    path, digest = broken_parts(tmp_path, index)
+    with pytest.raises(NanfImportError, match="bad shared-string") as err:
+        read(path, digest)
+    assert err.value.__cause__ is None and err.value.__context__ is None
+
+
+def test_a_nul_byte_or_utf16_with_a_hidden_doctype_is_refused_as_not_plain_utf8(tmp_path):
+    def nul(parts):
+        sheet = parts["xl/worksheets/sheet5.xml"]
+        parts["xl/worksheets/sheet5.xml"] = sheet.replace(b"<sheetData>", b"<sheetData>\x00", 1)
+
+    path, digest = broken_parts(tmp_path, nul)
+    with pytest.raises(NanfImportError, match="plain UTF-8"):
+        read(path, digest)
+
+    def utf16(parts):
+        text = parts["xl/worksheets/sheet5.xml"].decode()
+        text = text.replace('encoding="UTF-8"', 'encoding="UTF-16"').replace(
+            "<worksheet", '<!DOCTYPE worksheet [<!ENTITY e "x">]><worksheet', 1
+        )
+        parts["xl/worksheets/sheet5.xml"] = text.encode("utf-16")  # declared and with a BOM
+
+    path, digest = broken_parts(tmp_path, utf16)
+    with pytest.raises(NanfImportError, match="plain UTF-8"):
+        read(path, digest)
+
+
+def test_the_member_count_is_capped(tmp_path):
+    def many(parts):
+        for k in range(nanf_import.MAX_MEMBERS + 1):
+            parts[f"xl/extra{k}.bin"] = b"x"
+
+    path, digest = broken_parts(tmp_path, many)
+    with pytest.raises(NanfImportError, match="too many or too large"):
+        read(path, digest)
+
+    def just_enough(parts):
+        for k in range(nanf_import.MAX_MEMBERS - len(parts)):
+            parts[f"xl/extra{k}.bin"] = b"x"
+
+    path, digest = broken_parts(tmp_path, just_enough)
+    assert read(path, digest)
+
+
+def test_rich_text_runs_are_joined_and_phonetic_text_is_ignored(tmp_path):
+    def rich(parts):
+        sst = parts["xl/sharedStrings.xml"].decode()
+        old = '<si><t xml:space="preserve">SMF-BER</t></si>'
+        assert old in sst
+        parts["xl/sharedStrings.xml"] = sst.replace(
+            old,
+            "<si><r><t>SMF-</t></r><r><t>BER</t></r><rPh><t>PHONETIC</t></rPh></si>",
+        ).encode()
+
+    path, digest = broken_parts(tmp_path, rich)
+    assert read(path, digest, include_holdout=True)
+
+    def phonetic_only_changes_nothing(parts):
+        sst = parts["xl/sharedStrings.xml"].decode()
+        old = '<si><t xml:space="preserve">SMF-BER</t></si>'
+        parts["xl/sharedStrings.xml"] = sst.replace(
+            old, "<si><r><t>SMF-</t></r><r><t>BER2</t></r></si>"
+        ).encode()
+
+    path, digest = broken_parts(tmp_path, phonetic_only_changes_nothing)
+    with pytest.raises(NanfImportError, match="header"):
+        read(path, digest, include_holdout=True)
+
+
+def test_a_shared_formula_needs_its_master_and_a_child_resolves_to_it(tmp_path):
+    def orphan(parts):
+        sheet = parts["xl/worksheets/sheet9.xml"].decode()
+        assert '<f t="shared" si="0"/>' in sheet
+        sheet = sheet.replace(
+            '<f t="shared" ref="C165:C187" si="0">-Inf</f>', '<f t="shared" si="7"/>', 1
+        )
+        assert 'si="0">' not in sheet
+        parts["xl/worksheets/sheet9.xml"] = sheet.encode()
+
+    path, digest = broken_parts(tmp_path, orphan)
+    with pytest.raises(NanfImportError, match="no master"):
+        read(path, digest, include_holdout=True)
+    # the unmodified fixture uses a master and children, and is accepted
+    path2 = tmp_path / "ok.xlsx"
+    digest2 = make_workbook(path2)
+    wb = read(path2, digest2, include_holdout=True)
+    assert wb[series_key("Fig.11", "table", "240sub-SMF-DMT")].n_non_finite == 24
+
+
+def test_an_inline_string_outside_the_layout_is_refused_like_one_inside(tmp_path):
+    inline = '<c r="{ref}" t="inlineStr"><is><t>424242-secret</t></is></c>'
+
+    def outside(parts):
+        sheet = parts["xl/worksheets/sheet5.xml"].decode()
+        parts["xl/worksheets/sheet5.xml"] = sheet.replace(
+            "</row>", inline.format(ref="Z99") + "</row>", 1
+        ).encode()
+
+    path, digest = broken_parts(tmp_path, outside)
+    with pytest.raises(NanfImportError, match="unexpected content at Z99") as err:
+        read(path, digest, include_holdout=True)
+    assert "secret" not in str(err.value) and "424242" not in str(err.value)
+
+    def inside(parts):
+        sheet = parts["xl/worksheets/sheet5.xml"].decode()
+        parts["xl/worksheets/sheet5.xml"] = re.sub(
+            r'<c r="B4"[^>]*>.*?</c>', inline.format(ref="B4"), sheet, count=1
+        ).encode()
+
+    path, digest = broken_parts(tmp_path, inside)
+    with pytest.raises(NanfImportError, match="B4"):
+        read(path, digest, include_holdout=True)
+
+
+def corrupt_archive(tmp_path, damage):
+    """A zip whose directory is intact and whose stored sheet member is damaged; SHA matches."""
+    parts = serialise(build_cells())
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as z:
+        for name, data in parts.items():
+            z.writestr(name, data)
+    raw = bytearray(buffer.getvalue())
+    damage(raw, parts)
+    path = tmp_path / "corrupt.xlsx"
+    path.write_bytes(bytes(raw))
+    return path, hashlib.sha256(bytes(raw)).hexdigest()
+
+
+def test_a_corrupt_archive_member_raises_the_typed_error_not_zlib_or_badzipfile(tmp_path):
+    def local_header(raw, name):
+        pos = bytes(raw).index(name.encode())
+        return pos - 30  # start of its local file header
+
+    def flip_deflate(raw, parts):
+        start = local_header(raw, "xl/worksheets/sheet5.xml")
+        name_len = int.from_bytes(raw[start + 26 : start + 28], "little")
+        extra_len = int.from_bytes(raw[start + 28 : start + 30], "little")
+        data = start + 30 + name_len + extra_len
+        for k in range(8):  # destroy the head of the deflate stream
+            raw[data + k] = 0xFF
+
+    def bad_crc(raw, parts):
+        start = local_header(raw, "xl/worksheets/sheet5.xml")
+        raw[start + 14] ^= 0xFF  # CRC-32 in the local header
+        central = bytes(raw).index(b"PK\x01\x02" + b"")  # first central entry is another member
+        while True:
+            name_len = int.from_bytes(raw[central + 28 : central + 30], "little")
+            name = bytes(raw[central + 46 : central + 46 + name_len])
+            if name == b"xl/worksheets/sheet5.xml":
+                raw[central + 16] ^= 0xFF  # CRC-32 in the central directory
+                return
+            extra = int.from_bytes(raw[central + 30 : central + 32], "little")
+            comment = int.from_bytes(raw[central + 32 : central + 34], "little")
+            central += 46 + name_len + extra + comment
+
+    for damage in (flip_deflate, bad_crc):
+        path, digest = corrupt_archive(tmp_path, damage)
+        with pytest.raises(NanfImportError) as err:
+            read(path, digest, include_holdout=True)
+        assert err.value.code == "FORMAT_UNKNOWN" and "cannot be read" in str(err.value)
+
+
+def test_fig4_points_above_the_minus_five_dbm_cap_are_flagged_on_return(tmp_path):
+    def rop_axis(sheet, block, i):
+        return -12.0 + 1.0 * i  # 11 points, -12 to -2 dBm
+
+    path = tmp_path / "rop.xlsx"
+    digest = make_workbook(path, build_cells(axis_fn=rop_axis))
+    wb = read(path, digest, include_holdout=True)
+    b2b = wb[series_key("Fig.4", "BER@80", "B2B-80-BER")]
+    assert b2b.role is DataRole.CALIBRATION and len(b2b) == 11
+    assert b2b.above_rop_cap == (False,) * 8 + (True,) * 3  # -4, -3, -2 dBm
+    snr = wb[series_key("Fig.4", "SNR@100", "B2B-100-SNR")]
+    assert sum(snr.above_rop_cap) == 3
+    nanf = wb[series_key("Fig.4", "BER@80", "NANF-80-BER")]
+    assert len(nanf.above_rop_cap) == 6 and not any(nanf.above_rop_cap)  # -12 to -7
+    # exactly -5 dBm is scored (the cap is "at most -5 dBm"), and other sheets are never flagged
+    assert nanf_import.ROP_SCORING_CAP_DBM == -5.0
+    assert b2b.above_rop_cap[7] is False and b2b.x[7] == -5.0
+    assert not any(wb[series_key("Fig.5", "link", "ROP@NANF")].above_rop_cap)
 
 
 # --- the real workbook, if present: schema only, nothing printed ----------------------------------
