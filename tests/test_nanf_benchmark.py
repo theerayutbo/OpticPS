@@ -5,9 +5,24 @@ check the file hashes, and they pass without it.
 """
 
 import hashlib
+import json
+import math
 import re
 import subprocess
 from pathlib import Path
+
+import numpy as np
+import pytest
+
+from nanf_workbook_fixture import build_cells, make_workbook
+from opticps.measurement import nanf_benchmark as nb
+from opticps.measurement.nanf_import import DataRole, read_nanf_workbook, series_key
+from opticps.optical_channel.fiber import (
+    FiberProfileError,
+    OutOfValidityRangeError,
+    load_fiber_config,
+    resolve_profile,
+)
 
 PLAN = Path("docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md")
 SOURCES = Path("docs/NANF_SOURCES_AND_PROVENANCE.md")
@@ -346,3 +361,280 @@ def test_sources_fix_round_facts_are_recorded() -> None:
     assert "rows 4 to 14" in flat
     assert "May 2020" in flat and "single session" not in flat.lower()
     assert "separate record" in flat
+
+
+# --- Gate N2: Benchmark A (Fig. 1 recomputed) and Benchmark C (Fig. 5 read) ----------------------
+# Fig. 1 is the plan's cross-check class (section 2: "Not a measurement. Used only to check that
+# our dispersion and latency arithmetic reproduces the paper's stated assumptions"); Fig. 5 is a
+# calibration input. The tests below use closed forms written here and a synthetic workbook; the
+# real workbook is opened only for Fig. 1 and Fig. 5 and only by the cross-check tests at the end.
+
+REAL_XLSX = DATA_DIR / "extracted/dataset_JLT_NANF_vs_SMF.xlsx"
+REPORT = Path("reports/NANF_Benchmark_Report.md")
+C = 299_792_458.0
+SLOPES = {"SSMF": 0.060, "NZ-DSF": 0.054, "NANF": 0.004}  # own numbers for the synthetic curves
+
+
+def build_fig1_cells():
+    """A synthetic workbook whose Fig. 1 columns follow the closed forms of the paper's model."""
+    cells = build_cells(axis_fn=_axis)
+    from opticps.measurement.nanf_import import SHEET_LAYOUTS
+
+    layout = next(layout for layout in SHEET_LAYOUTS if layout.name == "Fig.1")
+    for block in layout.blocks:
+        for s in block.series:
+            fibre = {"SSMF": "SSMF", "SMF": "SSMF", "SMF@5km": "SSMF", "NZ-DSF": "NZ-DSF",
+                     "NZ-DSF@5km": "NZ-DSF", "NANF": "NANF", "NANF@5km": "NANF"}[s.header]  # fmt: skip
+            d1550, n = nb.PAPER_ASSUMPTIONS[fibre]
+            for i in range(s.count):
+                x = _axis("Fig.1", block.label, i)
+                d_here = d1550 + SLOPES[fibre] * (x * 1000.0 - 1550.0)
+                if block.label == "a-CD":
+                    y = d_here
+                elif block.label == "b-bandwidth":
+                    lam = x * 1e-9 * 1000.0
+                    x3 = math.acos(10 ** (-3 / 20))
+                    y = math.sqrt(x3 * C / (math.pi * lam**2 * abs(d_here * 1e-6) * 5e3)) / 1e9
+                elif block.label == "c-fading":
+                    lam = 1550e-9
+                    arg = math.pi * lam**2 * d1550 * 1e-6 * 5e3 * (x * 1e9) ** 2 / C
+                    y = 20 * math.log10(max(abs(math.cos(arg)), 1e-300))
+                else:
+                    y = n * x * 1e3 / C * 1e6
+                cells["Fig.1"][f"{s.letter}{block.first_row + i}"] = ("n", repr(y), None)
+    return cells
+
+
+def _axis(sheet: str, block: str, i: int) -> float:
+    if sheet == "Fig.1":
+        return {"a-CD": 1.4 + 0.005 * i, "b-bandwidth": 1.4 + 0.005 * i, "c-fading": float(i),
+                "d-latency": 1.0 + 0.2 * i}[block]  # fmt: skip
+    if sheet == "Fig.5":
+        return 1460.0 + 10.0 * i
+    return -12.0 + 0.5 * i
+
+
+@pytest.fixture(scope="module")
+def synthetic_workbook(tmp_path_factory):
+    path = tmp_path_factory.mktemp("nanf") / "synthetic.xlsx"
+    digest = make_workbook(path, build_fig1_cells())
+    return read_nanf_workbook(path, expected_sha256=digest)
+
+
+def test_the_plan_allows_fig1_and_fig5_and_names_what_it_forbids() -> None:
+    text = PLAN.read_text()
+    assert "Cross-check only, no fit | Fig. 1" in text and "Not a measurement" in text
+    assert "Fig. 5 ROP columns and NANF loss column" in text
+    assert "Locked holdout | Fig. 4 NANF and SSMF series" in text
+    # the benchmark module reads Fig. 1 and Fig. 5 only (no holdout key, no other sheet)
+    source = Path(nb.__file__).read_text()
+    assert set(re.findall(r'series_key\(\s*"(Fig\.\d+)"', source)) == {"Fig.1", "Fig.5"}
+    assert "FIG1_BLOCKS" in source and not re.search(r"Fig\.(4|6|7|8|9|10|11|12)\b", source)
+
+
+def test_the_tone_response_follows_the_cosine_law_and_ignores_loss() -> None:
+    for d, length, f_ghz in (
+        (15.95, 5.0, 14.0),
+        (15.95, 5.0, 25.0),
+        (2.04, 4.76, 60.0),
+        (-8.0, 3.0, 30.0),
+    ):
+        resolved = resolve_profile(
+            nb.numerical_profile("SSMF", length_km=length, d_ps_per_nm_km=d), 1550.0
+        )
+        lam = 1550e-9
+        expected = abs(
+            math.cos(math.pi * lam**2 * abs(d) * 1e-6 * length * 1e3 * (f_ghz * 1e9) ** 2 / C)
+        )
+        assert nb.tone_response(resolved, f_ghz * 1e9) == pytest.approx(expected, abs=2e-6)
+    # a lossy fibre gives the same normalised response
+    lossy = nb.numerical_profile("SSMF", d_ps_per_nm_km=15.95)
+    scen = resolve_profile(lossy, 1550.0)
+    assert scen.total_loss_db == 0.0  # the paper's simulation excludes fibre loss
+    with pytest.raises(ValueError):
+        nb.tone_response(scen, 0.0)
+    with pytest.raises(ValueError):
+        nb.tone_response(scen, float("nan"))
+
+
+def test_numerical_profile_is_a_loss_free_published_numerical_assumption() -> None:
+    with pytest.raises(ValueError, match="exactly one"):
+        nb.numerical_profile("SSMF")
+    with pytest.raises(ValueError, match="exactly one"):
+        nb.numerical_profile("SSMF", d_ps_per_nm_km=1.0, d_table=object())  # type: ignore[arg-type]
+    p = nb.numerical_profile("NANF", d_ps_per_nm_km=2.04)
+    r = resolve_profile(p, 1550.0)
+    assert (r.total_loss_db, r.length_km, r.group_index) == (0.0, 5.0, 1.003)
+    assert r.dispersion_ps_per_nm_km == 2.04 and not r.not_a_benchmark_result
+    with pytest.raises(OutOfValidityRangeError):
+        resolve_profile(p, 1630.0)  # beyond the paper's curves (1.4 to 1.625 um): no extrapolation
+
+
+def test_first_null_and_bandwidth_match_the_closed_forms() -> None:
+    resolved = resolve_profile(nb.numerical_profile("SSMF", d_ps_per_nm_km=15.95), 1550.0)
+    f1 = math.sqrt(C / (2 * (1550e-9) ** 2 * 15.95e-6 * 5e3)) / 1e9
+    assert nb.first_null_ghz(resolved) == pytest.approx(f1, abs=0.01)
+    x3 = math.acos(10 ** (-3 / 20))
+    f3 = math.sqrt(x3 * C / (math.pi * (1550e-9) ** 2 * 15.95e-6 * 5e3)) / 1e9
+    assert nb.bandwidth_3db_ghz(resolved) == pytest.approx(f3, rel=1e-6)
+    zero = resolve_profile(nb.numerical_profile("SSMF", d_ps_per_nm_km=0.0), 1550.0)
+    assert math.isinf(nb.bandwidth_3db_ghz(zero)) and math.isinf(nb.first_null_bracket_ghz(zero))
+    with pytest.raises(ValueError, match="no interior null"):
+        nb.first_null_ghz(resolved, half_window_ghz=0.005, step_ghz=0.01)
+
+
+def test_the_fig1_report_reproduces_a_synthetic_workbook_built_from_the_closed_forms(
+    synthetic_workbook,
+) -> None:
+    report = nb.fig1_report(synthetic_workbook)
+    for fibre, result in report.fading.items():
+        assert result.max_abs_diff_db < 1e-3, fibre
+        assert result.max_abs_diff_with_workbook_d_db < 1e-3
+    assert report.fading["SSMF"].n_excluded_deep == 1  # the 28 GHz bin sits in the null
+    for fibre, (_, reld, n) in report.bandwidth.items():
+        assert n == 46 and reld < 1e-4, fibre
+    for fibre, (absd, _) in report.latency.items():
+        assert absd < 1e-9, fibre
+    assert all(ok for _, _, ok in report.preregistered_null_check.values())
+    assert report.first_null_ghz["SSMF"] == pytest.approx(27.97, abs=0.3)
+    assert report.published_null_ghz_grid["NANF"] is None  # no interior minimum inside 35 GHz
+    assert report.latency_saving_5km_us[0] == pytest.approx(7.7587, abs=1e-3)
+    assert report.latency_saving_5km_fraction == pytest.approx(1 - 1.003 / 1.4682, abs=1e-9)
+    assert "20 log10" in report.conventions
+
+
+def test_the_fig1_report_cannot_run_on_holdout_or_wrong_roles(synthetic_workbook) -> None:
+    for key in synthetic_workbook.series:
+        assert synthetic_workbook[key].role is not DataRole.HOLDOUT  # default read withholds them
+    assert not any("Fig.4" in k or "Fig.6" in k for k in nb.FIG1_BLOCKS)
+
+
+def fig5_cells(loss=None, rop_nanf=None, rop_ssmf=None):
+    cells = build_cells(axis_fn=_axis)
+    for i in range(19):
+        values = {
+            "B": -9.0 + 0.1 * i if rop_nanf is None else rop_nanf[i],
+            "C": -7.0 - 0.1 * i if rop_ssmf is None else rop_ssmf[i],
+            "D": 8.3 - 0.123 * i if loss is None else loss[i],
+        }
+        for col, v in values.items():
+            cells["Fig.5"][f"{col}{2 + i}"] = ("n", repr(v), None)
+    return cells
+
+
+@pytest.fixture
+def fig5_workbook(tmp_path):
+    loss = [8.33 if i == 0 else 6.45 + 0.1 * abs(i - 15) for i in range(19)]
+    path = tmp_path / "f5.xlsx"
+    digest = make_workbook(path, fig5_cells(loss=loss))
+    return read_nanf_workbook(path, expected_sha256=digest)
+
+
+def test_fig5_summary_leaves_the_distributed_loss_unknown(fig5_workbook) -> None:
+    s = nb.link_loss_summary(fig5_workbook)
+    assert s.n_points == 19 and s.wavelength_range_nm == (1460.0, 1640.0)
+    assert (s.loss_min_db, s.loss_min_wavelength_nm) == (6.45, 1610.0)
+    assert (s.loss_max_db, s.loss_max_wavelength_nm) == (8.33, 1460.0)
+    assert s.distributed_upper_bound_db_per_km == pytest.approx(6.45 / 4.76)
+    assert s.distributed_loss == "unknown"
+    assert "stays unknown" in nb.DISTRIBUTED_LOSS_NOT_SEPARABLE
+    assert (
+        "2 dB" in nb.DISTRIBUTED_LOSS_NOT_SEPARABLE
+        and "0.1 dB" in nb.DISTRIBUTED_LOSS_NOT_SEPARABLE
+    )
+    # the Hong profile keeps its attenuation unknown, so no run takes a distributed loss from Fig. 5
+    hong = load_fiber_config("configs/fibers/NANF-HONG-2021-4P76KM.yaml")
+    assert not hong.attenuation_db_per_km.known and hong.attenuation_db_per_km.value is None
+    with pytest.raises(FiberProfileError):
+        resolve_profile(hong, 1550.0)
+
+
+def test_total_link_loss_is_interpolated_inside_the_measured_span_only(fig5_workbook) -> None:
+    assert nb.link_loss_at(fig5_workbook, 1460.0) == 8.33
+    assert nb.link_loss_at(fig5_workbook, 1610.0) == pytest.approx(6.45)
+    assert nb.link_loss_at(fig5_workbook, 1640.0) == pytest.approx(6.45 + 0.1 * 3)
+    mid = nb.link_loss_at(fig5_workbook, 1605.0)
+    assert mid == pytest.approx(0.5 * (6.45 + 6.55))  # linear between 1600 (6.55) and 1610 (6.45)
+    for outside in (1459.9, 1640.1, 1550.0 - 1e3, float("nan"), float("inf")):
+        with pytest.raises(OutOfValidityRangeError):
+            nb.link_loss_at(fig5_workbook, outside)
+
+
+def test_the_link_loss_is_one_number_and_never_added_to_the_pigtail(fig5_workbook) -> None:
+    hong = load_fiber_config("configs/fibers/NANF-HONG-2021-4P76KM.yaml")
+    assert hong.pigtail_loss_db.value == 2.0 and hong.splice_loss_db.value == 0.1
+    # the helper returns the total of the whole link; a caller that adds pigtail + loss would count
+    # the ~2 dB twice, so the docstring says so and no function here returns a pigtail-adjusted loss
+    doc = nb.link_loss_at.__doc__ or ""
+    assert "must not be added to the pigtail" in doc and "twice" in doc
+    assert not [n for n in dir(nb) if "distributed_from" in n or "net_of_pigtail" in n]
+
+
+def test_fig5_columns_are_calibration_inputs(fig5_workbook) -> None:
+    for header in ("ROP@NANF", "ROP@SSMF", "NANF loss"):
+        assert fig5_workbook[series_key("Fig.5", "link", header)].role is DataRole.CALIBRATION_INPUT
+
+
+# Real workbook: Fig. 1 and Fig. 5 only; skipped when data/external is absent.
+
+REAL = pytest.mark.skipif(not REAL_XLSX.is_file(), reason="data/external/nanf_hong2021 is absent")
+
+
+@REAL
+def test_the_simulated_zero_chirp_nulls_meet_the_predeclared_tolerance_of_a1_3() -> None:
+    # Plan A1.3: a disagreement above 0.3 GHz with the pre-registered arithmetic is a simulator
+    # defect. This is the only tolerance predeclared for Fig. 1; everything else is reported only.
+    report = nb.fig1_report(read_nanf_workbook(REAL_XLSX))
+    assert nb.NULL_TOLERANCE_GHZ == 0.3
+    for label, (sim, expected, ok) in report.preregistered_null_check.items():
+        assert ok and abs(sim - expected) <= 0.3, label
+
+
+@REAL
+def test_the_report_numbers_are_current_with_the_recomputation() -> None:
+    text = REPORT.read_text()
+    block = re.search(r"```json\n(\{.*?\})\n```", text, re.S)
+    assert block, "the report carries a machine-readable block of its computed values"
+    recorded = json.loads(block.group(1))
+    wb = read_nanf_workbook(REAL_XLSX)
+    report = nb.fig1_report(wb)
+    assert recorded["first_null_ghz_5km"] == pytest.approx(report.first_null_ghz, rel=1e-3)
+    assert recorded["bandwidth_3db_at_1550_ghz"] == pytest.approx(
+        {k: v[0] for k, v in report.bandwidth_at_1550_ghz.items()}, rel=1e-3
+    )
+    assert recorded["latency_saving_5km_us"] == pytest.approx(
+        report.latency_saving_5km_us[0], rel=1e-3
+    )
+    assert recorded["fading_max_abs_diff_db_stated_d"] == pytest.approx(
+        {k: v.max_abs_diff_db for k, v in report.fading.items()}, rel=1e-2, abs=1e-6
+    )
+    summary = nb.link_loss_summary(wb)
+    assert recorded["link_loss_db"] == pytest.approx([summary.loss_min_db, summary.loss_max_db])
+    assert recorded["link_loss_min_wavelength_nm"] == summary.loss_min_wavelength_nm
+
+
+@REAL
+def test_the_default_read_for_the_benchmarks_never_returns_a_holdout_series() -> None:
+    wb = read_nanf_workbook(REAL_XLSX)
+    assert {s.role for s in wb.series.values()} <= {
+        DataRole.CROSS_CHECK,
+        DataRole.CALIBRATION,
+        DataRole.CALIBRATION_INPUT,
+    }
+    assert np.isfinite(nb.link_loss_summary(wb).loss_min_db)
+
+
+def test_the_report_is_labelled_attributed_and_makes_no_validation_claim() -> None:
+    text = REPORT.read_text()
+    assert LABEL in text.splitlines()[0] or LABEL in text[:300]
+    assert "10.5258/SOTON/D1889" in text and "CC BY 4.0" in text
+    assert "https://creativecommons.org/licenses/by/4.0/" in text
+    assert (
+        "not experimental validation" in text.lower()
+        or "no claim of experimental validation" in text.lower()
+    )
+    for evidence in ("published-numerical-assumption", "published-experimental", "derived"):
+        assert evidence in text
+    assert "Changes:" in text  # CC BY: an indication of changes
+    # no image, no table copied from a third party: the only data in the report are our computed values
+    assert "![" not in text

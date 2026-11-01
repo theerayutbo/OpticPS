@@ -26,12 +26,15 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+M = "src/opticps/measurement/nanf_import.py"
 F = "src/opticps/optical_channel/fiber.py"
 L = "src/opticps/optical_channel/link.py"
 TESTS = (
     "tests/test_nanf_profiles.py",
     "tests/test_nanf_propagation.py",
     "tests/test_nanf_n2a.py",
+    "tests/test_nanf_import.py",
+    "tests/nanf_workbook_fixture.py",
     "tests/test_nanf_benchmark.py",
 )
 # (label, file, old text, new text); `old` must occur exactly once.
@@ -109,6 +112,64 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "        if False:\n"
         '            raise FiberProfileError("a precedence declaration needs a stated provenance")',
     ),
+    # N2 importer guards
+    ("importer: hash not checked", M, "if digest != expected_sha256:", "if False:"),
+    (
+        "importer: hidden sheet accepted",
+        M,
+        'if any(s[2] != "visible" for s in sheets):',
+        "if False:",
+    ),
+    ("importer: DOCTYPE accepted", M, 'b"<!doctype" in lowered or ', "False or "),
+    ("importer: zero BER not censored", M, "if value == 0.0:", "if False:"),
+    ("importer: censor floor 0", M, "elif value < BER_CENSOR_FLOOR:", "elif value < 0.0:"),
+    ("importer: BER above 1 accepted", M, "if not 0.0 <= value <= 1.0:", "if False:"),
+    (
+        "importer: unordered axis accepted",
+        M,
+        "if any(b <= a for a, b in zip(axis, axis[1:], strict=False)):",
+        "if False:",
+    ),
+    ("importer: any formula accepted", M, 'cell.formula != "-Inf"', "False"),
+    ("importer: Fig.6 B2B read as calibration", M, "b2b_role if link", "_CAL if link"),
+    (
+        "importer: holdout returned by default",
+        M,
+        "include_holdout or s.role is not DataRole.HOLDOUT",
+        "True",
+    ),
+    (
+        "importer: repr shows values",
+        M,
+        'f"{self.provenance.value}, {shown})"',
+        'f"{self.provenance.value}, {shown}, {self.y})"',
+    ),
+    ("importer: missing cells accepted", M, "        if missing:", "        if False:"),
+    (
+        "importer: negative loss accepted",
+        M,
+        'elif s.quantity in ("link_loss", "capacity", "latency") and value < 0.0:',
+        "elif False:",
+    ),
+    (
+        "importer: dimension not checked",
+        M,
+        'if dim is None or dim.get("ref") != layout.dimension:',
+        "if False:",
+    ),
+    (
+        "importer: merged ranges not checked",
+        M,
+        "if sorted(merges) != sorted(layout.merges):",
+        "if False:",
+    ),
+    (
+        "importer: sheet list not checked",
+        M,
+        "if [s[0] for s in sheets] != list(EXPECTED_SHEETS):",
+        "if False:",
+    ),
+    ("importer: non-finite number accepted", M, "if not math.isfinite(value):", "if False:"),
     # N2a guards
     (
         "declared-over-table flag never set",
@@ -179,7 +240,7 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         shutil.copytree(ROOT / "src", work / "src", ignore=shutil.ignore_patterns("__pycache__"))
-        for folder in ("configs", "docs"):
+        for folder in ("configs", "docs", "reports"):
             shutil.copytree(ROOT / folder, work / folder, ignore=shutil.ignore_patterns("*.pyc"))
         (work / "tests").mkdir()
         shutil.copy(ROOT / "tests/nanf_profile_helpers.py", work / "tests")

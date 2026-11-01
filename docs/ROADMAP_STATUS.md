@@ -157,6 +157,18 @@ Points to carry, none a gate failure:
 | Tests, anchor, lint | see `handoff/N1_dev.md` for the final counts |
 | Fit, scoring, simulation of paper curves, push, merge, tag, hardware | none |
 
+### Gate N2 record, first part (NANF workstream, 2026-10-31)
+
+| Item | Value |
+|---|---|
+| N2a (commits e8048ed and 4c81691) | N1 minors closed: slope check gated by a flag, not a text match; a scenario S never overrides a table (also under a scalar declaration); a scenario D with any S in force states its wavelength (`SensitivityScenario.dispersion_wavelength_nm`), else refused; a measurement wavelength outside its own validity range is refused at construction; `transmit_profile` keeps the base label in the link record; extreme loss in matched power gives the stated refusal; citation floor documented as a form floor. 14 mutant gaps killed; `scripts/mutate_nanf.py` 45 applied, 45 killed (28 fibre and link guards, 17 importer guards) |
+| N2 deliverables | `src/opticps/measurement/nanf_import.py` (stdlib zip and XML reader, SHA-256 first, default-deny schema, holdout withheld by default), `nanf_benchmark.py` (Fig. 1 recomputation, Fig. 5 summary), `tests/test_nanf_n2a.py`, `tests/test_nanf_import.py`, `tests/nanf_workbook_fixture.py` (synthetic), additions to `tests/test_nanf_benchmark.py`, `reports/NANF_Benchmark_Report.md`, handoff `N2_dev.md` |
+| Benchmark A (Fig. 1, the paper's own model) | first nulls 27.970 GHz (SSMF 5 km), 29.386 (4.53 km), 80.158 (NANF 4.76 km) against the pre-registered 27.97, 29.39, 80.2: within the 0.3 GHz of plan A1.3 (PASS); 3-dB bandwidth, fading and latency reproduce the workbook to the rounding of the stated inputs; no other tolerance was predeclared, so no other pass is claimed |
+| Benchmark C (Fig. 5) | plan class calibration input, read. Total link loss 6.45 to 8.33 dB (minimum at 1610 nm) as the paper states; distributed attenuation left unknown (not separable from the rounded pigtail and splice figures); no extrapolation; the pigtail is not double counted |
+| Holdout | untouched: parsed by the importer's schema check only, never compared. One disclosed slip: per-series censor counts of all series were printed once (report section 2) |
+| Tests, anchor, lint | 1513 passed (-o addopts=-rN, 19 min 42 s, shared checkout); anchor green; ruff check, ruff format --check, mypy clean; `license_audit.py` 34 packages, 0 flagged; no dependency added (stdlib `zipfile` and `xml.etree`) |
+| Fit, scoring, Fig. 4 and Fig. 6 simulation, push, merge, tag, hardware | none |
+
 ## Byte anchor
 
 Regenerates both profiles into a pytest temporary directory with `generate_all` (the function behind `opticps generate`) from the untouched `configs/m8199b_profiles.yaml` at full training size (400,000 samples, grid step 0.005). Compared with committed `output/keysight_m8199b/`:
