@@ -54,7 +54,7 @@ MUTANTS: list[Mutant] = [
     ("cli_gate_register_never_found", TE, "        if candidate.is_file():\n            return load_config(candidate)", "        if False:\n            return load_config(candidate)", None),
     ("cli_gate_fallback_sha_removed", TE, "        if checksum.sha256_local == sha:", "        if False:", None),
     ("cli_gate_fallback_name_removed", TE, "    if fold_name(name) in holdout_names or (", "    if False or (", None),
-    ("cli_metadata_gate_removed", CLI, "        teriphic.gate_sample_read(args.metadata, source)  # a holdout is refused before read_text\n", "", None),
+    ("cli_metadata_gate_removed", CLI, "        teriphic.gate_sample_read(args.metadata, source)  # a holdout is refused before read_text\n", "        pass\n", None),
     ("cli_gate_validate_output_skip", CLI, "        and not (args.command == \"validate\" and dest == \"output\" and args.captures)\n", "", "gates one more folder (cost only); no refusal is lost"),
     ("in_external_case_sensitive", TE, "    parts = [fold_name(part) for part in path.resolve().parts]", "    parts = list(path.resolve().parts)", None),
     ("fold_name_no_casefold", TE, 'normalize("NFD", unicodedata.normalize("NFD", name).casefold())', 'normalize("NFD", unicodedata.normalize("NFD", name))', None),
@@ -95,6 +95,10 @@ MUTANTS: list[Mutant] = [
     ("block_row_rail_zero", EC, "rail=float(((x == x.max()).sum() + (x == x.min()).sum()) / x.size),", "rail=0.0,", None),
     ("block_size_minimum_zero", EC, "MIN_BLOCK_SAMPLES = 4096", "MIN_BLOCK_SAMPLES = 16", None),
     ("block_changed_file_unchecked", EC, "        rows: list[dict[str, float]] = []\n        self.assert_unchanged()", "        rows: list[dict[str, float]] = []", None),
+    ("block_row_distinct_huge", EC, "distinct=float(np.unique(x).size),", "distinct=1e9,", None),
+    ("block_row_lag1_one", EC, 'row["lag1"] = float(np.dot(centred[:-1], centred[1:]) / np.dot(centred, centred))', 'row["lag1"] = 1.0', None),
+    ("block_row_band_quiet", EC, 'row["band_db"] = _upper_band_db(centred)', 'row["band_db"] = -100.0', None),
+    ("block_row_jump_zero", EC, 'row["jump"] = float(np.quantile(np.abs(np.diff(x)), 0.999) / std)', 'row["jump"] = 0.0', None),
 ]  # fmt: skip
 
 

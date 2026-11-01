@@ -1664,6 +1664,28 @@ def test_each_block_check_has_a_case_that_fails_only_it(tmp_path, big_signal):
     assert failed_names(scan(tmp_path, inf, "inf.bin")) == {"block_finite"}
 
 
+def test_clipped_and_quantised_blocks_are_refused_by_the_clipping_and_distinct_checks(
+    tmp_path, big_signal
+):
+    clipped = big_signal.copy()
+    clipped[327_680:393_216] = np.clip(clipped[327_680:393_216], -1.0, 1.0)  # one whole block
+    assert "block_not_clipped" in failed_names(scan(tmp_path, clipped, "clip.bin"))
+    quantised = big_signal.copy()
+    block = quantised[327_680:393_216]
+    quantised[327_680:393_216] = np.round((block - block.min()) / (np.ptp(block) / 7.0))
+    assert "block_non_degenerate" in failed_names(scan(tmp_path, quantised, "quant.bin"))
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, big_signal, "ok2.bin"))
+    row = capture.block_rows()[0]
+    capture.close()
+    first = big_signal[:COVERAGE_BLOCK_SAMPLES].astype("<f4").astype(np.float64)
+    assert row["distinct"] == np.unique(first).size > 10_000
+    assert row["rail"] == pytest.approx(
+        ((first == first.max()).sum() + (first == first.min()).sum()) / first.size
+    )
+    assert 0.0 < row["rail"] < 1e-3 and row["lag1"] > 0.99 and row["jump"] < 0.5
+    assert row["band_db"] < -20.0
+
+
 def test_block_pass_makes_no_four_level_claim_and_says_so(tmp_path, big_signal, capsys):
     ramp = np.linspace(-1.0, 1.0, big_signal.size)
     nrz = held_pam4(25600, 40.96, levels=(-1.0, 1.0), seed=22)
@@ -2051,3 +2073,15 @@ def test_known_limits_state_the_exact_cli_claim_and_the_swap_and_keep_the_promis
     )
     assert promise in " ".join(Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md").read_text().split())
     assert "does not stop deliberate tampering" in text
+
+
+def test_block_pass_refuses_a_file_that_changed_after_it_was_hashed(tmp_path):
+    path = write_fixture(tmp_path, smooth_wave(20000), "moving.bin")
+    capture = ExternalCapture.open_keysight_bin(path)
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 5_000_000_000))
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.block_rows(4096)
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.coverage_scan()
+    capture.close()
