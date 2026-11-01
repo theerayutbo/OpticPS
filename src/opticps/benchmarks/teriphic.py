@@ -2,14 +2,15 @@
 
 Roles (plan `docs/benchmarks/FIT_HOLDOUT_PLAN.md`, R.3 and R5.2): only the characterisation file,
 `50G_PAM4_PD1_B2B_Subassembly1.bin`, may have a sample byte read. The 2 km and 10 km files may be
-hashed (`verify_local_asset`) and nothing else. `gate_sample_read` is the one gate that every
-sample-reading route of this module and of `opticps benchmark inspect-format` passes, for any
-`--file` wherever it lives: registered name of the resolved path (symbolic links followed), any file
-under `data/external/` that is not the B2B file, then the MD5 and SHA-256 of the whole file against
-the recorded holdout hashes. The file is hashed (bytes pass through a digest, no sample value is
-decoded) before any header or sample byte is returned, so a renamed or copied holdout is caught
-whatever its name. Not covered, and listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`:
-`ExternalCapture.open_*` and `uxr_import.read_bin` called directly, which are generic readers.
+hashed (`verify_local_asset`) and nothing else. `gate_sample_read` is the one gate. It is run on
+every path typed as a CLI option (see `ROUTES` in `opticps.cli.main`) and by this module's readers:
+registered name of the resolved path (symbolic links followed), any file under `data/external/`
+that is not the B2B file, then the MD5 and SHA-256 of the whole file against the recorded holdout
+hashes. The file is hashed (bytes pass through a digest, no sample value is decoded) before any
+header or sample byte is returned, so a renamed or copied holdout is caught whatever its name.
+Not covered, and listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`: paths found inside
+files, links inside folders, runtime-built and default paths, and `ExternalCapture.open_*` and
+`uxr_import.read_bin` called directly, which are generic readers.
 
 The verdict of `verify_b2b_format` is evidence-based and only about B2B. It never says
 anything about the other two files: the accepted hypothesis is applied to them unchanged

@@ -31,11 +31,15 @@ def _non_negative_float(text: str) -> float:
     return value
 
 
-# Every command option that names a path, and how it is covered (read from the call graph of each
-# handler, not from the option name). "gate": `main` runs `teriphic.gate_sample_read` on the file,
-# or on every file under the folder, before the handler starts. "handler": the handler gates it
-# itself. Anything else is "no read: <why>". A test walks the parser and fails on an option not
-# listed here.
+# Every command option typed as a path, and how it is covered (read from the call graph of each
+# handler, not from the option name). The claim is exactly this and no wider: only paths typed as
+# CLI options are gated. Paths found inside files (YAML, a manifest, a sidecar, the registry),
+# links inside folders, paths built at run time (a profile name joined to a folder) and defaults
+# are not gated; library code is not. The owner chose this narrower claim after review found that
+# the wider one would not close (plan Revision 8, `FREEZE_GUARD_KNOWN_LIMITS.md`). "gate": `main`
+# runs `teriphic.gate_sample_read` on the file, or on every file found by walking the folder, before
+# the handler starts. "handler": the handler gates it itself. Anything else is "no read: <why>".
+# A test walks the parser and fails on an option not listed here.
 GATE = "gate"
 HANDLER = "handler"
 ROUTES: dict[str, dict[str, str]] = {
@@ -336,8 +340,9 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
 def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
     """Offline format inspection of one external capture. Never downloads, never writes under
-    data/external. Every sample-reading route passes `teriphic.gate_sample_read` first (name,
-    symbolic-link target, MD5 and SHA-256 against the recorded holdout hashes), for any --file."""
+    data/external. The paths typed as `--file` and `--metadata` pass `teriphic.gate_sample_read`
+    first (name, symbolic-link target, MD5 and SHA-256 against the recorded holdout hashes); paths
+    found inside other files are not gated (plan Revision 8)."""
     from opticps.benchmarks import teriphic
     from opticps.benchmarks.external_capture import FormatStatus, RawSpec, format_unknown
 

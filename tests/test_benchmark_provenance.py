@@ -59,7 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 7 of the plan (2026-11-01, second fix round of Gate E1; Revision 6 is
+# Pinned for Revision 8 of the plan (2026-11-01, third fix round of Gate E1; Revision 7 is
+# REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
 # REVISION_6_PLAN_SHA256 at 536b3ec; Revision 5, before any sample was read, is REVISION_5_PLAN_SHA256 at 57643ca; Revision 4 is
 # REVISION_4_PLAN_SHA256 at d52149a, Revision 3 REVISION_3_PLAN_SHA256 at 8b84914). Revision 2 hashed to
 # PREVIOUS_PLAN_SHA256 (commit 0424e9c), Revision 1 to REVISION_1_PLAN_SHA256 (commit 8f57af9) and
@@ -70,7 +71,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "87e3839513df645930d026a0eef78360058881563b1cb85a3f5d1726aed4bb80"  # Revision 7
+PLAN_SHA256 = "37487f3b59cd69ceed8344aeb605d3625322fdaaafbce850702e4f9bd96af058"  # Revision 8
+REVISION_7_PLAN_SHA256 = (
+    "87e3839513df645930d026a0eef78360058881563b1cb85a3f5d1726aed4bb80"  # commit 936337d
+)
 REVISION_6_PLAN_SHA256 = (
     "c1c274b99557d752a612770f4a20d707247ee474bf953adff2a44e87249eb225"  # commit 536b3ec
 )
@@ -208,6 +212,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_7_PLAN_SHA256,
         REVISION_6_PLAN_SHA256,
         REVISION_5_PLAN_SHA256,
         REVISION_4_PLAN_SHA256,
@@ -222,6 +227,23 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 5 (2026-11-01)" in text
     assert "## Revision 6 (2026-11-01)" in text
     assert "## Revision 7 (2026-11-01)" in text
+    assert "## Revision 8 (2026-11-01)" in text
+    revision_8 = text[text.index("## Revision 8 (2026-11-01)") :]
+    for needle in (
+        REVISION_7_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "only paths typed as CLI options are gated",
+        "the owner chose this narrower claim".replace("the owner", "The owner"),
+        "no gate is added for them",
+        "require_frozen_criterion",
+        "What the block pass misses",
+        "a flat run of 20,000 samples inside one block",
+        "leaves 3, `non_degenerate` 4 and `finite`",
+        "`UPSAMPLE_PERIOD_MIN` (1.02) and `UPSAMPLE_CONTROL_MULTIPLE` (3.0)",
+        "after B2B bytes had been seen",
+        "checks again after the loop",
+    ):
+        assert needle in revision_8, needle
     revision_7 = text[text.index("## Revision 7 (2026-11-01)") :]
     for needle in (
         REVISION_6_PLAN_SHA256,

@@ -20,10 +20,11 @@ What this module does and does not promise.
   published reference sequence.
 * `ExternalCapture.open_keysight_bin` and `open_raw` are generic: they check structure (and, for a
   raw layout, the physical checks on slices), hash the file, and know nothing about which file is a
-  holdout. The holdout rule lives in `opticps.benchmarks.teriphic.gate_sample_read`, which every
-  sample-reading route of the CLI and the TERIPHIC adapter passes first. Calling an `open_*`
-  constructor or `opticps.measurement.uxr_import.read_bin` directly on a holdout is not refused here
-  (listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`). Structure alone is never a verdict:
+  holdout. The holdout rule lives in `opticps.benchmarks.teriphic.gate_sample_read`, which the
+  paths typed as CLI options and the TERIPHIC adapter pass first (not paths found inside files).
+  Calling an `open_*` constructor or `opticps.measurement.uxr_import.read_bin` directly on a
+  holdout is not refused here (listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`).
+  Structure alone is never a verdict:
   `ExternalCapture.coverage_scan` (every block of the whole record) gives the physical pass,
   reported separately; `full_scan` and the three-slice `physical_checks` are narrower tools.
 
@@ -774,6 +775,7 @@ class ExternalCapture:
             with np.errstate(all="ignore"):
                 block = np.asarray(self._samples[begin:end], dtype=np.float64)
                 rows.append(_block_row(begin, block))
+        self.assert_unchanged()  # a file still being written during the pass is reported
         return rows
 
     def coverage_scan(self, block_samples: int = COVERAGE_BLOCK_SAMPLES) -> CoverageReport:

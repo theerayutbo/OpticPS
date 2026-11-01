@@ -5,8 +5,8 @@ files the E1 test file needs. The copy is a git repository (`git init`, `git add
 related tests do not give false kills, and `data/external` is absent so the tests marked
 `real_b2b` skip. The test file runs against the copy; a mutant is "killed" when a test fails
 (pytest exit code 1). A mutant that breaks collection (2 or more) is BROKEN, never killed, and the
-unmutated copy must pass first. A mutant listed with a reason is an equivalent mutant: it is run,
-reported, and not counted against the exit code.
+unmutated copy must pass first. A mutant listed with a reason is a harmless unpinned survivor, not
+an equivalent mutant: it is run, reported, and not counted against the exit code.
 
     python scripts/mutate_e1.py [-j JOBS] [-k LABEL_SUBSTRING]
 
@@ -33,7 +33,7 @@ EC = "src/opticps/benchmarks/external_capture.py"
 TE = "src/opticps/benchmarks/teriphic.py"
 CS = "src/opticps/benchmarks/capture_stats.py"
 CLI = "src/opticps/cli/main.py"
-# (label, file, old, new, reason this mutant is equivalent or None); `old` occurs exactly once.
+# (label, file, old, new, reason a surviving mutant is harmless, or None); `old` occurs exactly once.
 Mutant = tuple[str, str, str, str, str | None]
 MUTANTS: list[Mutant] = [
     # --- survivors of the second review
@@ -55,7 +55,7 @@ MUTANTS: list[Mutant] = [
     ("cli_gate_fallback_sha_removed", TE, "        if checksum.sha256_local == sha:", "        if False:", None),
     ("cli_gate_fallback_name_removed", TE, "    if fold_name(name) in holdout_names or (", "    if False or (", None),
     ("cli_metadata_gate_removed", CLI, "        teriphic.gate_sample_read(args.metadata, source)  # a holdout is refused before read_text\n", "        pass\n", None),
-    ("cli_gate_validate_output_skip", CLI, "        and not (args.command == \"validate\" and dest == \"output\" and args.captures)\n", "", "gates one more folder (cost only); no refusal is lost"),
+    ("cli_gate_validate_output_skip", CLI, "        and not (args.command == \"validate\" and dest == \"output\" and args.captures)\n", "", "unpinned and harmless: at the pin `validate --captures ok --output <folder holding a holdout>` is not refused, the mutant would refuse it; it only gates one more folder, so no refusal is lost"),
     ("in_external_case_sensitive", TE, "    parts = [fold_name(part) for part in path.resolve().parts]", "    parts = list(path.resolve().parts)", None),
     ("fold_name_no_casefold", TE, 'normalize("NFD", unicodedata.normalize("NFD", name).casefold())', 'normalize("NFD", unicodedata.normalize("NFD", name))', None),
     ("fold_name_no_normalisation", TE, 'unicodedata.normalize("NFD", unicodedata.normalize("NFD", name).casefold())', "name.casefold()", None),
@@ -99,6 +99,27 @@ MUTANTS: list[Mutant] = [
     ("block_row_lag1_one", EC, 'row["lag1"] = float(np.dot(centred[:-1], centred[1:]) / np.dot(centred, centred))', 'row["lag1"] = 1.0', None),
     ("block_row_band_quiet", EC, 'row["band_db"] = _upper_band_db(centred)', 'row["band_db"] = -100.0', None),
     ("block_row_jump_zero", EC, 'row["jump"] = float(np.quantile(np.abs(np.diff(x)), 0.999) / std)', 'row["jump"] = 0.0', None),
+    # --- third review (finding 2 and 3)
+    ("gate_nested_folders_one_level", CLI, 'sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else []', 'sorted(p for p in path.glob("*") if p.is_file()) if path.is_dir() else []', None),
+    ("in_external_without_resolve", TE, "    parts = [fold_name(part) for part in path.resolve().parts]", "    parts = [fold_name(part) for part in path.parts]", None),
+    ("register_source_tree_dropped", TE, "for candidate in (CONFIG_PATH, Path(__file__).resolve().parents[3] / CONFIG_PATH):", "for candidate in (CONFIG_PATH,):", None),
+    ("fallback_unresolved_name", TE, "    name = path.resolve().name\n    holdout_names", "    name = path.name\n    holdout_names", None),
+    ("fallback_data_external_arm_off", TE, "        _in_external(path) and fold_name(name) != fold_name(B2B_FILENAME)", "        False and fold_name(name) != fold_name(B2B_FILENAME)", None),
+    ("fallback_b2b_exception_off", TE, "        _in_external(path) and fold_name(name) != fold_name(B2B_FILENAME)", "        _in_external(path)", None),
+    ("fallback_b2b_exception_unfolded", TE, "        _in_external(path) and fold_name(name) != fold_name(B2B_FILENAME)", "        _in_external(path) and name != B2B_FILENAME", None),
+    ("fallback_name_unfolded", TE, "    if fold_name(name) in holdout_names or (", "    if name in set(HOLDOUT_SHA256) or (", None),
+    ("scale_keeps_zero_spread_blocks", EC, 'sigmas = [r["sigma"] for r in finite_rows if r["sigma"] > 0]', 'sigmas = [r["sigma"] for r in finite_rows]', None),
+    ("scale_from_first_block", EC, "scale = float(np.median(sigmas)) if sigmas else 0.0", "scale = float(sigmas[0]) if sigmas else 0.0", None),
+    ("scale_from_min_block", EC, "scale = float(np.median(sigmas)) if sigmas else 0.0", "scale = float(min(sigmas)) if sigmas else 0.0", None),
+    ("limit_spread_min_lower", EC, "BLOCK_SPREAD_MIN = 0.5", "BLOCK_SPREAD_MIN = 0.4", None),
+    ("limit_spike_higher", EC, "BLOCK_SPIKE_MAX = 8.0", "BLOCK_SPIKE_MAX = 9.0", None),
+    ("limit_spike_lower", EC, "BLOCK_SPIKE_MAX = 8.0", "BLOCK_SPIKE_MAX = 7.0", None),
+    ("limit_rail_higher", EC, "BLOCK_RAIL_MAX = 1e-3", "BLOCK_RAIL_MAX = 2e-3", None),
+    ("limit_lag1_lower", EC, "BLOCK_LAG1_MIN = 0.5", "BLOCK_LAG1_MIN = 0.4", None),
+    ("limit_lag1_higher", EC, "BLOCK_LAG1_MIN = 0.5", "BLOCK_LAG1_MIN = 0.6", None),
+    ("limit_band_higher", EC, "BLOCK_BAND_DB_MAX = -20.0", "BLOCK_BAND_DB_MAX = -15.0", None),
+    ("limit_band_lower", EC, "BLOCK_BAND_DB_MAX = -20.0", "BLOCK_BAND_DB_MAX = -25.0", None),
+    ("block_changed_after_the_loop_unchecked", EC, "        self.assert_unchanged()  # a file still being written during the pass is reported\n", "", None),
 ]  # fmt: skip
 
 
@@ -150,15 +171,15 @@ def main() -> int:
             label, _, _, _, reason = mutant
             shown = status
             if status == "SURVIVED" and reason:
-                shown = "equivalent"
+                shown = "harmless"
             print(f"{shown:10} {label}" + (f"  ({reason})" if reason else ""), flush=True)
-            key = shown if shown in ("killed", "SURVIVED", "BROKEN", "equivalent") else "INVALID"
+            key = shown if shown in ("killed", "SURVIVED", "BROKEN", "harmless") else "INVALID"
             counts[key] = counts.get(key, 0) + 1
-            if key not in ("killed", "equivalent"):
+            if key not in ("killed", "harmless"):
                 unexpected += 1
     print(
         f"{len(chosen)} applied: {counts.get('killed', 0)} killed, {counts.get('SURVIVED', 0)}"
-        f" survived, {counts.get('equivalent', 0)} equivalent, {counts.get('BROKEN', 0)} broken, "
+        f" survived, {counts.get('harmless', 0)} harmless, {counts.get('BROKEN', 0)} broken, "
         f"{counts.get('INVALID', 0)} invalid"
     )
     return 1 if unexpected else 0

@@ -694,3 +694,68 @@ the 0.9 s hash and open; peak Python heap 4.7 MB; peak resident set of the proce
 file pages the system can drop (the process was at 27 MB before the pass). Limits of the pass: a legitimate
 capture that differs strongly from B2B (burst traffic, a long idle gap) can be refused, and a capture that
 passes is not thereby a verified capture.
+
+## Revision 8 (2026-11-01): the route claim narrowed, limits of the block pass, two corrections
+
+Previous version: SHA-256 `87e3839513df645930d026a0eef78360058881563b1cb85a3f5d1726aed4bb80`
+(Revision 7). New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. Reason: the third Gate E1 review (`handoff/E1_qa3.md`, findings 1 to 6). Anything run on file
+bytes here was run on `50G_PAM4_PD1_B2B_Subassembly1.bin` only.
+
+### R8.1 The route claim, narrowed by the owner
+
+Revision 6 (R6.2) said that every sample-reading route passes one gate first, and Revision 7 (R7.4) said
+that every CLI route that takes a path is gated. Both statements are replaced by this one: **only paths
+typed as CLI options are gated.** The owner chose this narrower claim after three review rounds showed that
+the wider claim would not close: a gated option can name or lead to another path. These are not gated, and
+no gate is added for them: paths found inside files (a YAML such as `demo_config` and `demo_results` in a
+fiber-validation config, a manifest's `waveform_filename`, a sidecar, the leakage registry); links inside
+folders; paths built at run time (a profile name joined to a folder, `--profile ../outside`); derived and
+default paths (`slides --results` reading the fiber results file, `demo` reading its default config, the
+default registry path). Library code is not gated either (unchanged). Where the earlier wording of R6.2 or
+R7.4 says more, this section replaces it; no earlier line is edited. `ROUTES` in `src/opticps/cli/main.py`,
+the module docstrings and `FREEZE_GUARD_KNOWN_LIMITS.md` now carry the narrower wording, and each route the
+review ran is listed there concretely. The review found that none of these routes decodes samples as
+numbers, but they read whole files and an error message can echo a header byte (byte 4, 0x88 on the
+review's fixture); that is stated in the known limits and not softened. R5.2 allows hash only for the
+holdouts, with no header read; on those routes that is not enforced by the code. Holdout integrity for
+scoring rests on `require_frozen_criterion` at E2, not on these gates.
+
+### R8.2 A file that changes during the block pass
+
+The R7.5 block pass checked the file once before the loop. It now checks again after the loop, so an
+overwrite of a block that was already scanned (size or modification time changed) is reported and the
+result is refused. A change that keeps size and modification time is not seen; that is a deliberate-only
+route under the promise.
+
+### R8.3 What the block pass misses
+
+R7.5 says the pass screens for corruption. Built from 2^22 B2B samples by the third review, these pass it:
+a flat run of 20,000 samples inside one block (31 % of the block); a flat run of 40,000 samples straddling two
+blocks; a white-noise burst of 200 samples inside a block and one of 400 straddling two, both at one standard
+deviation; a single spike of 7.9 times the record scale (3.3 times the record peak, under the limit of 8);
+one block at gain 0.55 or 1.9 (inside the limits 0.5 and 2); a block inverted, reversed or replaced by another
+block; 60 % of the blocks replaced by a slow sine of similar spread. More than half the blocks at a gain above
+2 do fail, because the record scale follows the median, so poisoning the scale buys no more than the factor of
+2 limit. A record of one block has only its own scale (spike and spread compare with itself; the block count
+of 1 is printed). The pass is a screen for gross corruption and nothing more.
+
+### R8.4 Correction to the R7.2 parenthetical
+
+R7.2 says that leaving out any other single check "still leaves the same two or the same one". That is inexact
+when `matches_declared_structure` is also dropped. Reproduced on B2B this round (84 hypotheses): with
+`matches_declared_structure` dropped, also leaving out `continuous` leaves 3, `non_degenerate` 4 and `finite`
+16 survivors; leaving out `band_limited`, `bounded`, `not_clipped`, `plausible_scale` or `smooth` leaves the
+same 2. With `matches_declared_structure` kept, leaving out any one other check leaves the single survivor
+`<f4@164`. The sentence that no other check decides between `<f4@136` and `<f4@164` holds, and the R7.3
+statement (that check kept: one survivor) is unchanged.
+
+### R8.5 Two thresholds set after B2B was seen
+
+`UPSAMPLE_PERIOD_MIN` (1.02) and `UPSAMPLE_CONTROL_MULTIPLE` (3.0), the pass criterion of the labelled
+integer-upsampling reading (R7.3 and the minor 9 fix of the second round), were chosen after B2B bytes had been
+seen (B2B period-8 ratio 1.118 against controls of 1.0002 and 1.0001), together with a fixture upsampled
+eight-fold by windowed-sinc interpolation (1.066) and one without upsampling (1.003 against controls of
+1.006). Revision 7 did not say so. They affect only the wording of the labelled reading and never the format
+status.

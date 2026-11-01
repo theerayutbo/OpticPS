@@ -52,3 +52,10 @@ Local only, new commits on b7eaab5. Tip SHA, plan pin and counts in the final re
 - 4: seven survivors killed by behaviour tests; `scripts/mutate_e1.py` (git-initialised copy) covers them and the new guards; totals in the final report.
 - 5: `--metadata` gated and no byte values echoed; swap listed as deliberate only; `_in_external` and names case- and Unicode-normal; list or dict dtype is FORMAT_UNKNOWN; `rate_chain_reading` needs a curvature-period criterion (lines do not separate cases); `ExternalCapture` no longer says "verified".
 - Not done: library readers stay ungated (known limit); 64-bit integers recorded, not added to the 84 hypotheses.
+
+## Revision round 3 (after handoff/E1_qa3.md: 2 MAJOR, minors 3 to 6)
+Local only, new commits. Tip SHA and counts in the final report. Plan Revision 8 (previous pin 87e38395...).
+- 1: owner narrowed the claim: only paths typed as CLI options are gated; paths inside files, links inside folders, runtime-built and default paths are not; library code is not. Replaced in `ROUTES`, docstrings and known limits, with each route listed and the byte-echo stated; scoring integrity rests on `require_frozen_criterion` at E2. No new gating.
+- 2: the 14 survivors killed by behaviour tests (nested folders, resolve in `_in_external`, source-tree register, four fallback arms with the SHA table unpatched, zero-spread blocks, scale from one block, five limit values); 20 new mutants in `scripts/mutate_e1.py`, run end to end.
+- 3: the block pass re-checks the file after the loop (tested). 4 to 6 and obs 7 are in R8 and the script (harmless, not equivalent).
+

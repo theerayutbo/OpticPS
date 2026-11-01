@@ -883,7 +883,7 @@ def forbid_sample_readers(monkeypatch) -> list[str]:
     return called
 
 
-# --- finding 1: one gate for every route, any file name or place
+# --- finding 1: one gate for the paths typed as CLI options, any file name or place
 def test_cli_gate_catches_a_renamed_holdout_on_every_route(tmp_path, signal, monkeypatch, capsys):
     innocent = tmp_path / "innocent.bin"
     innocent.write_bytes(keysight_image(signal[0][:8192]))
@@ -2061,7 +2061,11 @@ def test_real_b2b_block_pass_thresholds_have_their_stated_margins():
 
 def test_known_limits_state_the_exact_cli_claim_and_the_swap_and_keep_the_promise():
     text = " ".join(Path("docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
-    assert "every CLI route that takes a path is gated, and library code is not" in text
+    assert "only paths typed as CLI options are gated" in text
+    assert "Paths found inside files, links inside folders, paths built at run time" in text
+    assert "an error message can echo one header byte" in text
+    assert "require_frozen_criterion" in text
+    assert "every CLI route" not in text
     assert "Time of check to time of use" in text and "deliberate only" in text
     assert "falls under the promise" in text
     assert "ROUTES" in text and "a test walks the parser" in text
@@ -2084,4 +2088,163 @@ def test_block_pass_refuses_a_file_that_changed_after_it_was_hashed(tmp_path):
         capture.block_rows(4096)
     with pytest.raises(BenchmarkError, match="changed after it was hashed"):
         capture.coverage_scan()
+    capture.close()
+
+
+# ============================================================================ third fix round
+# (handoff/E1_qa3.md, finding 2): behaviour behind every gate branch and block limit.
+def parse_cli(*argv: str):
+    from opticps.cli.main import build_parser
+
+    return build_parser().parse_args(list(argv))
+
+
+def test_gate_walks_nested_folders_to_any_depth(tmp_path, signal):
+    from opticps.cli.main import gate_user_files
+
+    deep = tmp_path / "a" / "b" / "c"
+    deep.mkdir(parents=True)
+    (deep / HOLDOUT_10KM).write_bytes(keysight_image(signal[0][:8192]))
+    with bad(ErrorCode.LEAKAGE_DETECTED):
+        gate_user_files(parse_cli("validate", "--captures", str(tmp_path / "a")))
+    shallow = tmp_path / "clean"
+    shallow.mkdir()
+    (shallow / "fine.bin").write_bytes(b"x")
+    gate_user_files(parse_cli("validate", "--captures", str(shallow)))  # a clean folder passes
+
+
+def test_in_external_follows_a_link_into_data_external(tmp_path):
+    target = tmp_path / "data" / "external" / "unregistered.bin"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(b"x")
+    link = tmp_path / "ordinary_name.bin"
+    link.symlink_to(target)
+    assert teriphic._in_external(link) is True  # the resolved path decides, not the link's name
+    with bad(ErrorCode.LEAKAGE_DETECTED):
+        teriphic.guard_sample_read(link)
+    elsewhere = tmp_path / "plain.bin"
+    elsewhere.write_bytes(b"x")
+    assert teriphic._in_external(elsewhere) is False
+
+
+def test_register_is_found_in_the_source_tree_from_any_working_directory(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)  # no configs/ here: only the source-tree candidate can answer
+    assert not (tmp_path / "configs").exists()
+    source = teriphic.load_register_for_gate()
+    assert source is not None and {a.filename for a in source.assets} >= {HOLDOUT_2KM, HOLDOUT_10KM}
+
+
+def test_fallback_gate_refuses_by_resolved_name_without_patching_the_sha_table(tmp_path):
+    target = tmp_path / HOLDOUT_2KM
+    target.write_bytes(b"not a holdout in content")
+    link = tmp_path / "harmless_name.bin"
+    link.symlink_to(target)
+    with bad(ErrorCode.LEAKAGE_DETECTED) as caught:
+        teriphic.gate_without_register(link)
+    assert HOLDOUT_2KM in str(caught.value)  # the resolved name, not the link's
+    upper = tmp_path / "50G_PAM4_PD1_10KM_SUBASSEMBLY1.BIN"  # name folding
+    upper.write_bytes(b"x")
+    with bad(ErrorCode.LEAKAGE_DETECTED):
+        teriphic.gate_without_register(upper)
+
+
+def test_fallback_gate_data_external_arm_and_the_b2b_exception(tmp_path):
+    unregistered = tmp_path / "data" / "external" / "teriphic" / "other_capture.bin"
+    unregistered.parent.mkdir(parents=True)
+    unregistered.write_bytes(b"not any holdout's bytes")  # the SHA arm cannot be what refuses it
+    assert teriphic.HOLDOUT_SHA256 and hashlib.sha256(
+        b"not any holdout's bytes"
+    ).hexdigest() not in (teriphic.HOLDOUT_SHA256.values())
+    with bad(ErrorCode.LEAKAGE_DETECTED) as caught:
+        teriphic.gate_without_register(unregistered)
+    assert "data/external" in str(caught.value)
+    b2b = unregistered.parent / teriphic.B2B_FILENAME
+    b2b.write_bytes(b"stand-in bytes")
+    teriphic.gate_without_register(b2b)  # the B2B file name is the one exception
+    upper = unregistered.parent / teriphic.B2B_FILENAME.upper()
+    upper.write_bytes(b"stand-in bytes")
+    teriphic.gate_without_register(upper)  # and it is matched with the same folding
+
+
+# --- block scale from the whole record, zero-spread blocks left out of it
+def rows_with_sigmas(*sigmas: float):
+    return [clean_row(i * 65536, sigma=s) for i, s in enumerate(sigmas)]
+
+
+def test_zero_spread_blocks_do_not_pull_the_record_scale_down():
+    report = summarize_blocks(rows_with_sigmas(0.0, 0.0, 0.0, 1.0, 1.0), 5 * 65536, 65536)
+    assert report.record_scale == 1.0  # the median of the blocks that have a spread
+    assert report.blocks_failed == 3 and report.first_failed_sample == 0
+    assert failed_names(report) == {"block_spread_vs_record_scale"}
+
+
+@pytest.mark.parametrize(
+    "sigmas",
+    [
+        (3.0, 1.0, 1.0, 1.0, 1.0),
+        (1.0, 1.0, 1.0, 1.0, 3.0),
+        (1.0, 1.0, 0.4, 1.0, 1.0),
+        (1.0, 5.0, 1.0),
+    ],
+)
+def test_record_scale_is_the_median_of_all_blocks_not_one_block(sigmas):
+    report = summarize_blocks(rows_with_sigmas(*sigmas), len(sigmas) * 65536, 65536)
+    assert report.record_scale == 1.0
+    outliers = sum(1 for s in sigmas if not 0.5 <= s <= 2.0)
+    assert report.blocks_failed == outliers == 1
+
+
+# --- the five block limit values, pinned as numbers (not by the constants)
+@pytest.mark.parametrize(
+    ("changes", "check"),
+    [
+        ({"lag1": 0.5}, None), ({"lag1": 0.499}, "block_smooth"),
+        ({"band_db": -20.0}, None), ({"band_db": -19.9}, "block_band_limited"),
+        ({"jump": 1.5}, None), ({"jump": 1.51}, "block_continuous"),
+        ({"rail": 1e-3}, None), ({"rail": 1.01e-3}, "block_not_clipped"),
+        ({"distinct": 16.0}, None), ({"distinct": 15.0}, "block_non_degenerate"),
+        ({"max_dev": 8.0}, None), ({"max_dev": 8.01}, "block_spike_vs_record_scale"),
+        ({"sigma": 0.5}, None), ({"sigma": 0.499}, "block_spread_vs_record_scale"),
+        ({"sigma": 2.0}, None), ({"sigma": 2.01}, "block_spread_vs_record_scale"),
+        ({"peak": 1e6}, None), ({"peak": 1.01e6}, "block_plausible_scale"),
+    ],
+)  # fmt: skip
+def test_block_limits_have_their_stated_numbers(changes, check):
+    report = judge(**changes)
+    if check is None:
+        assert report.passed, failed_names(report)
+    else:
+        assert failed_names(report) == {check}
+
+
+def test_block_constants_equal_the_numbers_in_the_plan():
+    assert (BLOCK_LAG1_MIN, BLOCK_BAND_DB_MAX, BLOCK_JUMP_MAX, BLOCK_RAIL_MAX) == (
+        0.5, -20.0, 1.5, 1e-3,
+    )  # fmt: skip
+    assert (BLOCK_DISTINCT_MIN, BLOCK_SPIKE_MAX, BLOCK_SPREAD_MIN, BLOCK_SPREAD_MAX) == (
+        16, 8.0, 0.5, 2.0,
+    )  # fmt: skip
+    assert COVERAGE_BLOCK_SAMPLES == 65536
+
+
+# --- finding 3: a file still being written during the pass is reported
+def test_an_overwrite_during_the_pass_is_reported_after_the_loop(tmp_path, monkeypatch):
+    from opticps.benchmarks import external_capture as module
+
+    path = write_fixture(tmp_path, smooth_wave(20000), "growing.bin")
+    capture = ExternalCapture.open_keysight_bin(path)
+    real = module._block_row
+    calls: list[int] = []
+
+    def touch_after_the_second_block(begin, block):
+        calls.append(begin)
+        if len(calls) == 2:  # a block already scanned is overwritten while the pass runs
+            stat = path.stat()
+            os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 7_000_000_000))
+        return real(begin, block)
+
+    monkeypatch.setattr(module, "_block_row", touch_after_the_second_block)
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.coverage_scan(4096)
+    assert len(calls) == 4  # the pass ran to the end before it was refused
     capture.close()

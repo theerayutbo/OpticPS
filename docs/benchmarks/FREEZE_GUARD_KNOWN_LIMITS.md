@@ -29,16 +29,39 @@ Not refused, deliberate or outside the tool:
   tests the last path component only, so "a symbolic link is refused" and "any other path is ignored"
   hold for the file itself, not for its parents. Listed, not chased.
 
-Holdout reading (plan R6.2 and R7.4, `handoff/E1_qa.md` findings 1 and 5, `handoff/E1_qa2.md` finding 1).
-The claim, exact: every CLI route that takes a path is gated, and library code is not. Gated means that
-before any decode `teriphic.gate_sample_read` runs on the file (or on every file under a folder argument):
-registered name of the resolved path (symbolic links followed, case- and Unicode-normal), any file under
-`data/external/` other than the B2B file, and the MD5 and SHA-256 of the whole file against the recorded
-holdout hashes. The list is `ROUTES` in `src/opticps/cli/main.py`, it is derived from the call graph of each
-handler, and a test walks the parser so that a new path option fails until it is gated or listed with a
-reason. Where the register YAML is missing (an installed copy), the CLI falls back to the holdout names and
-the recorded SHA-256 only. Not covered, listed and not chased:
+Holdout reading (plan R6.2, R7.4 and R8, `handoff/E1_qa.md` findings 1 and 5, `handoff/E1_qa2.md`
+finding 1, `handoff/E1_qa3.md` finding 1). The claim, exact and no wider: **only paths typed as CLI
+options are gated.** Before any decode `teriphic.gate_sample_read` runs on such a file (or on every file
+found by walking such a folder): registered name of the resolved path (symbolic links followed, case-
+and Unicode-normal), any file under `data/external/` other than the B2B file, and the MD5 and SHA-256 of
+the whole file against the recorded holdout hashes. The list of options is `ROUTES` in
+`src/opticps/cli/main.py`, and a test walks the parser so that a new path option fails until it is gated
+or listed with a reason. Where the register YAML is missing (an installed copy), the CLI falls back to the
+holdout names, `data/external` and the recorded SHA-256 only. The owner chose this narrower claim after
+three review rounds found that the wider one ("every route") would not close: a gated option can lead to
+a path that is not gated. Not gated, listed and not chased:
 
+- Paths found inside files, links inside folders, paths built at run time and defaults. Each route below
+  was run by the third review on a holdout-named fixture of random bytes with 0x88 at byte 4. None decodes
+  samples as numbers through these routes, per that review. **They do read whole files, and an error
+  message can echo one header byte (the review saw byte 4 as 0x88); this is a read of file bytes that
+  the plan's "hash only, no header read" (R5.2) does not allow, and it is not prevented here.**
+  - a path inside a YAML: `fiber-validate --config f.yaml` with `demo_config: <path>` (read and parsed,
+    `fiber_validation.py` line 330) or `demo_results: <path>` (line 332); the parse or decode error
+    quotes a byte;
+  - a path inside a manifest: `validate --output R` opens an absolute `waveform_filename` found in
+    `R/<profile>/experiment_manifest.csv` and the decode error is written into
+    `validation_results.csv`; `uxr-report` joins the same way in `_transmitted_excerpt`, and takes
+    `waveform_root / item["profile"]` from the results JSON (read only, not run);
+  - a symbolic link to a folder inside a folder: `validate --output R` with `R/p` a link (the walk by
+    `rglob` does not enter it, the profile walk does) and `analyze` with a linked profile folder;
+  - a path built at run time: `analyze --output R --profile ../outside` reads outside `R`; `ingest-uxr`
+    joins the same way (read only, not run);
+  - derived and default paths: `slides --results a/b` reads `a/fiber_validation/fiber_results.json`
+    (`report` shares `load_fiber_results`, read only); `demo` reads `DEFAULT_CONFIG` relative to the
+    working directory; the default `ingest-uxr` registry path.
+  Holdout integrity for scoring does not rest on these gates: it rests on `require_frozen_criterion`
+  at E2, which refuses to score without the frozen criterion.
 - `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
   are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they
   open it; the plan's promise is procedural there. A reviewer's fixture with a holdout name confirmed it
@@ -59,9 +82,12 @@ shallow or partial clone; criterion at another path counted as the freeze; a `-s
 keeps the real limit (refused too, conservatively, because a second distinct criterion signature
 exists in the full history; `handoff/E0_qa5.md` item c).
 
-Waveform checks of a file the user supplies (plan R7.5): `opticps benchmark inspect-format --file` runs the
-block pass over the whole record (every block of 65,536 samples, same checks, spike test against a robust
-scale taken from the record). It screens for corruption, not for format: a ramp, NRZ and a 16-level
-waveform pass it, and it makes no four-level claim. Its thresholds were set on the B2B file only, so a lab
-capture with a very different but legitimate waveform may be refused (default-deny), and one that passes is
-not thereby a verified capture. It never runs on a holdout here.
+Waveform checks of a file the user supplies (plan R7.5 and R8): `opticps benchmark inspect-format --file`
+runs the block pass over the whole record (every block of 65,536 samples, same checks, spike test against a
+robust scale taken from the record). It screens for gross corruption, not for format, and it makes no
+four-level claim: a ramp, NRZ and a 16-level waveform pass it. What it misses is listed in plan R8.3 (a flat
+run or a short noise burst inside a block, a spike under 8 times the record scale, a block at gain 0.55 to
+1.9, an inverted, reversed or replaced block, a replacement by a slow sine of similar spread). Its thresholds
+were set on the B2B file only, so a lab capture with a very different but legitimate waveform may be refused
+(default-deny), and one that passes is not thereby a verified capture. It never runs on a holdout here. A
+file that changes while the pass runs is reported after the pass (the file is checked again at the end).
