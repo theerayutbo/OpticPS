@@ -31,6 +31,118 @@ def _non_negative_float(text: str) -> float:
     return value
 
 
+# Every command option that names a path, and how it is covered (read from the call graph of each
+# handler, not from the option name). "gate": `main` runs `teriphic.gate_sample_read` on the file,
+# or on every file under the folder, before the handler starts. "handler": the handler gates it
+# itself. Anything else is "no read: <why>". A test walks the parser and fails on an option not
+# listed here.
+GATE = "gate"
+HANDLER = "handler"
+ROUTES: dict[str, dict[str, str]] = {
+    "generate": {
+        "output": GATE,  # generate_all writes it, validate_profile reads the exported waveforms
+        "config": GATE,
+    },
+    "validate": {
+        "output": GATE,  # validate_profile reads the exported waveform files
+        "captures": GATE,  # load_capture reads the sample file next to each metadata file
+    },
+    "simulate": {
+        "output": GATE,  # run_demo reads adaptive_selection.json
+        "config": GATE,
+        "results": "no read: run_demo writes it",
+    },
+    "fiber-validate": {
+        "output": GATE,  # run_fiber_validation reads adaptive_selection.json
+        "config": GATE,
+        "results": "no read: written by run_fiber_validation",
+        "report-dir": "no read: written by build_fiber_report",
+    },
+    "ingest": {
+        "output": "no read: cmd_ingest does not use it",
+        "input": GATE,  # load_capture reads the sample file next to each metadata file
+    },
+    "ingest-uxr": {
+        "output": GATE,  # reference root: manifest, symbol and waveform files
+        "input": GATE,  # read_scope_file decodes the samples
+        "sidecar": GATE,
+        "registry": GATE,
+        "results": "no read: written by ingest_uxr",
+    },
+    "compare-uxr": {
+        "output": "no read: cmd_compare_uxr does not use it",
+        "results": GATE,
+    },
+    "uxr-report": {
+        "output": GATE,  # reference root, passed to build_uxr_report
+        "results": GATE,  # np.load of the saved received excerpts
+        "output-dir": "no read: written by build_uxr_report",
+        "simulation": GATE,
+    },
+    "analyze": {
+        "output": GATE,  # reference root
+        "input": GATE,  # load_capture reads the sample file next to each metadata file
+        "results": "no read: written by analyze_directory",
+    },
+    "compare": {
+        "output": "no read: cmd_compare does not use it",
+        "results": GATE,
+    },
+    "report": {
+        "output": "no read: cmd_report does not use it",
+        "results": GATE,
+        "output-dir": "no read: written by build_report",
+    },
+    "slides": {
+        "output": "no read: cmd_slides does not use it",
+        "results": GATE,
+        "output-dir": "no read: written by build_slides",
+    },
+    "demo": {
+        "output": GATE,  # generate and simulate steps, as above
+        "results": GATE,  # demo_results.json is read back by the report step
+    },
+    "benchmark inspect-format": {
+        "file": HANDLER,  # gate_sample_read, with a hash; --metadata-only opens nothing
+        "metadata": HANDLER,  # gated before RawSpec.from_sidecar reads the sidecar
+    },
+}
+
+
+def _command_key(args: argparse.Namespace) -> str:
+    if args.command == "benchmark":
+        return f"benchmark {args.benchmark_command}"
+    return str(args.command)
+
+
+def _files_under(path: Path) -> list[Path]:
+    if path.is_file():
+        return [path]
+    return sorted(p for p in path.rglob("*") if p.is_file()) if path.is_dir() else []
+
+
+def gate_user_files(args: argparse.Namespace) -> None:
+    """Gate every file the command will read (ROUTES), before any decode. Raises BenchmarkError."""
+    from opticps.benchmarks import teriphic
+
+    wanted = [
+        Path(value)
+        for dest, how in ROUTES[_command_key(args)].items()
+        if how == GATE
+        and (value := getattr(args, dest.replace("-", "_"), None)) is not None
+        and not (args.command == "validate" and dest == "output" and args.captures)
+    ]
+    files = [f for path in wanted for f in _files_under(path)]
+    if not files:
+        return
+    source = teriphic.load_register_for_gate()
+    for file in files:
+        if source is None:
+            teriphic.gate_without_register(file)
+        else:
+            teriphic.gate_sample_read(file, source)
+
+
 def cmd_generate(args: argparse.Namespace) -> int:
     from opticps.measurement.validate_export import validate_profile
     from opticps.transmitter.export import generate_all
@@ -239,8 +351,8 @@ def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
     source = teriphic.load_config()
     path = args.file or teriphic.DEFAULT_ROOT / teriphic.B2B_FILENAME
     if args.metadata_only:
-        known = {a.filename.casefold(): a for a in source.assets}
-        asset = known.get(path.name.casefold())
+        known = {teriphic.fold_name(a.filename): a for a in source.assets}
+        asset = known.get(teriphic.fold_name(path.name))
         if asset is None:
             raise ValueError(f"{path.name} is not a registered asset of {source.source_id}")
         print(f"{asset.filename}: split {asset.split.value}, group {asset.group}")
@@ -275,20 +387,25 @@ def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
                 print(f"  - {item}")
             return 3
         return 0
+    if args.metadata is not None:
+        teriphic.gate_sample_read(args.metadata, source)  # a holdout is refused before read_text
     spec = RawSpec.from_sidecar(args.metadata) if args.metadata is not None else None
     result = teriphic.inspect_capture(path, gate, spec)
     print(f"{path.name}: layout {result.layout}, {result.count} samples, scale {result.scale}")
     print(f"structure pass: {'yes' if result.structure_pass else 'NO'}")
-    print(f"physical pass: {'yes' if result.physical_pass else 'NO'}")
+    coverage = result.coverage
+    assert coverage is not None
+    print(f"block pass {'holds' if coverage.passed else 'FAILS'}: {coverage.summary()}")
+    print(f"  tested: {coverage.tested}")
     failed = [c for c in result.physical_detail if not c.passed]
     for check in failed:
-        print(f"  physical check failed: {check.name} ({check.detail})")
+        print(f"  check failed: {check.name} ({check.detail})")
     if not result.accepted:
         raise format_unknown(
-            f"{path.name}: the structure is well formed but the samples fail the physical checks: "
+            f"{path.name}: the structure is well formed but the samples fail the checks: "
             + "; ".join(c.name for c in failed)
         )
-    print("both passes hold; this is not a format verdict (no BER or SER is computed)")
+    print("structure and block pass hold; not a format verdict (no BER or SER is computed)")
     return 0
 
 
@@ -403,6 +520,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    from opticps.benchmarks.provenance import BenchmarkError
+
+    try:
+        gate_user_files(args)
+    except BenchmarkError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     if args.command not in CLEAN_COMMANDS:
         return int(args.handler(args))
     try:

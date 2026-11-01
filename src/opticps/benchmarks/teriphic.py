@@ -19,6 +19,7 @@ only after the plan's freeze, and until then their format is `NOT_ASSESSED_HOLDO
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -33,6 +34,8 @@ from opticps.benchmarks.capture_stats import (
 )
 from opticps.benchmarks.catalog import load_source_config
 from opticps.benchmarks.external_capture import (
+    COVERAGE_BLOCK_SAMPLES,
+    CoverageReport,
     ExternalCapture,
     FormatCheck,
     FormatStatus,
@@ -71,8 +74,13 @@ def load_config(path: Path = CONFIG_PATH) -> SourceRecord:
 
 def _in_external(path: Path) -> bool:
     """True when the resolved path has `data/external` as consecutive components."""
-    parts = path.resolve().parts
-    return any(parts[i : i + 2] == ("data", "external") for i in range(len(parts) - 1))
+    parts = [fold_name(part) for part in path.resolve().parts]
+    return any(parts[i : i + 2] == ["data", "external"] for i in range(len(parts) - 1))
+
+
+def fold_name(name: str) -> str:
+    """Case-folded, canonically decomposed: names equal on a case- and normalisation-blind disk."""
+    return unicodedata.normalize("NFD", unicodedata.normalize("NFD", name).casefold())
 
 
 def guard_sample_read(path: Path, source: SourceRecord | None = None) -> AssetRecord | None:
@@ -83,8 +91,8 @@ def guard_sample_read(path: Path, source: SourceRecord | None = None) -> AssetRe
     """
     source = source or load_config()
     name = Path(path).resolve().name
-    by_name = {a.filename.casefold(): a for a in source.assets}
-    asset = by_name.get(name.casefold())
+    by_name = {fold_name(a.filename): a for a in source.assets}
+    asset = by_name.get(fold_name(name))
     if asset is not None and asset.split is not Split.CHARACTERISATION:
         raise BenchmarkError(
             f"{name} is a {asset.split.value} file: only hash-only checks are allowed before the "
@@ -175,6 +183,39 @@ def gate_sample_read(
     return SampleGate(asset, checksum, is_b2b)
 
 
+def load_register_for_gate() -> SourceRecord | None:
+    """The source register from the working directory, else from the source tree; None if absent."""
+    for candidate in (CONFIG_PATH, Path(__file__).resolve().parents[3] / CONFIG_PATH):
+        if candidate.is_file():
+            return load_config(candidate)
+    return None
+
+
+def gate_without_register(path: Path) -> None:
+    """The holdout check that needs no register file. Raises LEAKAGE_DETECTED.
+
+    Registered holdout names, `data/external` (other than the B2B file name) and the recorded
+    SHA-256 of every holdout. Used by the CLI only when the register YAML cannot be found.
+    """
+    path = Path(path)
+    name = path.resolve().name
+    holdout_names = {fold_name(n): n for n in HOLDOUT_SHA256}
+    if fold_name(name) in holdout_names or (
+        _in_external(path) and fold_name(name) != fold_name(B2B_FILENAME)
+    ):
+        raise BenchmarkError(
+            f"{name} is a holdout or an unregistered file under data/external/; no sample read",
+            ErrorCode.LEAKAGE_DETECTED,
+        )
+    checksum = verify_local_asset(path, None)
+    for holdout, sha in HOLDOUT_SHA256.items():
+        if checksum.sha256_local == sha:
+            raise BenchmarkError(
+                f"{name} has the SHA-256 of {holdout}; refusing, no sample read",
+                ErrorCode.LEAKAGE_DETECTED,
+            )
+
+
 def open_b2b(
     path: Path | None = None,
     *,
@@ -202,6 +243,7 @@ class CaptureInspection:
     structure_detail: tuple[FormatCheck, ...]
     physical_pass: bool
     physical_detail: tuple[FormatCheck, ...]
+    coverage: CoverageReport | None = None  # the whole-record block pass behind physical_pass
 
     @property
     def accepted(self) -> bool:
@@ -213,13 +255,13 @@ def inspect_capture(
     gate: SampleGate,
     spec: RawSpec | None = None,
     *,
-    max_samples: int = 1 << 20,
+    block_samples: int = COVERAGE_BLOCK_SAMPLES,
 ) -> CaptureInspection:
     """Structure and physical checks of one gated file (fixtures, other captures).
 
     Structure: the Keysight header against the file size (or the raw layout against the size).
-    Physical: every sample finite and of plausible scale (a full pass) and the waveform checks on
-    slices (smooth, band-limited, continuous, not clipped, no wild outliers). Neither pass implies
+    Physical: the whole-record block pass (`ExternalCapture.coverage_scan`): every block of the
+    record passes the same checks, coverage is computed. Neither pass implies
     anything about the transmitted signal, a calibration or a format verdict. A structure failure
     raises FORMAT_UNKNOWN; a physical failure is reported, not raised.
     """
@@ -231,15 +273,16 @@ def inspect_capture(
         layout = f"{spec.dtype}@{spec.data_offset} (sidecar)"
     try:
         structure = (FormatCheck("structure", True, "layout consistent with the file size"),)
-        physical = capture.full_scan() + capture.physical_checks(max_samples)
+        coverage = capture.coverage_scan(block_samples)
         return CaptureInspection(
             capture.count,
             capture.scale,
             layout,
             True,
             structure,
-            all(c.passed for c in physical),
-            physical,
+            coverage.passed,
+            coverage.checks,
+            coverage,
         )
     finally:
         capture.close()
@@ -336,6 +379,36 @@ def _size_hypothesis_136(layout: Any, file_size: int) -> str:
     )
 
 
+UPSAMPLE_PERIOD_MIN = 1.02  # period-8 max/min: B2B 1.118, 8x fixture 1.066, no-upsampling <1.01
+UPSAMPLE_CONTROL_MULTIPLE = 3.0  # (period ratio - 1) over the larger control's; B2B: about 590
+
+
+def upsampling_criterion(native: dict[str, Any]) -> tuple[bool, str]:
+    """Pass criterion of the integer-upsampling reading, and the numbers behind the answer.
+
+    Passes only if the factor-period curvature profile has a max/min of at least
+    UPSAMPLE_PERIOD_MIN and exceeds both controls (periods F-1 and F+1) by UPSAMPLE_CONTROL_MULTIPLE
+    times in excess over 1. The lines in the squared signal are reported, not required: a fixture
+    without upsampling shows a line of 11 dB over the median bin, so a line does not separate the
+    cases. The curvature period does: B2B 1.118 against controls of 1.0002 and 1.0001; a fixture
+    upsampled eight-fold by windowed-sinc interpolation 1.066; a fixture without upsampling 1.003
+    against controls of 1.006.
+    """
+    if native.get("status") != "tested":
+        return False, str(native.get("status", "not run"))
+    period = native["second_difference_period"]
+    profiles = period["profiles"]
+    ratio = profiles[str(period["factor_period"])]["max_over_min"]
+    controls = [profiles[str(c)]["max_over_min"] for c in period["control_periods"]]
+    detail = (
+        f"period {period['factor_period']} max/min {ratio:.4g} (needs {UPSAMPLE_PERIOD_MIN:g} and "
+        f"{UPSAMPLE_CONTROL_MULTIPLE:g} times the excess of the controls {controls[0]:.4g} and "
+        f"{controls[1]:.4g} over 1)"
+    )
+    excess = (ratio - 1.0) >= UPSAMPLE_CONTROL_MULTIPLE * (max(controls) - 1.0)
+    return ratio >= UPSAMPLE_PERIOD_MIN and excess, detail
+
+
 def _rate_chain_reading(
     layout: Any, timebase: dict[str, Any], native: dict[str, Any], tone_confirmed: bool
 ) -> str:
@@ -366,7 +439,10 @@ def _rate_chain_reading(
         )
     elif ratio is not None:
         parts.append("the record's inferred rate agrees with the stored stream")
-    if native.get("status") == "tested":
+    seen, why = upsampling_criterion(native)
+    if native.get("status") == "tested" and not seen:
+        parts.append(f"no upsampling reading: the tests do not show it ({why})")
+    elif native.get("status") == "tested":
         counting = native["counting"]
         lines = native["lines_in_squared_signal"]
         period = native["second_difference_period"]

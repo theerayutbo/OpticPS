@@ -59,8 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 6 of the plan (2026-11-01, fix round of Gate E1; Revision 5, before any sample
-# was read, is REVISION_5_PLAN_SHA256 at 57643ca; Revision 4 is
+# Pinned for Revision 7 of the plan (2026-11-01, second fix round of Gate E1; Revision 6 is
+# REVISION_6_PLAN_SHA256 at 536b3ec; Revision 5, before any sample was read, is REVISION_5_PLAN_SHA256 at 57643ca; Revision 4 is
 # REVISION_4_PLAN_SHA256 at d52149a, Revision 3 REVISION_3_PLAN_SHA256 at 8b84914). Revision 2 hashed to
 # PREVIOUS_PLAN_SHA256 (commit 0424e9c), Revision 1 to REVISION_1_PLAN_SHA256 (commit 8f57af9) and
 # the first version to ORIGINAL_PLAN_SHA256 (commit 8900748). A deliberate amendment must change
@@ -70,7 +70,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "c1c274b99557d752a612770f4a20d707247ee474bf953adff2a44e87249eb225"  # Revision 6
+PLAN_SHA256 = "87e3839513df645930d026a0eef78360058881563b1cb85a3f5d1726aed4bb80"  # Revision 7
+REVISION_6_PLAN_SHA256 = (
+    "c1c274b99557d752a612770f4a20d707247ee474bf953adff2a44e87249eb225"  # commit 536b3ec
+)
 REVISION_5_PLAN_SHA256 = "7b7f93dd20506d617ddc5245166c55cf44e605dbc23789a6644e2a2e16ec3185"
 REVISION_4_PLAN_SHA256 = "b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce"
 REVISION_3_PLAN_SHA256 = "dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535"
@@ -205,6 +208,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_6_PLAN_SHA256,
         REVISION_5_PLAN_SHA256,
         REVISION_4_PLAN_SHA256,
         REVISION_3_PLAN_SHA256,  # dd2f8000...: no commit message holds it (qa5, finding 4)
@@ -217,6 +221,24 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 4 (2026-10-31)" in text
     assert "## Revision 5 (2026-11-01)" in text
     assert "## Revision 6 (2026-11-01)" in text
+    assert "## Revision 7 (2026-11-01)" in text
+    revision_7 = text[text.index("## Revision 7 (2026-11-01)") :]
+    for needle in (
+        REVISION_6_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "64-bit integer",
+        "84 hypotheses",
+        "changes the acceptance rule",
+        "**not** outcome-neutral",
+        "offsets 164 to 167",
+        "`plausible_scale`",
+        "every CLI route that takes a path is gated; library code is not",
+        "Whole-record block pass",
+        "makes no four-level claim",
+        "blocks checked",
+        "| largest deviation over record scale (maximum) | 2.50 | 8 |",
+    ):
+        assert needle in revision_7, needle
     revision_6 = text[text.index("## Revision 6 (2026-11-01)") :]
     for needle in (
         REVISION_5_PLAN_SHA256,

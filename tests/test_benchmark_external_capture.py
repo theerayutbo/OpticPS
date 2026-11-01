@@ -760,7 +760,7 @@ def test_cli_refuses_download_and_holdout_and_reads_nothing_for_metadata_only(tm
 
 def test_cli_inspects_fixtures(fixture_bin, tmp_path, capsys):
     assert cli_main(["benchmark", "inspect-format", "--file", str(fixture_bin)]) == 0
-    assert "physical pass: yes" in capsys.readouterr().out
+    assert "block pass holds" in capsys.readouterr().out
     raw = raw_float_file(tmp_path, np.sin(np.arange(20000) / 7.0) + 0.01 * np.cos(np.arange(20000)))
     sidecar = tmp_path / "raw.json"
     sidecar.write_text(json.dumps({"dtype": "<f4", "x_increment_s": 4e-12}))
@@ -953,18 +953,19 @@ def test_cli_refuses_noise_scaled_noise_and_nan_blocks_behind_a_valid_header(
         assert cli_main(["benchmark", "inspect-format", "--file", str(path)]) == 1, tag
         captured = capsys.readouterr()
         assert "structure pass: yes" in captured.out, tag
-        assert "physical pass: NO" in captured.out, tag
+        assert "block pass FAILS" in captured.out, tag
         assert "accepted" not in captured.out and "FORMAT_UNKNOWN" in captured.err, tag
 
 
 def test_cli_good_fixture_reports_two_passes_not_acceptance(fixture_bin, capsys):
     assert cli_main(["benchmark", "inspect-format", "--file", str(fixture_bin)]) == 0
     out = capsys.readouterr().out
-    assert "structure pass: yes" in out and "physical pass: yes" in out
+    assert "structure pass: yes" in out and "block pass holds" in out
+    assert "physical pass" not in out
     assert "not a format verdict" in out and "accepted" not in out
 
 
-def test_full_scan_finds_a_nan_block_that_the_slices_miss(tmp_path, signal):
+def test_block_pass_finds_a_nan_block_that_the_slices_miss(tmp_path, signal):
     x = signal[0][:40000].copy()
     x[8000:8100] = np.nan  # between the start slice and the middle slice
     path = tmp_path / "gap.bin"
@@ -973,11 +974,11 @@ def test_full_scan_finds_a_nan_block_that_the_slices_miss(tmp_path, signal):
     capture = ExternalCapture.open_keysight_bin(path)
     assert all(c.passed for c in capture.physical_checks(3 * 4096))  # slices alone: all pass
     capture.close()
-    result = teriphic.inspect_capture(path, gate, max_samples=3 * 4096)
+    result = teriphic.inspect_capture(path, gate, block_samples=4096)
     assert result.structure_pass is True and result.physical_pass is False
     failed = {c.name: c.detail for c in result.physical_detail if not c.passed}
-    assert set(failed) == {"finite_everywhere"} and "100 non-finite" in failed["finite_everywhere"]
-    assert "index 8000" in failed["finite_everywhere"]
+    assert set(failed) == {"block_finite"} and "100 non-finite" in failed["block_finite"]
+    assert "sample 8192" in failed["block_finite"] or "sample 4096" in failed["block_finite"]
 
 
 def test_plausible_scale_is_a_named_check_with_both_limits():
@@ -1342,3 +1343,711 @@ def test_real_b2b_is_opened_read_only_and_not_modified():
     assert isinstance(
         next(a for a in teriphic.load_config().assets if a.filename == B2B.name), AssetRecord
     )
+
+
+# ============================================================================ second fix round
+# (handoff/E1_qa2.md). Defect classes: a CLI route with a file path that is not gated; corruption
+# between the slices; guards without a negative test; text that says more than was checked.
+from opticps.benchmarks.external_capture import (  # noqa: E402
+    BLOCK_BAND_DB_MAX,
+    BLOCK_DISTINCT_MIN,
+    BLOCK_JUMP_MAX,
+    BLOCK_LAG1_MIN,
+    BLOCK_RAIL_MAX,
+    BLOCK_SPIKE_MAX,
+    BLOCK_SPREAD_MAX,
+    BLOCK_SPREAD_MIN,
+    COVERAGE_BLOCK_SAMPLES,
+    SCALE_ABS_MAX,
+    summarize_blocks,
+)
+
+
+def _subparsers(parser):
+    for action in parser._actions:
+        if hasattr(action, "choices") and isinstance(action.choices, dict) and action.choices:
+            if all(hasattr(v, "parse_args") for v in action.choices.values()):
+                return action.choices
+    return {}
+
+
+def path_options():
+    """(route key, dest, option string, other required option strings) for every Path option."""
+    from opticps.cli.main import build_parser
+
+    out = []
+    for name, sub in _subparsers(build_parser()).items():
+        nested = _subparsers(sub)
+        for key, leaf in (
+            [(f"{name} {n}", p) for n, p in nested.items()] if nested else [(name, sub)]
+        ):
+            required = [a for a in leaf._actions if getattr(a, "required", False)]
+            for action in leaf._actions:
+                if action.type is Path:
+                    others = [a for a in required if a is not action]
+                    out.append((key, action.dest, action.option_strings[0], others))
+    return out
+
+
+def test_every_cli_path_option_is_gated_or_listed_with_a_reason():
+    """A future route with a file path argument fails here until it is gated or listed."""
+    from opticps.cli.main import GATE, HANDLER, ROUTES
+
+    found = {(key, dest.replace("_", "-")) for key, dest, _, _ in path_options()}
+    listed = {(key, dest) for key, options in ROUTES.items() for dest in options}
+    assert found == listed, (sorted(found - listed), sorted(listed - found))
+    for key, options in ROUTES.items():
+        for dest, how in options.items():
+            assert how in (GATE, HANDLER) or how.startswith("no read: "), (key, dest, how)
+            if how.startswith("no read: "):
+                assert len(how) > len("no read: ") + 10, (key, dest)
+    assert len(found) >= 25  # the walk saw the whole parser, not an empty one
+
+
+def _argv_for(key, dest, option, others, target):
+    argv = key.split()
+    for action in others:
+        argv += [action.option_strings[0], "unused" if action.type is Path else "p"]
+    return [*argv, option, str(target)]
+
+
+def _gated_routes():
+    from opticps.cli.main import GATE, ROUTES
+
+    return [r for r in path_options() if ROUTES[r[0]][r[1].replace("_", "-")] == GATE]
+
+
+def test_every_gated_cli_route_refuses_a_holdout_by_name_and_by_hash(
+    tmp_path, signal, monkeypatch, capsys
+):
+    routes = _gated_routes()
+    assert len(routes) >= 15
+    called = forbid_sample_readers(monkeypatch)
+    import opticps.measurement.uxr_import as uxr_import
+
+    def reader(*a, **k):
+        called.append("reader")
+        raise AssertionError("a reader ran before the gate")
+
+    for name in ("read_bin", "read_scope_file"):
+        monkeypatch.setattr(uxr_import, name, reader)
+    monkeypatch.setattr(np, "load", reader)
+    body = keysight_image(signal[0][:8192])
+    digest = hashlib.sha256(body).hexdigest()
+    for key, dest, option, others in routes:
+        for variant in ("name", "sha256", "md5"):
+            folder = tmp_path / f"{key.replace(' ', '_')}_{dest}_{variant}"
+            folder.mkdir()
+            holdout = folder / (HOLDOUT_2KM if variant == "name" else "innocent.bin")
+            holdout.write_bytes(body)
+            with monkeypatch.context() as patch:
+                if variant == "sha256":
+                    patch.setattr(teriphic, "HOLDOUT_SHA256", {HOLDOUT_10KM: digest})
+                if variant == "md5":
+                    injected = source_with_holdout_md5(md5_of(holdout))
+                    patch.setattr(teriphic, "load_config", lambda *a, _s=injected, **k: _s)
+                for target in (holdout, folder):  # the file itself, and a folder holding it
+                    argv = _argv_for(key, dest, option, others, target)
+                    assert cli_main(argv) == 1, (argv, variant)
+                    err = capsys.readouterr().err
+                    assert "LEAKAGE_DETECTED" in err, (argv, variant, err)
+    assert called == []
+
+
+def test_a_file_that_is_not_a_holdout_passes_the_cli_gate_unchanged(tmp_path, signal):
+    from opticps.cli.main import build_parser, gate_user_files
+
+    path = tmp_path / "ordinary.bin"
+    path.write_bytes(keysight_image(signal[0][:8192]))
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text("{}")
+    args = build_parser().parse_args(
+        ["ingest-uxr", "--input", str(path), "--sidecar", str(sidecar), "--profile", "p"]
+    )
+    gate_user_files(args)  # no exception: behaviour for ordinary files is unchanged
+
+
+def test_qa2_repro_ingest_uxr_on_a_holdout_named_file_decodes_nothing(
+    tmp_path, signal, monkeypatch, capsys
+):
+    path = tmp_path / HOLDOUT_2KM
+    path.write_bytes(keysight_image(signal[0][:16384]))
+    sidecar = tmp_path / "side.json"
+    sidecar.write_text("{}")
+    import opticps.measurement.uxr_import as uxr_import
+
+    seen: list[str] = []
+    monkeypatch.setattr(uxr_import, "read_bin", lambda *a, **k: seen.append("decoded"))
+    argv = ["ingest-uxr", "--input", str(path), "--sidecar", str(sidecar), "--profile", "A"]
+    assert cli_main(argv) == 1 and seen == []
+    assert "LEAKAGE_DETECTED" in capsys.readouterr().err
+
+
+def test_cli_gate_without_the_register_file_still_refuses_holdouts(
+    tmp_path, signal, monkeypatch, capsys
+):
+    monkeypatch.setattr(teriphic, "load_register_for_gate", lambda: None)
+    body = keysight_image(signal[0][:8192])
+    named = tmp_path / HOLDOUT_10KM
+    named.write_bytes(body)
+    plain = tmp_path / "plain.bin"
+    plain.write_bytes(body)
+    sidecar = tmp_path / "s.json"
+    sidecar.write_text("{}")
+    base = ["ingest-uxr", "--sidecar", str(sidecar), "--profile", "A", "--input"]
+    assert cli_main([*base, str(named)]) == 1
+    assert "LEAKAGE_DETECTED" in capsys.readouterr().err
+    teriphic.gate_without_register(plain)  # a fixture passes
+    monkeypatch.setattr(teriphic, "HOLDOUT_SHA256", {HOLDOUT_2KM: hashlib.sha256(body).hexdigest()})
+    assert cli_main([*base, str(plain)]) == 1
+    assert "SHA-256" in capsys.readouterr().err
+    under = tmp_path / "data" / "external" / "other.bin"
+    under.parent.mkdir(parents=True)
+    under.write_bytes(body)
+    with bad(ErrorCode.LEAKAGE_DETECTED):
+        teriphic.gate_without_register(under)
+
+
+# --- minor 5: --metadata is gated before read_text, and no header byte value is echoed
+def test_metadata_path_is_gated_before_it_is_read(tmp_path, signal, monkeypatch, capsys):
+    clean = tmp_path / "clean.bin"
+    clean.write_bytes(keysight_image(signal[0][:8192]))
+    sidecar = tmp_path / HOLDOUT_2KM
+    sidecar.write_bytes(bytes([0x41, 0x47, 0x31, 0x30, 0x88]) + b"\x00" * 64)
+    reads: list[str] = []
+    real = Path.read_text
+    monkeypatch.setattr(
+        Path, "read_text", lambda self, *a, **k: reads.append(self.name) or real(self, *a, **k)
+    )
+    argv = ["benchmark", "inspect-format", "--file", str(clean), "--metadata", str(sidecar)]
+    assert cli_main(argv) == 1
+    captured = capsys.readouterr()
+    assert "LEAKAGE_DETECTED" in captured.err and "0x88" not in captured.err + captured.out
+    assert HOLDOUT_2KM not in reads
+
+
+def test_sidecar_errors_never_quote_file_bytes(tmp_path):
+    path = tmp_path / "binary.json"
+    path.write_bytes(b"AG10\x88\x99\xff" * 20)
+    with bad() as caught:
+        RawSpec.from_sidecar(path)
+    text = str(caught.value)
+    assert "0x88" not in text and "0x99" not in text and "position" not in text
+    listing = tmp_path / "list.json"
+    listing.write_text("[1, 2, 3, 4242]")
+    with bad() as caught:
+        RawSpec.from_sidecar(listing)
+    assert "4242" not in str(caught.value)
+
+
+# --- minor 8: a list or dict dtype is FORMAT_UNKNOWN, not TypeError
+def test_sidecar_with_list_or_dict_dtype_is_format_unknown(tmp_path, capsys):
+    raw = raw_float_file(tmp_path, np.sin(np.arange(20000) / 7.0))
+    for tag, document in (
+        ("list", {"dtype": ["<f4"]}),
+        ("dict", {"dtype": {"a": 1}}),
+        ("number", {"dtype": 4}),
+        ("scale_list", {"dtype": "<f4", "scale": ["normalized"]}),
+    ):
+        sidecar = tmp_path / f"{tag}.json"
+        sidecar.write_text(json.dumps(document))
+        with bad():
+            RawSpec.from_sidecar(sidecar)
+        argv = ["benchmark", "inspect-format", "--file", str(raw), "--metadata", str(sidecar)]
+        assert cli_main(argv) == 1, tag
+        assert "FORMAT_UNKNOWN" in capsys.readouterr().err, tag
+
+
+# --- minor 7: the data/external test matches on a case- and normalisation-blind disk
+def test_in_external_is_case_insensitive_and_unicode_normal(tmp_path):
+    import unicodedata
+
+    assert teriphic.fold_name("K") == teriphic.fold_name("k")
+    assert teriphic.fold_name(unicodedata.normalize("NFC", "é")) == teriphic.fold_name(
+        unicodedata.normalize("NFD", "é")
+    )
+    for parts in (
+        ("data", "external"),
+        ("DATA", "EXTERNAL"),
+        ("data", "External"),
+        ("Data", "external"),
+    ):
+        folder = tmp_path.joinpath(*parts)
+        folder.mkdir(parents=True, exist_ok=True)
+        target = folder / "unregistered.bin"
+        target.write_bytes(b"x")
+        assert teriphic._in_external(target), parts
+        with bad(ErrorCode.LEAKAGE_DETECTED):
+            teriphic.guard_sample_read(target)
+    outside = tmp_path / "data" / "elsewhere" / "f.bin"
+    outside.parent.mkdir(parents=True)
+    outside.write_bytes(b"x")
+    assert not teriphic._in_external(outside)
+    assert teriphic.fold_name("50G_PAM4_PD1_2KM_SUBASSEMBLY1.BIN") == teriphic.fold_name(
+        HOLDOUT_2KM
+    )
+
+
+# --- finding 2: the whole record is checked in blocks; every block passes the same checks
+@pytest.fixture(scope="module")
+def big_signal() -> np.ndarray:
+    """2^20 samples of held PAM4 (16 blocks of 65,536); the three slices cover 2/3 of it."""
+    return held_pam4(25600, 40.96, seed=21)
+
+
+def scan(tmp_path: Path, x: np.ndarray, name: str = "scan.bin", **kwargs):
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, name))
+    try:
+        return capture.coverage_scan(**kwargs)
+    finally:
+        capture.close()
+
+
+def failed_names(report) -> set[str]:
+    return {c.name for c in report.checks if not c.passed}
+
+
+def test_clean_record_passes_every_block_with_computed_coverage(tmp_path, big_signal):
+    report = scan(tmp_path, big_signal)
+    assert report.passed and report.blocks_failed == 0
+    assert report.blocks_checked == big_signal.size // COVERAGE_BLOCK_SAMPLES == 16
+    assert report.samples_checked == report.samples_total == big_signal.size
+    assert report.coverage_pct == 100.0 and report.first_failed_sample is None
+    assert "no four-level claim" in report.tested and "every block" in report.tested
+    assert "blocks checked 16, blocks failed 0, coverage 100.0%" in report.summary()
+    assert [c.name for c in report.checks] == [f"block_{n}" for n in BLOCK_NAMES]
+
+
+def test_corruption_between_the_slices_is_refused_wherever_it_sits(tmp_path, big_signal):
+    rng = np.random.default_rng(4)
+    cases: dict[str, tuple[np.ndarray, set[str]]] = {}
+    noise_block = big_signal.copy()
+    noise_block[300_000:400_000] = rng.normal(size=100_000)
+    cases["noise_block_off_slice"] = (noise_block, {"block_smooth", "block_band_limited"})
+    constant = big_signal.copy()
+    constant[300_000:400_000] = 0.5
+    cases["constant_block_off_slice"] = (constant, {"block_non_degenerate"})
+    outside = big_signal.copy()
+    outside[20_000:] = rng.normal(size=outside.size - 20_000)
+    cases["noise_everywhere_outside_the_start"] = (outside, {"block_smooth"})
+    spike = big_signal.copy()
+    spike[500_000] = 1e5
+    cases["lone_spike_1e5"] = (spike, {"block_spike_vs_record_scale"})
+    for tag, (x, expected) in cases.items():
+        report = scan(tmp_path, x, f"{tag}.bin")
+        assert not report.passed and report.blocks_failed >= 1, tag
+        assert expected <= failed_names(report), (tag, failed_names(report))
+        assert report.first_failed_sample is not None
+    first = scan(tmp_path, noise_block, "n.bin")
+    assert first.first_failed_sample == 262_144  # block 4 holds sample 300,000
+    assert first.blocks_failed == 3 and first.samples_in_failed_blocks == 3 * COVERAGE_BLOCK_SAMPLES
+
+
+def test_each_block_check_has_a_case_that_fails_only_it(tmp_path, big_signal):
+    spike = big_signal.copy()
+    spike[500_000] += 50.0  # a moderate lone spike: far over the record scale, nothing else
+    assert failed_names(scan(tmp_path, spike, "s50.bin")) == {"block_spike_vs_record_scale"}
+    tiny = big_signal.copy()
+    tiny[300_000:365_536] *= 1e-9
+    assert failed_names(scan(tmp_path, tiny, "tiny.bin")) == {"block_spread_vs_record_scale"}
+    loud = big_signal.copy()
+    loud[300_000:365_536] *= 4.0
+    assert "block_spread_vs_record_scale" in failed_names(scan(tmp_path, loud, "loud.bin"))
+    huge = big_signal.copy()
+    huge[300_000:365_536] *= 1e30
+    assert "block_plausible_scale" in failed_names(scan(tmp_path, huge, "huge.bin"))
+    nan = big_signal.copy()
+    nan[300_000] = np.nan
+    assert failed_names(scan(tmp_path, nan, "nan.bin")) == {"block_finite"}
+    inf = big_signal.copy()
+    inf[777_777] = np.inf
+    assert failed_names(scan(tmp_path, inf, "inf.bin")) == {"block_finite"}
+
+
+def test_block_pass_makes_no_four_level_claim_and_says_so(tmp_path, big_signal, capsys):
+    ramp = np.linspace(-1.0, 1.0, big_signal.size)
+    nrz = held_pam4(25600, 40.96, levels=(-1.0, 1.0), seed=22)
+    sixteen = held_pam4(25600, 40.96, levels=tuple(np.linspace(-3, 3, 16)), seed=23)
+    for tag, x in (("ramp", ramp), ("nrz", nrz), ("sixteen", sixteen)):
+        path = write_fixture(tmp_path, x, f"{tag}.bin")
+        assert cli_main(["benchmark", "inspect-format", "--file", str(path)]) == 0, tag
+        out = capsys.readouterr().out
+        assert "block pass holds" in out and "no four-level claim" in out, tag
+        assert "not a format verdict" in out and "physical pass" not in out, tag
+
+
+def test_cli_output_names_what_was_tested_and_the_computed_coverage(tmp_path, big_signal, capsys):
+    rng = np.random.default_rng(8)
+    noisy = big_signal.copy()
+    noisy[300_000:400_000] = rng.normal(size=100_000)
+    path = write_fixture(tmp_path, noisy, "noisy.bin")
+    assert cli_main(["benchmark", "inspect-format", "--file", str(path)]) == 1
+    captured = capsys.readouterr()
+    report = scan(tmp_path, noisy, "again.bin")
+    assert "block pass FAILS" in captured.out
+    assert f"blocks checked {report.blocks_checked}, blocks failed {report.blocks_failed}" in (
+        captured.out
+    )
+    assert f"coverage {report.coverage_pct:.1f}% of samples checked" in captured.out
+    assert f"{report.samples_in_failed_blocks / report.samples_total * 100:.1f}%" in captured.out
+    assert "tested: every block of 65,536 samples" in captured.out
+    assert "no four-level claim" in captured.out and "FORMAT_UNKNOWN" in captured.err
+
+
+# thresholds, one boundary each: the value at the limit passes, a hair beyond it fails
+def clean_row(begin: int = 0, **changes: float) -> dict[str, float]:
+    row = {
+        "begin": float(begin), "size": 65536.0, "nonfinite": 0.0, "peak": 1.0, "median": 0.0,
+        "sigma": 1.0, "max_dev": 2.0, "std": 1.0, "distinct": 5000.0, "rail": 1e-5,
+        "lag1": 0.99, "band_db": -90.0, "jump": 0.1,
+    }  # fmt: skip
+    row.update(changes)
+    return row
+
+
+BLOCK_NAMES = (
+    "finite",
+    "plausible_scale",
+    "spike_vs_record_scale",
+    "spread_vs_record_scale",
+    "smooth",
+    "band_limited",
+    "continuous",
+    "not_clipped",
+    "non_degenerate",
+)
+
+
+def judge(**changes: float):
+    rows = [clean_row(0), clean_row(65536, **changes), clean_row(131072)]
+    return summarize_blocks(rows, 3 * 65536, 65536)
+
+
+@pytest.mark.parametrize(
+    ("changes", "check"),
+    [
+        ({"lag1": BLOCK_LAG1_MIN}, None),
+        ({"lag1": BLOCK_LAG1_MIN - 0.01}, "block_smooth"),
+        ({"band_db": BLOCK_BAND_DB_MAX}, None),
+        ({"band_db": BLOCK_BAND_DB_MAX + 0.1}, "block_band_limited"),
+        ({"jump": BLOCK_JUMP_MAX}, None),
+        ({"jump": BLOCK_JUMP_MAX + 0.01}, "block_continuous"),
+        ({"rail": BLOCK_RAIL_MAX}, None),
+        ({"rail": BLOCK_RAIL_MAX * 1.01}, "block_not_clipped"),
+        ({"distinct": float(BLOCK_DISTINCT_MIN)}, None),
+        ({"distinct": BLOCK_DISTINCT_MIN - 1.0}, "block_non_degenerate"),
+        ({"max_dev": BLOCK_SPIKE_MAX}, None),
+        ({"max_dev": BLOCK_SPIKE_MAX * 1.01}, "block_spike_vs_record_scale"),
+        ({"sigma": BLOCK_SPREAD_MIN}, None),
+        ({"sigma": BLOCK_SPREAD_MIN * 0.99}, "block_spread_vs_record_scale"),
+        ({"sigma": BLOCK_SPREAD_MAX}, None),
+        ({"sigma": BLOCK_SPREAD_MAX * 1.01}, "block_spread_vs_record_scale"),
+        ({"peak": SCALE_ABS_MAX}, None),
+        ({"peak": SCALE_ABS_MAX * 1.01}, "block_plausible_scale"),
+        ({"std": 1e-13}, "block_plausible_scale"),
+        ({"nonfinite": 1.0}, "block_finite"),
+    ],
+)
+def test_block_thresholds_pass_at_the_limit_and_fail_beyond_it(changes, check):
+    report = judge(**changes)
+    if check is None:
+        assert report.passed, failed_names(report)
+    else:
+        assert failed_names(report) == {check} and report.blocks_failed == 1
+
+
+def test_a_block_without_a_spread_statistic_is_degenerate_and_scale_needs_a_spread():
+    row = clean_row(65536)
+    del row["lag1"], row["band_db"], row["jump"]
+    report = summarize_blocks([clean_row(0), row, clean_row(131072)], 3 * 65536, 65536)
+    assert failed_names(report) == {"block_non_degenerate"}
+    flat = [clean_row(i * 65536, sigma=0.0) for i in range(3)]
+    none = summarize_blocks(flat, 3 * 65536, 65536)  # no record scale: spike and spread refused
+    assert {"block_spike_vs_record_scale", "block_spread_vs_record_scale"} <= failed_names(none)
+
+
+def test_coverage_is_computed_from_the_rows_not_assumed():
+    rows = [clean_row(0), clean_row(65536)]
+    report = summarize_blocks(rows, 200_000, 65536)  # the rows cover 131,072 of 200,000
+    assert report.samples_checked == 131_072 and report.coverage_pct == pytest.approx(65.536)
+    assert not report.passed  # incomplete coverage is not a pass
+    assert "coverage 65.5%" in report.summary()
+    assert summarize_blocks(rows, 131_072, 65536).coverage_pct == 100.0
+
+
+def test_record_scale_is_taken_from_the_record_and_blocks_never_overlap(tmp_path):
+    t = np.arange(30000)
+    base = np.sin(t / 40.0) + 0.5 * np.sin(t / 97.0)
+    small, large = scan(tmp_path, base * 1e-3, "a.bin"), scan(tmp_path, base * 1e3, "b.bin")
+    assert small.passed and large.passed  # no absolute limit decides the spike test
+    assert large.record_scale == pytest.approx(small.record_scale * 1e6, rel=1e-3)
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, base, "c.bin"))
+    row = capture.block_rows(4096)[0]
+    block = base[:4096].astype("<f4").astype(np.float64)
+    assert row["sigma"] == pytest.approx(1.4826 * np.median(np.abs(block - np.median(block))))
+    assert row["max_dev"] == pytest.approx(np.abs(block - np.median(block)).max())
+    capture.close()
+
+
+@pytest.mark.parametrize(("extra", "blocks"), [(100, 3), (4095, 3), (4096, 4), (0, 3)])
+def test_the_remainder_is_folded_or_checked_so_every_sample_is_in_a_block(tmp_path, extra, blocks):
+    n = 3 * 4096 + extra
+    x = np.sin(np.arange(n) / 30.0) + 0.3 * np.sin(np.arange(n) / 7.7)
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, "r.bin"))
+    rows = capture.block_rows(4096)
+    capture.close()
+    assert len(rows) == blocks and sum(int(r["size"]) for r in rows) == n
+    assert [int(r["begin"]) for r in rows] == [4096 * i for i in range(blocks)]
+    report = summarize_blocks(rows, n, 4096)
+    assert report.coverage_pct == 100.0
+
+
+def test_a_record_shorter_than_one_block_is_refused_and_block_size_is_bounded(tmp_path):
+    capture = ExternalCapture.open_keysight_bin(
+        write_fixture(tmp_path, np.sin(np.arange(3000) / 20.0), "short.bin")
+    )
+    with bad():
+        capture.coverage_scan()
+    with pytest.raises(BenchmarkError, match="block_samples"):
+        capture.block_rows(100)
+    capture.close()
+
+
+def test_block_pass_memory_is_bounded_by_the_block_not_the_record(tmp_path):
+    x = held_pam4(102400, 40.96, seed=5)  # 2^22 samples: float64 copy would be 32 MB
+    assert x.size == 1 << 22
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, "mem.bin"))
+    tracemalloc.start()
+    report = capture.coverage_scan()
+    _, peak = tracemalloc.get_traced_memory()
+    tracemalloc.stop()
+    capture.close()
+    assert report.passed and report.blocks_checked == 64
+    assert peak < 8 * COVERAGE_BLOCK_SAMPLES * 8, peak  # at most eight blocks of float64
+    assert peak < 0.25 * x.size * 8
+
+
+# --- finding 4: tests that exercise the behaviour behind the survivors of the second review
+def smooth_wave(n: int = 20000) -> np.ndarray:
+    t = np.arange(n)
+    return np.sin(t / 40.0) + 0.5 * np.sin(t / 97.0)
+
+
+def test_full_scan_refuses_a_huge_but_finite_peak_and_names_it(tmp_path):
+    x = smooth_wave()
+    x[10_000] = 3e7  # finite, far above the largest plausible magnitude
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, "peak.bin"))
+    checks = {c.name: c for c in capture.full_scan()}
+    capture.close()
+    assert checks["finite_everywhere"].passed
+    assert not checks["plausible_scale_everywhere"].passed
+    assert "3e+07" in checks["plausible_scale_everywhere"].detail
+    ok = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, smooth_wave(), "ok.bin"))
+    assert all(c.passed for c in ok.full_scan())
+    ok.close()
+
+
+def test_scale_limit_is_one_million_file_units():
+    t = np.arange(20000)
+    base = np.sin(t / 40.0) + 0.5 * np.sin(t / 97.0)
+    assert SCALE_ABS_MAX == 1e6
+    for factor, expected in ((1e5, True), (1e8, False), (1e11, False)):
+        checks = {c.name: c for c in waveform_checks(base * factor)}
+        assert checks["plausible_scale"].passed is expected, factor
+
+
+def corrupt_slice(tmp_path, which: int):
+    """A smooth record whose only damage sits inside slice `which` (0 start, 1 middle, 2 end)."""
+    n = 60000
+    x = smooth_wave(n)
+    width = 4096
+    begin = (0, (n - width) // 2, n - width)[which]
+    x[begin : begin + width] = np.random.default_rng(which).normal(size=width)
+    return ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, f"slice{which}.bin"))
+
+
+@pytest.mark.parametrize("which", [0, 1, 2])
+def test_physical_checks_see_damage_in_every_slice_and_report_each_failure(tmp_path, which):
+    capture = corrupt_slice(tmp_path, which)
+    checks = capture.physical_checks(3 * 4096)
+    capture.close()
+    failed = [c for c in checks if not c.passed]
+    assert failed and all(c.detail.startswith(f"slice {which}:") for c in failed), which
+    assert {"smooth"} <= {c.name for c in failed}
+
+
+def test_physical_checks_report_failures_of_two_slices_together(tmp_path):
+    x = smooth_wave(60000)
+    rng = np.random.default_rng(0)
+    x[28_000:32_096] = rng.normal(size=4096)
+    x[-4096:] = rng.normal(size=4096)
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, "two.bin"))
+    details = [c.detail for c in capture.physical_checks(3 * 4096) if not c.passed]
+    capture.close()
+    assert any(d.startswith("slice 1:") for d in details)
+    assert any(d.startswith("slice 2:") for d in details)
+    assert not any(d.startswith("slice 0:") for d in details)
+
+
+def jittered_pam4(n_symbols: int, sps: float, jitter: float, seed: int = 11) -> np.ndarray:
+    """Held PAM4 whose symbol edges move randomly by `jitter` symbols: a weakened symbol tone."""
+    rng = np.random.default_rng(seed)
+    symbols = rng.choice([-3.0, -1.0, 1.0, 3.0], size=n_symbols)
+    edges = np.maximum.accumulate((np.arange(n_symbols) + rng.normal(0, jitter, n_symbols)) * sps)
+    n = np.arange(int(n_symbols * sps))
+    index = np.clip(np.searchsorted(edges, n, side="right") - 1, 0, n_symbols - 1)
+    sigma = 0.12 * sps
+    half = int(4 * sigma) + 1
+    kernel = np.exp(-0.5 * (np.arange(-half, half + 1) / sigma) ** 2)
+    return np.convolve(symbols[index], kernel / kernel.sum(), mode="same") + rng.normal(
+        0.0, 0.03, n.size
+    )
+
+
+def test_a_weak_symbol_tone_is_refused_by_the_real_threshold(tmp_path):
+    assert teriphic.TONE_MIN_STRENGTH == 0.02
+    weak = verify(write_fixture(tmp_path, jittered_pam4(3000, 40.96, 0.33)))
+    timebase = weak.evidence["timebase"]
+    assert timebase["tone_strength_median"] < 0.02  # a weak tone ...
+    assert abs(timebase["measured_offset_ppm_vs_published_baud"]) < 1000  # ... at the right rate
+    assert weak.status is FormatStatus.FORMAT_UNKNOWN
+    assert len(weak.reasons_unknown) == 1 and "strength" in weak.reasons_unknown[0]
+    strong = verify(write_fixture(tmp_path, jittered_pam4(3000, 40.96, 0.2), "s.bin"))
+    assert strong.evidence["timebase"]["tone_strength_median"] > 0.02
+    assert strong.status is FormatStatus.SUPPORTED_BY_EVIDENCE, strong.summary
+
+
+def test_the_136_byte_reading_is_computed_from_each_files_size_and_count():
+    layout = SampleLayout("keysight_bin", "<f4", 164, 5000, 1e-12, 0.0)
+    size = 164 + 4 * 5000
+    text = teriphic._size_hypothesis_136(layout, size)
+    assert f"{(size - 136) // 4:,}" in text and "5,000" in text and "7 samples" in text
+    other = teriphic._size_hypothesis_136(
+        SampleLayout("keysight_bin", "<f4", 164, 123456, 1e-12, 0.0), 164 + 4 * 123456
+    )
+    assert f"{(164 + 4 * 123456 - 136) // 4:,}" in other and "123,456" in other
+    assert "40,959,993" not in other and "40,960,000" not in other
+    odd = teriphic._size_hypothesis_136(layout, size + 1)
+    assert "arithmetically impossible" in odd and str(size + 1 - 136) in odd
+    unfilled = teriphic._size_hypothesis_136(layout, size + 8)
+    assert "does not fill the file either" in unfilled
+
+
+def line_rows(tmp_path, x, name, record_rate=256e9):
+    capture = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, x, name))
+    try:
+        return native_rate_reading(capture, record_rate)["lines_in_squared_signal"]
+    finally:
+        capture.close()
+
+
+def test_line_rows_follow_the_signal_the_multiple_and_the_record_rate(tmp_path, stored_signal):
+    n = np.arange(stored_signal.size)
+    planted_period = 16.01  # samples: the squared signal carries a line near fs/8, offset -0.06 %
+    planted = stored_signal + 0.8 * np.cos(2 * np.pi * n / planted_period)
+    rows = line_rows(tmp_path, planted, "p.bin")
+    assert [r["multiple_k"] for r in rows] == [1, 2]
+    assert [r["nominal_frequency_hz"] for r in rows] == [256e9, 512e9]
+    expected = 2.048e12 / (planted_period / 2.0)
+    assert rows[0]["measured_frequency_hz"] == pytest.approx(expected, abs=2e7)
+    assert rows[0]["offset_from_nominal_hz"] == pytest.approx(expected - 256e9, abs=2e7)
+    assert rows[0]["offset_from_nominal_hz"] < -1e8  # not pinned to the nominal multiple
+    assert rows[0]["line_over_median_db"] > 18.0
+    plain = line_rows(tmp_path, stored_signal, "q.bin")
+    assert plain[0]["line_over_median_db"] < 15.0 and plain[1]["line_over_median_db"] < 15.0
+    assert plain[0]["line_over_median_db"] != rows[0]["line_over_median_db"]
+    half = line_rows(tmp_path, planted, "r.bin", record_rate=128e9)
+    assert half[0]["nominal_frequency_hz"] == 128e9
+
+
+# --- minor 9: the upsampling reading has a pass criterion
+def test_no_upsampling_reading_on_a_fixture_without_upsampling(tmp_path):
+    plain = held_pam4(20000, 41.1, seed=3)  # edges not commensurate with 8 samples
+    report = verify(write_fixture(tmp_path, plain, "plain.bin"))
+    text = report.evidence["rate_chain_reading"]
+    assert "no upsampling reading: the tests do not show it" in text
+    assert "reading (not a fact)" not in text and "integer upsampling, seen as" not in text
+    assert "max/min" in text and "controls" in text
+
+
+def native_fixture(strong_line: float, ratio: float, controls: tuple[float, float]):
+    def profile(period, value):
+        return {"period": period, "max_over_min": value}
+
+    return {
+        "status": "tested",
+        "lines_in_squared_signal": [{"line_over_median_db": strong_line}],
+        "second_difference_period": {
+            "factor_period": 8,
+            "profiles": {
+                "8": profile(8, ratio),
+                "7": profile(7, controls[0]),
+                "9": profile(9, controls[1]),
+            },
+            "control_periods": [7, 9],
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("ratio", "controls", "seen"),
+    [
+        (1.118, (1.0002, 1.0001), True),  # the B2B reading
+        (1.066, (1.0002, 1.003), True),  # the eight-fold interpolated fixture
+        (1.003, (1.006, 1.006), False),  # a fixture without upsampling (the second review's case)
+        (1.01, (1.0002, 1.0001), False),  # period ratio too small
+        (1.118, (1.0002, 1.05), False),  # a control is nearly as strong
+        (teriphic.UPSAMPLE_PERIOD_MIN, (1.0001, 1.0001), True),
+        (teriphic.UPSAMPLE_PERIOD_MIN - 0.001, (1.0001, 1.0001), False),
+        (1.03, (1.0, 1.01), True),  # excess exactly 3 times the control excess
+        (1.03, (1.0, 1.0101), False),
+    ],
+)
+def test_upsampling_criterion_boundaries(ratio, controls, seen):
+    assert teriphic.upsampling_criterion(native_fixture(0.0, ratio, controls))[0] is seen
+    assert teriphic.upsampling_criterion({"status": "not testable: x"})[0] is False
+
+
+# --- minor: the docstring no longer says "verified"
+def test_external_capture_docstring_does_not_claim_verification():
+    doc = ExternalCapture.__doc__ or ""
+    assert "A verified" not in doc and "runs no physical check" in doc
+    assert "coverage_scan" in doc
+
+
+@real_b2b
+def test_real_b2b_block_pass_thresholds_have_their_stated_margins():
+    """B2B only: 625 blocks of 65,536 samples, every threshold with room (plan Revision 7)."""
+    capture = ExternalCapture.open_keysight_bin(B2B)
+    rows = capture.block_rows()
+    count = capture.count
+    capture.close()
+    report = summarize_blocks(rows, count, COVERAGE_BLOCK_SAMPLES)
+    assert report.passed and report.blocks_checked == 625 and report.blocks_failed == 0
+    assert report.samples_checked == count == 40_959_993 and report.coverage_pct == 100.0
+    scale = report.record_scale
+    assert min(r["lag1"] for r in rows) > 0.998  # limit 0.5
+    assert max(r["band_db"] for r in rows) < -90.0  # limit -20
+    assert max(r["jump"] for r in rows) < 0.14  # limit 1.5
+    assert max(r["rail"] for r in rows) < 1e-4  # limit 1e-3
+    assert min(r["distinct"] for r in rows) > 16_000  # limit 16
+    assert max(r["max_dev"] for r in rows) / scale < 2.6  # limit 8
+    assert 0.95 < min(r["sigma"] for r in rows) / scale  # limit 0.5
+    assert max(r["sigma"] for r in rows) / scale < 1.1  # limit 2
+    assert max(r["peak"] for r in rows) < 0.03  # limit 1e6 file units
+
+
+def test_known_limits_state_the_exact_cli_claim_and_the_swap_and_keep_the_promise():
+    text = " ".join(Path("docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
+    assert "every CLI route that takes a path is gated, and library code is not" in text
+    assert "Time of check to time of use" in text and "deliberate only" in text
+    assert "falls under the promise" in text
+    assert "ROUTES" in text and "a test walks the parser" in text
+    assert "makes no four-level claim" in text
+    promise = (
+        "The guard catches accidents and casual re-tuning by ordinary commits. It does not stop"
+        " deliberate tampering by someone who controls the repository, and it gives no date"
+        " proof. Only an external timestamp can."
+    )
+    assert promise in " ".join(Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md").read_text().split())
+    assert "does not stop deliberate tampering" in text

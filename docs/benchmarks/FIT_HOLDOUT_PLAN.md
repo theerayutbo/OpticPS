@@ -577,3 +577,120 @@ that is neither a holdout nor registered is then checked on its own merits: stru
 are reported separately and a well-formed header alone is never "accepted". `ExternalCapture.open_*`,
 `read_bin` and other generic readers called directly are not gated; that is a known limit
 (`FREEZE_GUARD_KNOWN_LIMITS.md`), the plan's promise being procedural there.
+
+## Revision 7 (2026-11-01): more R5.2 departures recorded, CLI route claim made exact, whole-record block pass
+
+Previous version: SHA-256 `c1c274b99557d752a612770f4a20d707247ee474bf953adff2a44e87249eb225`
+(Revision 6, commit 536b3ec; Revision 5 `7b7f93dd...`). New version: the pin in
+`tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an
+addendum: 0 lines are removed or edited from earlier text. Reason: the second Gate E1 review
+(`handoff/E1_qa2.md`, findings 1 to 4). Everything below that was run on file bytes was run on
+`50G_PAM4_PD1_B2B_Subassembly1.bin` only; the 2 km and 10 km files were not read.
+
+### R7.1 The 64-bit integers declared in R5.2 are not in the code
+
+R5.2 declares "8, 16, 32 and 64-bit signed and unsigned integers; 32 and 64-bit floats". The code's
+`_ALLOWED_DTYPES` has 14 types and no 64-bit integer, so it evaluates 84 hypotheses (14 types x 6 offsets:
+0, 136, 164, 165, 166, 167), not the declared set; Revision 6 did not say so. Not changed in code; recorded
+here. Reproduced in this round on B2B bytes by calling `evaluate_hypotheses` with `<i8`, `>i8`, `<u8`, `>u8`
+at the same six offsets (24 more readings): all 24 fail at least `plausible_scale` and `continuous`; eight of
+them (`<i8` and `<u8` at 0, 136 and 164; `>i8` and `>u8` at 167) pass every other physical check
+(finite, bounded, smooth, band-limited, not clipped, non-degenerate), with magnitudes near 5e18 to 1.4e19
+file units; all eight show two histogram peaks (`level_structure`, every 8th value of the whole record), not
+four, so the four-level structure R5.2 asks for rejects them too. The B2B result is unchanged by adding the
+declared types (the same single survivor `<f4@164`). That was run after B2B bytes were seen, as was every
+check in this revision; the departure itself dates from E1 (12eb480) and the repository cannot show whether
+it was a decision made before or after the first B2B read.
+
+### R7.2 `matches_declared_structure` changes the acceptance rule
+
+R5.2: the layout is supported "only if exactly one hypothesis passes every check". On B2B two hypotheses,
+`<f4@136` and `<f4@164`, pass every physical check (28 bytes are seven four-byte samples, which no statistic
+separates; checked again this round: leaving out any other single check still leaves the same two or the
+same one, so no other check decides between them). Under the literal rule the B2B result would be ambiguous,
+that is `FORMAT_UNKNOWN`. E1 added a check, `matches_declared_structure` (the hypothesis equals the dtype and
+offset that the parsed Keysight header declares), which leaves `<f4@164` as the only survivor and the result
+`SUPPORTED_BY_EVIDENCE`. This is a change to the acceptance rule, **not** outcome-neutral: the verdict on
+B2B depends on it. R5.2 lists "the Keysight BIN cookie test" among the hypotheses; reading that sentence as
+covering the whole structural parse is possible but the plan does not say it, so this revision does not rely
+on it. The E1 handoff describes the 136-byte reading as "rejected by structure only (statistics cannot tell,
+7 samples)", which is how a result seen on B2B reads; the repository cannot show when the check was written,
+so it is treated as added after B2B bytes were seen. The same rule applies unchanged to any later file.
+
+### R7.3 Other additions and one correction, each with its effect on B2B
+
+Added by E1 and not listed in R5.2 (R5.2 names finite values, four-cluster level structure, a smooth rolling-off
+PSD, no value pinned at a rail, and wrong readings failing): offsets 164 to 167 (the declared offset plus one to
+three bytes); `bounded` (largest deviation from the median at most 20 standard deviations); lag-1 `smooth`
+(autocorrelation at least 0.5); `non_degenerate` (at least 16 distinct values); `plausible_scale` (largest
+magnitude at most 1e6 and spread at least 1e-12 file units, added in the fix round after `handoff/E1_qa.md`,
+that is after B2B bytes were seen); `continuous` is R6.1 item 3. Effect, reproduced this round on B2B for the
+84 hypotheses: leaving out any one of `continuous`, `bounded`, `smooth`, `non_degenerate`, `plausible_scale`,
+`not_clipped` or `band_limited` (with `matches_declared_structure` kept) leaves the single survivor `<f4@164`;
+restricting the offsets to 0, 136 and 164 leaves the same survivor, so 165 to 167 are neutral on B2B. Leaving
+out `matches_declared_structure` alone leaves two (`<f4@136`, `<f4@164`), see R7.2. Leaving out
+`matches_declared_structure`, `plausible_scale` and `continuous` together leaves 11 (as R6.1 item 3); leaving
+out these three plus `bounded`, `smooth` and `non_degenerate` leaves 15. The four-cluster check is still
+applied to the survivor only (R6.1 item 4); this round did not show that all six removals together would be
+neutral under a per-hypothesis level check, so the checks are recorded as additions of E1, each neutral alone.
+The thresholds of these checks (0.5, 20, 16, 1e6, 1e-12, 1.5) were chosen by E1 with B2B bytes seen.
+
+### R7.4 CLI route rule, exact claim
+
+Revision 6 said "Every sample-reading route ... passes one gate first". The second review found
+`opticps ingest-uxr --input <file>` decoding all samples of a holdout-named fixture before any gate. The claim
+is now: **every CLI route that takes a path is gated; library code is not.** `src/opticps/cli/main.py`
+holds `ROUTES`, built by reading each handler and its call graph rather than option names. A path option is
+"gate": `main` runs `teriphic.gate_sample_read` (name of the resolved path, `data/external`, MD5 and
+SHA-256 of the whole file against the recorded holdout hashes) on the file, or on every file under a folder
+argument, before the handler starts; "handler": the handler gates it itself; or "no read" with the reason.
+The routes that can reach file contents of a user-supplied path, by command and option:
+`generate` (--config, --output); `validate` (--captures, --output); `simulate` (--config, --output);
+`fiber-validate` (--config, --output); `ingest` (--input); `ingest-uxr` (--input, --sidecar, --registry,
+--output); `compare-uxr` (--results); `uxr-report` (--results, --simulation, --output); `analyze` (--input,
+--output); `compare` (--results); `report` (--results); `slides` (--results); `demo` (--output, --results);
+`benchmark inspect-format` (--file, and --metadata before the sidecar is read; `--metadata-only` opens
+nothing). Options listed "no read" (written only, or unused by the handler) are in `ROUTES` with the reason.
+A test walks the parser and fails on a path option that is neither in `ROUTES` nor refused, and a second test
+runs each gated route on holdout fixtures by name, by injected SHA-256 and by injected MD5, with the readers
+forbidden. Files that are not holdouts behave as before; the cost is one hash pass over each file named. When
+the register YAML cannot be found (an installed copy), the CLI falls back to the registered holdout names,
+`data/external` and the recorded SHA-256, which is narrower. `read_bin`, `ExternalCapture.open_keysight_bin`,
+`ExternalCapture.open_raw` and the other library readers stay generic and stay in the known limits, as does
+the time-of-check to time-of-use swap (deliberate only, under the promise). `data/external` and the holdout
+names are now compared case-insensitively and Unicode-normalised, as this file system does.
+
+### R7.5 Whole-record block pass for files the user supplies (not B2B-verification, not a holdout route)
+
+The non-B2B file inspection no longer rests on three slices (2.6 % of a B2B-sized file). It streams the whole
+record in fixed blocks of 65,536 samples (a remainder under 4,096 samples is folded into the last block), one
+block in memory at a time, and every block passes the same checks: finite; magnitude (largest at most 1e6,
+spread at least 1e-12 file units); largest deviation from the block median at most 8 times a robust scale
+taken from the record (the median over blocks of 1.4826 x MAD; not an absolute limit); block robust spread
+between 0.5 and 2 times that record scale; lag-1 autocorrelation at least 0.5; top 40 % of the spectrum at
+least 20 dB below the peak; 99.9th percentile of the first difference at most 1.5 standard deviations; at most
+0.1 % of samples at the extremes; at least 16 distinct values. The output states blocks checked, blocks
+failed, coverage as a percentage computed from the samples in checked blocks over the record, and what was
+tested; it says that the pass makes no four-level claim (a ramp, NRZ and a 16-level waveform pass it, tested)
+and it no longer prints a bare "physical pass". It never runs on a holdout here (the gate comes first).
+Thresholds on B2B (625 blocks, none failed, coverage 100 %; record scale 0.00844 file units), with the
+margin:
+
+| quantity | B2B worst block | limit | margin |
+| --- | --- | --- | --- |
+| lag-1 autocorrelation (minimum) | 0.99903 | 0.5 | 0.5 |
+| top-band level over peak (maximum) | -94.96 dB | -20 dB | 75 dB |
+| 99.9th percentile of the first difference over std (maximum) | 0.131 | 1.5 | 11.5 x |
+| samples at the extremes (maximum) | 7.6e-5 | 1e-3 | 13 x |
+| distinct values (minimum) | 16,243 | 16 | 1,000 x |
+| largest deviation over record scale (maximum) | 2.50 | 8 | 3.2 x |
+| block spread over record scale | 0.963 to 1.090 | 0.5 to 2 | 1.9 x low side, 1.8 x high side |
+| largest magnitude (maximum) | 0.0204 | 1e6 | file units |
+
+The first five limits are those of the earlier waveform checks (R7.3 says when they were set); 8, 0.5, 2 and the
+block size were chosen in this round after the B2B block statistics were seen, each with the margin above, and
+with no other file used. Cost on B2B (this machine): the pass takes 3.1 s (4.6 s under `tracemalloc`) after
+the 0.9 s hash and open; peak Python heap 4.7 MB; peak resident set of the process 196 MB, which is the mapped
+file pages the system can drop (the process was at 27 MB before the pass). Limits of the pass: a legitimate
+capture that differs strongly from B2B (burst traffic, a long idle gap) can be refused, and a capture that
+passes is not thereby a verified capture.

@@ -24,7 +24,8 @@ What this module does and does not promise.
   sample-reading route of the CLI and the TERIPHIC adapter passes first. Calling an `open_*`
   constructor or `opticps.measurement.uxr_import.read_bin` directly on a holdout is not refused here
   (listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`). Structure alone is never a verdict:
-  `ExternalCapture.full_scan` and `physical_checks` give the physical pass, reported separately.
+  `ExternalCapture.coverage_scan` (every block of the whole record) gives the physical pass,
+  reported separately; `full_scan` and the three-slice `physical_checks` are narrower tools.
 
 The Keysight layout used here is the one `opticps.measurement.uxr_import.read_bin` cites (UXR
 Programmer's Guide, BIN file format). The parser below is written separately from `read_bin` on
@@ -87,6 +88,30 @@ _ALLOWED_DTYPES = frozenset(
         ">f8",
     }
 )
+
+
+COVERAGE_BLOCK_SAMPLES = 1 << 16
+MIN_BLOCK_SAMPLES = 4096
+BLOCK_CHECK_NAMES = (
+    "finite",
+    "plausible_scale",
+    "spike_vs_record_scale",
+    "spread_vs_record_scale",
+    "smooth",
+    "band_limited",
+    "continuous",
+    "not_clipped",
+    "non_degenerate",
+)
+# Block thresholds, set on the B2B file only (plan Revision 7 states the B2B values and margins).
+BLOCK_LAG1_MIN = 0.5
+BLOCK_BAND_DB_MAX = -20.0
+BLOCK_JUMP_MAX = 1.5
+BLOCK_RAIL_MAX = 1e-3
+BLOCK_DISTINCT_MIN = 16
+BLOCK_SPIKE_MAX = 8.0  # largest deviation from the block median over the record scale
+BLOCK_SPREAD_MIN = 0.5  # block robust spread over the record scale
+BLOCK_SPREAD_MAX = 2.0
 
 
 class FormatStatus(StrEnum):
@@ -335,6 +360,16 @@ def waveform_checks(x: FloatArray) -> tuple[FormatCheck, ...]:
         return _waveform_checks(x)
 
 
+def _upper_band_db(centred: FloatArray) -> float:
+    """Mean density of the top 40 % of the spectrum relative to the peak, in dB (Hann, 1024)."""
+    nseg = 1024
+    count = centred.size // nseg
+    segments = centred[: count * nseg].reshape(count, nseg) * np.hanning(nseg + 1)[:nseg]
+    psd = (np.abs(np.fft.rfft(segments, axis=1)) ** 2).mean(axis=0)
+    upper = float(psd[int(0.6 * psd.size) :].mean())
+    return 10.0 * math.log10(max(upper, 1e-300) / float(psd.max()))
+
+
 def _waveform_checks(x: FloatArray) -> tuple[FormatCheck, ...]:
     if x.size < 4096:
         return (FormatCheck("enough_samples", False, f"{x.size} samples; at least 4096 needed"),)
@@ -351,12 +386,7 @@ def _waveform_checks(x: FloatArray) -> tuple[FormatCheck, ...]:
         )
     outlier = float(np.abs(x - np.median(x)).max() / std)
     lag1 = float(np.dot(centred[:-1], centred[1:]) / np.dot(centred, centred))
-    nseg = 1024
-    count = x.size // nseg
-    segments = centred[: count * nseg].reshape(count, nseg) * np.hanning(nseg + 1)[:nseg]
-    psd = (np.abs(np.fft.rfft(segments, axis=1)) ** 2).mean(axis=0)
-    upper = float(psd[int(0.6 * psd.size) :].mean())
-    ratio_db = 10.0 * math.log10(max(upper, 1e-300) / float(psd.max()))
+    ratio_db = _upper_band_db(centred)
     rail = float(((x == x.max()).sum() + (x == x.min()).sum()) / x.size)
     jump = float(np.quantile(np.abs(np.diff(x)), 0.999) / std)
     peak = float(np.abs(x).max())
@@ -521,15 +551,25 @@ class RawSpec:
     def from_sidecar(cls, path: Path) -> RawSpec:
         try:
             document = json.loads(path.read_text(encoding="utf-8"))
+        except UnicodeDecodeError:  # its message would quote a byte value of the file
+            raise format_unknown(f"{path.name}: sidecar is not UTF-8 text") from None
         except (OSError, ValueError) as error:
             raise format_unknown(f"{path.name}: sidecar cannot be read as JSON: {error}") from error
         if not isinstance(document, dict) or not document or set(document) - cls._KEYS:
-            extra = sorted(set(document) - cls._KEYS) if isinstance(document, dict) else document
+            extra = (
+                sorted(map(str, set(document) - cls._KEYS))
+                if isinstance(document, dict)
+                else f"a JSON {type(document).__name__}, not an object"
+            )
             raise format_unknown(
                 f"{path.name}: sidecar keys must be among {sorted(cls._KEYS)}: {extra}"
             )
         if "dtype" not in document:
             raise format_unknown(f"{path.name}: sidecar has no dtype")
+        if type(document["dtype"]) is not str:
+            raise format_unknown(f"{path.name}: dtype must be a string")
+        if "scale" in document and type(document["scale"]) is not str:
+            raise format_unknown(f"{path.name}: scale must be a string")
         for key in ("data_offset", "count"):
             if key in document and (type(document[key]) is not int):
                 raise format_unknown(f"{path.name}: {key} must be an integer")
@@ -542,7 +582,12 @@ class RawSpec:
 
 
 class ExternalCapture:
-    """A verified, read-only view of one capture file. Build it with the `open_*` constructors."""
+    """A read-only view of one capture file. Build it with the `open_*` constructors.
+
+    "Verified" would overstate it: `open_keysight_bin` checks the header structure against the file
+    size and hashes the file, and runs no physical check on the samples; `open_raw` runs the
+    three-slice checks only. The physical pass is `coverage_scan`, called separately.
+    """
 
     def __init__(self, path: Path, layout: SampleLayout, checksum: Checksum | None) -> None:
         self.path = path
@@ -704,10 +749,58 @@ class ExternalCapture:
             ),
         )
 
-    def physical_checks(self, max_samples: int = 1 << 20) -> tuple[FormatCheck, ...]:
-        """`waveform_checks` on up to three slices (start, middle, end), reporting any failure."""
+    def block_rows(self, block_samples: int = COVERAGE_BLOCK_SAMPLES) -> list[dict[str, float]]:
+        """One row of statistics per fixed block over the whole record, streaming.
+
+        Blocks have `block_samples` samples; a remainder shorter than `MIN_BLOCK_SAMPLES` is folded
+        into the last block, so every sample belongs to exactly one block. At most one block is in
+        memory; the rows are a few numbers each.
+        """
+        if not MIN_BLOCK_SAMPLES <= block_samples <= MAX_BLOCK_SAMPLES:
+            raise BenchmarkError(
+                f"block_samples must be in [{MIN_BLOCK_SAMPLES}, {MAX_BLOCK_SAMPLES}]"
+            )
+        if self.count < MIN_BLOCK_SAMPLES:
+            raise format_unknown(
+                f"{self.count} samples: fewer than the {MIN_BLOCK_SAMPLES} one block needs"
+            )
+        edges = list(range(0, self.count, block_samples))
+        if len(edges) > 1 and self.count - edges[-1] < MIN_BLOCK_SAMPLES:
+            edges.pop()
+        edges.append(self.count)
+        rows: list[dict[str, float]] = []
+        self.assert_unchanged()
+        for begin, end in zip(edges[:-1], edges[1:], strict=True):
+            with np.errstate(all="ignore"):
+                block = np.asarray(self._samples[begin:end], dtype=np.float64)
+                rows.append(_block_row(begin, block))
+        return rows
+
+    def coverage_scan(self, block_samples: int = COVERAGE_BLOCK_SAMPLES) -> CoverageReport:
+        """The same checks on every block of the whole record (no slices, no skipped samples).
+
+        Per block: finite, plausible magnitude, the largest deviation from the block median
+        against a robust scale taken from the record itself (the median over blocks of 1.4826 x
+        MAD, not an absolute limit), block spread against that record scale, lag-1 smoothness,
+        band limit, continuity, clipping and distinct values. Thresholds: see the constants
+        `BLOCK_*` and plan Revision 7 (set on the B2B file only, margins stated there).
+        A pass makes no four-level claim: ramps, NRZ and 16 levels can pass.
+        """
+        rows = self.block_rows(block_samples)
+        return summarize_blocks(rows, self.count, block_samples)
+
+    def slice_geometry(self, max_samples: int = 1 << 20) -> tuple[int, tuple[int, ...]]:
+        """(slice length, first indices) of the three slices `physical_checks` looks at."""
         n = min(max_samples // 3, self.count // 3)
-        starts = [0, (self.count - n) // 2, self.count - n]
+        return n, (0, (self.count - n) // 2, self.count - n)
+
+    def physical_checks(self, max_samples: int = 1 << 20) -> tuple[FormatCheck, ...]:
+        """`waveform_checks` on up to three slices (start, middle, end), reporting any failure.
+
+        Slices only (about 2.6 % of a B2B-sized record): `open_raw` uses it, the file inspection
+        does not; `coverage_scan` is the whole-record pass.
+        """
+        n, starts = self.slice_geometry(max_samples)
         out: list[FormatCheck] = []
         for index, begin in enumerate(starts):
             for check in waveform_checks(self.read(begin, begin + n)):
@@ -716,6 +809,137 @@ class ExternalCapture:
                         FormatCheck(check.name, check.passed, f"slice {index}: {check.detail}")
                     )
         return tuple(out)
+
+
+def _block_row(begin: int, x: FloatArray) -> dict[str, float]:
+    """Statistics of one block; a block with a non-finite value gets no other statistic."""
+    row: dict[str, float] = {"begin": float(begin), "size": float(x.size)}
+    finite = np.isfinite(x)
+    row["nonfinite"] = float((~finite).sum())
+    if not finite.all():
+        return row
+    median = float(np.median(x))
+    deviation = np.abs(x - median)
+    centred = x - x.mean()
+    std = float(centred.std())
+    row.update(
+        peak=float(np.abs(x).max()),
+        median=median,
+        sigma=1.4826 * float(np.median(deviation)),
+        max_dev=float(deviation.max()),
+        std=std,
+        distinct=float(np.unique(x).size),
+        rail=float(((x == x.max()).sum() + (x == x.min()).sum()) / x.size),
+    )
+    if std > 0:
+        row["lag1"] = float(np.dot(centred[:-1], centred[1:]) / np.dot(centred, centred))
+        row["band_db"] = _upper_band_db(centred)
+        row["jump"] = float(np.quantile(np.abs(np.diff(x)), 0.999) / std)
+    return row
+
+
+@dataclass(frozen=True)
+class CoverageReport:
+    """What the whole-record block pass tested and found. Coverage is computed, never assumed."""
+
+    block_samples: int
+    blocks_checked: int
+    blocks_failed: int
+    samples_total: int
+    samples_checked: int
+    samples_in_failed_blocks: int
+    record_scale: float
+    checks: tuple[FormatCheck, ...]
+    first_failed_sample: int | None
+
+    @property
+    def coverage_pct(self) -> float:
+        return 100.0 * self.samples_checked / self.samples_total
+
+    @property
+    def passed(self) -> bool:
+        return self.blocks_failed == 0 and self.samples_checked == self.samples_total
+
+    @property
+    def tested(self) -> str:
+        return (
+            f"every block of {self.block_samples:,} samples (remainder folded into the last): "
+            "finite; magnitude; largest deviation against a robust scale of the record; block "
+            "spread against that scale; lag-1 smoothness; band limit; continuity; clipping; "
+            "distinct values. This pass makes no four-level claim and no format claim"
+        )
+
+    def summary(self) -> str:
+        failed_pct = 100.0 * self.samples_in_failed_blocks / self.samples_total
+        return (
+            f"blocks checked {self.blocks_checked}, blocks failed {self.blocks_failed}, coverage "
+            f"{self.coverage_pct:.1f}% of samples checked ({self.samples_checked:,} of "
+            f"{self.samples_total:,}), {failed_pct:.1f}% of samples in failed blocks"
+        )
+
+
+def summarize_blocks(
+    rows: Sequence[dict[str, float]], count: int, block_samples: int
+) -> CoverageReport:
+    """Apply the block checks to the rows; the record scale comes from the rows themselves."""
+    finite_rows = [r for r in rows if r["nonfinite"] == 0]
+    sigmas = [r["sigma"] for r in finite_rows if r["sigma"] > 0]
+    scale = float(np.median(sigmas)) if sigmas else 0.0
+    failed: dict[str, list[tuple[int, str]]] = {n: [] for n in BLOCK_CHECK_NAMES}
+    for r in rows:
+        at = int(r["begin"])
+        if r["nonfinite"]:
+            failed["finite"].append((at, f"{int(r['nonfinite'])} non-finite values"))
+            continue
+        if r["peak"] > SCALE_ABS_MAX or r["std"] < SCALE_STD_MIN:
+            failed["plausible_scale"].append((at, f"peak {r['peak']:.3g}, spread {r['std']:.3g}"))
+        if not scale > 0:
+            failed["spike_vs_record_scale"].append((at, "the record has no scale (no spread)"))
+            failed["spread_vs_record_scale"].append((at, "the record has no scale (no spread)"))
+        else:
+            ratio = r["max_dev"] / scale
+            if ratio > BLOCK_SPIKE_MAX:
+                failed["spike_vs_record_scale"].append((at, f"{ratio:.3g} x record scale"))
+            spread = r["sigma"] / scale
+            if not BLOCK_SPREAD_MIN <= spread <= BLOCK_SPREAD_MAX:
+                failed["spread_vs_record_scale"].append((at, f"{spread:.3g} x record scale"))
+        if "lag1" not in r:
+            failed["non_degenerate"].append((at, "zero spread"))
+            continue
+        if r["lag1"] < BLOCK_LAG1_MIN:
+            failed["smooth"].append((at, f"lag-1 {r['lag1']:.3f}"))
+        if r["band_db"] > BLOCK_BAND_DB_MAX:
+            failed["band_limited"].append((at, f"{r['band_db']:.1f} dB"))
+        if r["jump"] > BLOCK_JUMP_MAX:
+            failed["continuous"].append((at, f"{r['jump']:.3g} std"))
+        if r["rail"] > BLOCK_RAIL_MAX:
+            failed["not_clipped"].append((at, f"{r['rail']:.2e} at extremes"))
+        if r["distinct"] < BLOCK_DISTINCT_MIN:
+            failed["non_degenerate"].append((at, f"{int(r['distinct'])} distinct values"))
+    bad_starts = {at for items in failed.values() for at, _ in items}
+    bad_samples = sum(int(r["size"]) for r in rows if int(r["begin"]) in bad_starts)
+    checked = sum(int(r["size"]) for r in rows)
+    checks = tuple(
+        FormatCheck(
+            f"block_{name}",
+            not items,
+            "every block passes"
+            if not items
+            else f"{len(items)} blocks fail, the first at sample {items[0][0]} ({items[0][1]})",
+        )
+        for name, items in failed.items()
+    )
+    return CoverageReport(
+        block_samples,
+        len(rows),
+        len(bad_starts),
+        count,
+        checked,
+        bad_samples,
+        scale,
+        checks,
+        min(bad_starts) if bad_starts else None,
+    )
 
 
 def _hashed(path: Path, md5_supplied: str | None, checksum: Checksum | None) -> Checksum:
