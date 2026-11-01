@@ -75,7 +75,9 @@ stated residual.**
    A file size of 163,840,136 = 163,840,000 + 136 bytes (record metadata only) is a hypothesis for
    a fixed header, not evidence: size alone cannot tell it from a Keysight single-waveform file
    (164 header bytes plus float32 samples also gives an integer sample count).
-   Smaller residual (review finding 13, **deferred to E1**): `read_bin` checks the size field
+   Smaller residual (review finding 13; **closed in E1a, 2026-11-01**: `read_bin` now refuses any
+   bytes after the last waveform, test `test_bin_trailing_bytes_after_the_last_waveform_are_rejected`;
+   the paragraph describes the state before the fix): `read_bin` checks the size field
    against the file length but does not check that the last waveform ends exactly at the end of
    the file, so trailing bytes after a valid structure pass. The E0 reviewer reproduced it: a
    valid header declaring 100 samples followed by 400,000 further bytes of samples is accepted and

@@ -45,24 +45,27 @@ XML were one `curl` away.
 | Sizes | 163,840,136 bytes each = 163,840,000 + 136 (arithmetic on the listed size only; a 136-byte constant is a hypothesis for E1, not a finding) | verified (JSON) + arithmetic |
 | Missing | raw format, reference bit/symbol sequence, wavelength, fibre type and dispersion, vertical calibration, device responses, oscilloscope settings, acquisition timestamps | - |
 
-### Local hashes (hashed locally by orchestrator on owner-approved download, 2026-10-31)
+### Local hashes (orchestrator report, re-verified by E1a with `verify_local_asset`, 2026-11-01)
 
-The three target files were downloaded with the owner's approval and hashed by the orchestrator.
-The values below were reported to the Dev who corrected this register; neither E0 nor the fix round
-opened, read or hashed these files, and `data/external/` was not opened. The MD5 of each file
-equals the MD5 supplied by the record (section above). Until E1 runs `verify_local_asset` on the
-files, the repository records the MD5 state as `supplied`, not `verified`: the schema cannot hold a
-typed-in local hash. **E1 will run `verify_local_asset` on the three downloaded files** and compare
-the result with these values.
+The three target files were downloaded with the owner's approval and first hashed by the orchestrator
+(2026-10-31). On 2026-11-01 E1a ran `verify_local_asset` on each file (streaming MD5 and SHA-256, whole
+file, no sample value read or kept) and compared the result with the MD5 supplied by the record and
+with the orchestrator's SHA-256. All three agree: **MD5 state `verified`** (local MD5 equal to the
+supplied MD5), local size 163,840,136 bytes each, SHA-256 equal to the orchestrator's value. The
+checksum object is rebuilt at run time (the schema cannot hold a typed-in local hash), so the
+committed configs still carry the supplied MD5; the `verified` state is the result of that run and is
+asserted by `tests/test_benchmark_provenance.py::test_local_hashes_match_the_register` whenever
+the files are present (skipped otherwise). A `verified` state describes the bytes hashed then; it goes
+stale if the file changes (`Checksum.still_current`).
 
-| File | Group | MD5 (local, hashed by orchestrator) | SHA-256 (local, hashed by orchestrator) |
+| File | Group | MD5 (local, verified = supplied) | SHA-256 (local, equal to orchestrator) |
 |---|---|---|---|
 | `50G_PAM4_PD1_B2B_Subassembly1.bin` | `7886498/SA1/PD1/B2B` | `d7bd6d48bc020a138f4f129bc2ba7312` | `b9c5968ae4cac4ea53b6bbda62c7255b3ecfa2ff530985c1e4ae0f4e55b9e0b2` |
 | `50G_PAM4_PD1_2km_Subassembly1.bin` | `7886498/SA1/PD1/2km` | `d9e3c533394c53c3575491558ffc35b1` | `22fc7bb592681ed6135b5be28a28b1f124344924316b4333508823f7674266d3` |
 | `50G_PAM4_PD1_10km_Subassembly1.bin` | `7886498/SA1/PD1/10km` | `3d8774b068deaf50f37892b38953dfd6` | `053bf8c9ba8df00063f5d686508833dc18685ec320d7e373b1877947e15b118b` |
 
-Hashing streams every byte through a digest. It reads no sample value: no one has decoded, plotted
-or summarised these captures (the fit/holdout plan, Revision 1, section R.1, says the same).
+Hashing reads every byte through a digest and no sample value. For the 2 km and 10 km holdout files
+that is the only operation E1 performs (plan R5.2).
 
 ## Source 2. TERIPHIC quad InP EML array (Dataset B, P1, out of MZM model domain)
 

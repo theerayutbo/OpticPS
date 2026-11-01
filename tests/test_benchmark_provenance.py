@@ -59,7 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 3 of the plan (2026-10-31, before any sample was read). Revision 2 hashed to
+# Pinned for Revision 5 of the plan (2026-11-01, before any sample was read; Revision 4 is
+# REVISION_4_PLAN_SHA256 at d52149a, Revision 3 REVISION_3_PLAN_SHA256 at 8b84914). Revision 2 hashed to
 # PREVIOUS_PLAN_SHA256 (commit 0424e9c), Revision 1 to REVISION_1_PLAN_SHA256 (commit 8f57af9) and
 # the first version to ORIGINAL_PLAN_SHA256 (commit 8900748). A deliberate amendment must change
 # this line, the plan_sha256 in the TERIPHIC config and add a dated section.
@@ -68,7 +69,9 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce"
+PLAN_SHA256 = "7b7f93dd20506d617ddc5245166c55cf44e605dbc23789a6644e2a2e16ec3185"  # Revision 5
+REVISION_4_PLAN_SHA256 = "b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce"
+REVISION_3_PLAN_SHA256 = "dd2f800050a18b4da52369e4f62c9ef15fb8043bd2efc5f947b529e7b1e81535"
 PREVIOUS_PLAN_SHA256 = "45d9088cd21248d5828552bdaec0215c54c4a0334086dfbd7a4ea1003c5dec11"
 REVISION_1_PLAN_SHA256 = "42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a"
 ORIGINAL_PLAN_SHA256 = "6bf4238a37d722e177f7fb0c1182afb9862f316bc22d1ac265efb26d2981254a"
@@ -185,8 +188,40 @@ def test_plan_hash_is_pinned_in_test_and_config():
         "FIT_HOLDOUT_PLAN.md changed: amend with a dated section and a new pin"
     )
     assert load_source_config(TERIPHIC).plan_sha256 == PLAN_SHA256
-    hashes = {PLAN_SHA256, PREVIOUS_PLAN_SHA256, REVISION_1_PLAN_SHA256, ORIGINAL_PLAN_SHA256}
-    assert len(hashes) == 4
+    hashes = {
+        PLAN_SHA256,
+        REVISION_4_PLAN_SHA256,
+        REVISION_3_PLAN_SHA256,
+        PREVIOUS_PLAN_SHA256,
+        REVISION_1_PLAN_SHA256,
+        ORIGINAL_PLAN_SHA256,
+    }
+    assert len(hashes) == 6
+
+
+def test_plan_records_every_earlier_pin_and_headings():
+    text = " ".join(PLAN.read_text().split())
+    for earlier in (
+        REVISION_4_PLAN_SHA256,
+        REVISION_3_PLAN_SHA256,  # dd2f8000...: no commit message holds it (qa5, finding 4)
+        PREVIOUS_PLAN_SHA256,
+        REVISION_1_PLAN_SHA256,
+        ORIGINAL_PLAN_SHA256,
+    ):
+        assert earlier in text, earlier[:8]
+    assert "dd2f8000" in text
+    assert "## Revision 4 (2026-10-31)" in text
+    assert "## Revision 5 (2026-11-01)" in text
+    revision_5 = text[text.index("## Revision 5 (2026-11-01)") :]
+    for needle in (
+        REVISION_4_PLAN_SHA256,
+        "was **true**",  # R.1: the message of 8f57af9 holds the full value
+        "45d9088c",  # Revision 2: the message of 0424e9c holds the prefix only
+        "No commit message holds `dd2f8000...`",
+        "only** of `50G_PAM4_PD1_B2B_Subassembly1.bin`",
+        "Acceptance rule",
+    ):
+        assert needle in revision_5, needle
 
 
 def test_plan_roles_match_config_splits():
@@ -446,18 +481,40 @@ def test_register_quotes_the_record_and_states_the_corrections():
         'a digitally applied low-pass filter of 50 GHz 3-dB cut-off',
         'actually the samples extracted from the oscilloscope',
         "0 NRZ",
-        "hashed locally by orchestrator on owner-approved download, 2026-10-31",
+        "first hashed by the orchestrator (2026-10-31)",
+        "re-verified by E1a with `verify_local_asset`, 2026-11-01",
         MD5_B2B, MD5_2KM, MD5_10KM,
         "b9c5968ae4cac4ea53b6bbda62c7255b3ecfa2ff530985c1e4ae0f4e55b9e0b2",
         "22fc7bb592681ed6135b5be28a28b1f124344924316b4333508823f7674266d3",
         "053bf8c9ba8df00063f5d686508833dc18685ec320d7e373b1877947e15b118b",
         "Licence conflict",
         "CC BY-NC-ND",
-        "E1 will run `verify_local_asset`",
+        "**MD5 state `verified`**",
     ):  # fmt: skip
         assert needle in text, needle
     assert "`transmitter_type` omits CW" not in text
     assert "Revision 2; HTML page says v1" not in text  # discrepancy 1 was an artefact
+
+
+LOCAL_SHA256 = {
+    "50G_PAM4_PD1_B2B_Subassembly1.bin": "b9c5968ae4cac4ea53b6bbda62c7255b3ecfa2ff530985c1e4ae0f4e55b9e0b2",
+    "50G_PAM4_PD1_2km_Subassembly1.bin": "22fc7bb592681ed6135b5be28a28b1f124344924316b4333508823f7674266d3",
+    "50G_PAM4_PD1_10km_Subassembly1.bin": "053bf8c9ba8df00063f5d686508833dc18685ec320d7e373b1877947e15b118b",
+}  # fmt: skip
+LOCAL_ROOT = Path("data/external/teriphic")
+
+
+@pytest.mark.skipif(
+    not all((LOCAL_ROOT / n).is_file() for n in LOCAL_SHA256), reason="local TERIPHIC files absent"
+)
+def test_local_hashes_match_the_register():
+    """Hash-only: `verify_local_asset` streams digests and returns no sample value."""
+    for asset in load_source_config(TERIPHIC).assets:
+        assert asset.checksum.md5_state is Md5State.SUPPLIED
+        checked = verify_local_asset(LOCAL_ROOT / asset.filename, asset.checksum.md5_supplied)
+        assert checked.md5_state is Md5State.VERIFIED, asset.filename
+        assert checked.sha256_local == LOCAL_SHA256[asset.filename], asset.filename
+        assert checked.size_local == 163_840_136
 
 
 # ------------------------------------------------------------------ article text stays out

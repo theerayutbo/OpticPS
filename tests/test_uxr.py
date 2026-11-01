@@ -346,6 +346,19 @@ def test_bin_round_trip_strict_layout(tmp_path):
     assert read_scope_file(tmp_path / "a.bin").source_format == "bin"
 
 
+def test_bin_trailing_bytes_after_the_last_waveform_are_rejected(tmp_path):
+    good = make_bin(RAMP)
+    for extra in (b"\x00", b"AG10", bytes(64)):
+        # keep the File Size field equal to the real length, so only the trailing check can fire
+        blob = good + extra
+        blob = blob[:4] + len(blob).to_bytes(4, "little") + blob[8:]
+        (tmp_path / "t.bin").write_bytes(blob)
+        with pytest.raises(UxrImportError, match="unexplained bytes"):
+            read_bin(tmp_path / "t.bin")
+    (tmp_path / "ok.bin").write_bytes(good)
+    assert len(read_bin(tmp_path / "ok.bin").samples_v) == len(RAMP)
+
+
 def test_bin_bad_files_rejected(tmp_path):
     for name, blob, word in [
         ("size", make_bin(RAMP, size_delta=4), "File Size"),

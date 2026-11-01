@@ -690,6 +690,11 @@ def read_bin(path: Path, channel: int | None = None) -> ScopeWaveform:
             raise UxrImportError("BIN buffer size, width and point count disagree")
         entries.append((fields, start, points))
         offset = start + buffer_size
+    if offset != len(blob):
+        raise UxrImportError(
+            f"BIN file has {len(blob) - offset} unexplained bytes after its last waveform; "
+            "refusing the file"
+        )
     labels = [_text(e[0][14]) for e in entries]
     numbers = [_label_channel(label) for label in labels]
     if count > 1:

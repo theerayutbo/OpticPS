@@ -472,3 +472,53 @@ refuse, and Revision 3 contained a false statement.
 Decision of the owner: further routes round the guard are not chased in another fix round. They
 go on a list of known limits, `docs/benchmarks/FIT_HOLDOUT_PLAN.md` R3.4 and
 `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`. The promise (R3.1) is unchanged.
+
+## Revision 5 (2026-11-01): retraction corrected, E1 procedure declared before B2B is read
+
+Previous version: SHA-256 `b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce`
+(Revision 4, commit d52149a; earlier: `dd2f8000...` at 8b84914, `45d9088c...` at 0424e9c,
+`42a578f5...` at 8f57af9, `6bf4238a...` at 8900748). New version: the pin in
+`tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an
+addendum: no earlier line is edited, and the strike-through notes of Revision 4 stay where they are,
+corrected here. Reason: the fifth review (`handoff/E0_qa5.md`, finding 4) found that Revision 4
+overcorrected.
+
+### R5.1 The prefix retraction, corrected
+
+Checked against `git log -1 --format=%B` of each commit:
+
+- Revision 1 (R.1). The claim "the same value is in the commit message" was **true**: the message of
+  8f57af9 holds the full SHA-256 `42a578f5c3e9d28d1fad69800416faa2330510c37007a7c56c7bc940d42d358a`.
+  The Revision 4 note "false, no commit message holds it" is wrong for this revision.
+- Revision 2. The message of 0424e9c holds the 8-digit prefix `45d9088c`, not the full value. The
+  Revision 2 sentence was therefore partly true (prefix only), and the Revision 4 note "false" overstates;
+  so does the Finding 4 bullet of Revision 4, which says the same of Revision 2 and R.1.
+- Revision 3. No commit message holds `dd2f8000...` (neither the prefix nor the full value), so the
+  Revision 4 note is right there: the Revision 3 sentence that the prefix is in the commit message was false.
+
+Nothing here affects what the freeze guard checks; the pins in the test and the config are the record.
+
+### R5.2 What Gate E1 will do on the captures, declared before any sample byte is read
+
+State of knowledge now: the three files are present locally and have been hashed (orchestrator, and
+by E1a with `verify_local_asset`); no sample of any file has been read, decoded, plotted or summarised
+by the E1 Dev. E1 reads sample bytes **only** of `50G_PAM4_PD1_B2B_Subassembly1.bin`. On the 2 km and
+10 km files E1 runs `verify_local_asset` (hashes) and nothing else: no header read, no size-based
+decode, no statistic, no pattern analysis (R.3 is unchanged, and stricter than the one operation it
+would allow). If a format check ever needs a holdout header, E1 stops and reports.
+
+Format hypotheses are independent and byte-level: sample dtype (8, 16, 32, 64-bit signed and unsigned
+integers; 32 and 64-bit floats), byte order, a leading header of 0 or of the size remainder (file size
+minus the largest whole number of samples), and the Keysight BIN cookie test. A hypothesis is judged
+by physical checks fixed now: finite values; a sample distribution with the level structure of a PAM4
+waveform (four clusters, none empty) and not that of an unrelated byte stream; a power spectral
+density that is smooth and rolls off within the 128 GHz Nyquist band for the claimed 256 GSa/s, with
+content near 50 GHz consistent with 50 GBd; no value pinned at a rail beyond a small fraction of
+samples; and wrong-dtype and wrong-endianness readings of the same bytes failing at least one check.
+Acceptance rule: the sample layout is called supported only if exactly one hypothesis passes every
+check and each wrong-endianness or wrong-dtype alternative fails one; a header that stays unexplained is
+recorded as unexplained. Otherwise the status stays `FORMAT_UNKNOWN` (`BLOCKED: FORMAT_UNVERIFIED`) and
+the report states what the exporter must supply. A plausible picture is not evidence. The scale stays
+`normalized`: no volts, no optical power, unless a document says otherwise. The sample rate stays
+INFERRED (the record says "256 Gbaud"); timing uses 256/50 = 5.12 samples per symbol as a nominal
+ratio and nothing is rounded to 5.

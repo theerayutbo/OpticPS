@@ -21,9 +21,17 @@ Not refused, deliberate or outside the tool:
   files are the caller's word; the order in which inputs were committed is not checked.
 - `b2b_basis` cannot be recomputed by the tool; limit equals basis times multiplier holds
   arithmetically only. Estimator ids label estimators, they do not verify code.
-- `FrozenCriterion` can be forged in-process with `object.__new__`.
+- `FrozenCriterion` can be forged in-process with `object.__new__`, and equally through `__dict__`
+  or a hand-made pickle (`handoff/E0_qa3.md` finding 9; item b of `handoff/E0_qa5.md`).
+- A symbolic link at a parent directory of the criterion (`handoff/E0_qa5.md` item a, also present at
+  fc22f41, not a regression): `git mv docs/benchmarks docs/b2`, a criterion with a looser limit,
+  `ln -s b2 docs/benchmarks`, one commit, and the guard passes with that commit. The symlink check
+  tests the last path component only, so "a symbolic link is refused" and "any other path is ignored"
+  hold for the file itself, not for its parents. Listed, not chased.
 
 Refused (closed routes, for reference): edit, revert or delete and re-add of the criterion;
 a changed plan after the freeze; rename into the fixed path (20 % similarity); a merge from a side
 branch with another limit (full history); a symbolic link at the criterion, plan or an input;
-shallow or partial clone; criterion at another path counted as the freeze.
+shallow or partial clone; criterion at another path counted as the freeze; a `-s ours` merge that
+keeps the real limit (refused too, conservatively, because a second distinct criterion signature
+exists in the full history; `handoff/E0_qa5.md` item c).
