@@ -53,6 +53,10 @@ TESTS = (
     "tests/test_nanf_n3a_scoring.py",
     "tests/test_nanf_n3a_freeze.py",
 )
+# Reviewed as equivalent and left out: dropping `link` or `nanf_import` from ENTRY_MODULES (both stay
+# reachable by imports from nanf_chain and nanf_benchmark); reading infinity as censored in
+# `is_censored` (the range check still refuses it); allowing NaN fields in `Crossing` (the per-kind
+# finiteness checks still refuse them).
 # Fast files first, so that most mutants are killed early; the slow chain tests run last.
 RUN_ORDER = (
     "tests/test_nanf_n3a_scoring.py",
@@ -1064,18 +1068,6 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         'CONFIG_FILES = ("uv.lock",)',
     ),
     (
-        "freeze: the identity omits the link model",
-        FZ,
-        '    "opticps.optical_channel.link",\n',
-        "",
-    ),
-    (
-        "freeze: the identity omits the importer",
-        FZ,
-        '    "opticps.measurement.nanf_import",\n',
-        "",
-    ),
-    (
         "freeze: the identity omits the benchmark helpers",
         FZ,
         '    "opticps.measurement.nanf_benchmark",\n',
@@ -1136,12 +1128,6 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "    if np.any(np.isinf(b)):\n",
     ),
     (
-        "scoring: infinite BER read as censored",
-        SC,
-        "    if (nan.any() and not published) or np.any(np.isinf(b)):\n",
-        "    if nan.any() and not published:\n",
-    ),
-    (
         "scoring: negative or above-one BER accepted",
         SC,
         "    if np.any(finite < 0) or np.any(finite > 1):\n",
@@ -1170,12 +1156,6 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         SC,
         "            ok = math.isfinite(lo) and lo == hi",
         "            ok = lo == hi",
-    ),
-    (
-        "scoring: Crossing NaN fields allowed",
-        SC,
-        "        elif math.isnan(lo) or math.isnan(hi):\n            ok = False\n",
-        "",
     ),
     (
         "scoring: C4 simulated censored non-zero BER counted within",

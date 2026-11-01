@@ -703,3 +703,81 @@ def test_a_duplicate_key_in_the_artefact_is_refused_where_the_last_value_would_b
         nf.require_freeze(
             forged["freeze_hash"], record_path=repo.record_path, plan_path=repo.plan, root=repo.root
         )
+
+
+# --- guards reached only through a committed, hand-forged artefact (mutant survivors) ----------
+
+
+def forge_with_artifact(
+    repo, raw: bytes, rel: str = ARTIFACT_REL, partition=None, record_path=None
+):
+    """Commit `raw` at `rel`, and return a consistent record that names it (the artefact itself may
+    be hostile). Only the checks of the reader can then refuse it."""
+    target = repo.root / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_bytes(raw)
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-q", "--allow-empty", "-m", "forged artefact")
+    forged = copy.deepcopy(repo.record)
+    forged["calibration"] = {
+        "path": record_path or rel,
+        "sha256": hashlib.sha256(raw).hexdigest(),
+        "commit": git(repo.root, "rev-parse", "HEAD"),
+    }
+    if partition is not None:
+        forged["calibration_partition_sha256"] = partition
+    forged = rehash(forged)
+    write_record(repo, forged)
+    return forged
+
+
+def read_forged(repo, forged, match):
+    with locked(match=match):
+        nf.require_freeze(
+            forged["freeze_hash"], record_path=repo.record_path, plan_path=repo.plan, root=repo.root
+        )
+
+
+def good_artifact_body(repo):
+    return json.loads((repo.root / ARTIFACT_REL).read_bytes())
+
+
+def test_an_oversized_artefact_is_refused_by_the_reader(repo):
+    raw = (repo.root / ARTIFACT_REL).read_bytes()
+    forged = forge_with_artifact(repo, raw + b" " * (nf.MAX_ARTIFACT_BYTES + 1 - len(raw)))
+    read_forged(repo, forged, "artefact is too large")
+
+
+def test_a_partition_that_is_not_the_importers_current_one_is_refused(repo):
+    body = good_artifact_body(repo)
+    body["calibration_partition_sha256"] = "3" * 64
+    forged = forge_with_artifact(repo, nf.canonical_json(body), partition="3" * 64)
+    # record and artefact agree with each other; only the importer's partition disagrees
+    read_forged(repo, forged, "partition of the importer has changed")
+
+
+def test_an_artefact_outside_docs_benchmarks_or_with_dotdot_is_refused(repo):
+    raw = (repo.root / ARTIFACT_REL).read_bytes()
+    forged = forge_with_artifact(repo, raw, rel="elsewhere/NANF_CALIBRATION_RESULT.json")
+    read_forged(repo, forged, "artefact must be")
+    forged = forge_with_artifact(
+        repo, raw, record_path="docs/benchmarks/../benchmarks/NANF_CALIBRATION_RESULT.json"
+    )
+    assert (repo.root / "docs/benchmarks/../benchmarks/NANF_CALIBRATION_RESULT.json").is_file()
+    read_forged(repo, forged, "artefact must be")
+
+
+def test_hostile_numbers_and_nesting_inside_the_artefact_give_holdout_locked(repo):
+    body = good_artifact_body(repo)
+    body["fit_result"]["cost"] = 10**400  # math.isfinite raises OverflowError on it
+    forged = forge_with_artifact(repo, nf.canonical_json(body))
+    read_forged(repo, forged, "malformed or cannot be verified")
+    forged = forge_with_artifact(repo, b"[" * 100_000 + b"]" * 100_000)  # RecursionError
+    read_forged(repo, forged, "malformed or cannot be verified")
+
+
+def test_deep_nesting_in_the_record_is_reported_as_invalid_json(workbook, record_file):
+    path, record = record_file
+    path.write_text("[" * 30_000 + "]" * 30_000)
+    with pytest.raises(NanfImportError, match="not valid JSON"):
+        holdout(workbook, freeze_hash=record["freeze_hash"])
