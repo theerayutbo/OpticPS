@@ -67,6 +67,19 @@ stale if the file changes (`Checksum.still_current`).
 Hashing reads every byte through a digest and no sample value. For the 2 km and 10 km holdout files
 that is the only operation E1 performs (plan R5.2).
 
+### Format verification of the B2B file (Gate E1, 2026-11-01; B2B only)
+
+Sample bytes were read from `50G_PAM4_PD1_B2B_Subassembly1.bin` only. The 2 km and 10 km files were
+hashed and nothing else (plan R5.2). Result, evidence and caveats are in
+`docs/benchmarks/MISSING_PARAMETERS.md` section 4: Keysight BIN v10, one waveform, float32 little-endian
+samples at byte 164, 40,959,993 samples, time increment 1/2.048 THz (symbol tone at 50.00019 GHz,
+40.96 samples per symbol), `normalized` scale. The record's "256 Gbaud sample rate" stays INFERRED as
+256 GSa/s (5.12 samples per symbol nominally); it is eight times lower than the file's own time axis and
+is not the rate of the stored stream. The committed configs are unchanged: the record documents no
+format, so `raw_format` and `calibration` stay UNKNOWN there, and the finding is a statement about the
+local file (`SUPPORTED_BY_EVIDENCE`, not a documented format). The format of the other two files is
+`NOT_ASSESSED_HOLDOUT`.
+
 ## Source 2. TERIPHIC quad InP EML array (Dataset B, P1, out of MZM model domain)
 
 | Item | Value | Read as |

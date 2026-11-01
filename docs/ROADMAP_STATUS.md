@@ -131,6 +131,17 @@ Points to carry, none a gate failure:
 | Downloads, push, merge, tag, hardware | none by E0 |
 | E0 fix rounds 1 to 4 (round 4 closes the gate by owner decision; known limits in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`) | Plan Revision 4 pin `b638aa1a6e0c65368c110817ccdbacc7ab4e317ef0e9d5013cdcb2e1b0e38bce` (previous `dd2f8000...`, Revision 2 `45d9088c...`, Revision 1 `42a578f5...`, original `6bf4238a...`; counts below are those of round 3 except: round 4 `1479 passed` at d52149a as counted by the independent reviewer in a pinned worktree, anchor 15 passed, mutation 66 of 66 killed; the earlier figure `1524 passed` was not reproducible and is withdrawn, E1a correction); the freeze guard promises only accidents and casual re-tuning, no tamper-proofing, no date proof (plan R3.1). Final counts at the round 3 commit: `1437 passed` in the shared checkout (includes N1 tests; `tests/test_benchmark_provenance.py` 355 tests), anchor 15 passed, ruff check, ruff format --check, mypy clean, `license_audit.py` 34 packages 0 flagged, `scripts/mutate_benchmarks.py` 60 applied, 60 killed. Earlier pins and the `905 passed` above are those of the first E0 commit. |
 
+### Gate E1 record (Stage 3A, 2026-11-01)
+
+| Item | Value |
+|---|---|
+| E1a (separate commit 57643ca) | plan Revision 5 addendum (retraction corrected: R.1's claim true, Revision 2's partly true, Revision 3's false), pin `7b7f93dd20506d617ddc5245166c55cf44e605dbc23789a6644e2a2e16ec3185`; tests assert `dd2f8000` and the Revision 4 and 5 headings; `verify_local_asset` on all three files, MD5 `verified` against the record and SHA-256 equal to the orchestrator's; known limits a, b, c added; round 4 count corrected to 1479; `read_bin` rejects trailing bytes |
+| E1 deliverables | `src/opticps/benchmarks/{external_capture,capture_stats,timing,teriphic}.py`, CLI `opticps benchmark inspect-format`, `tests/test_benchmark_external_capture.py`, docs (MISSING_PARAMETERS section 4, SOURCE_REGISTER, ALGORITHM_PROVENANCE, LOG), handoff `handoff/E1_dev.md` |
+| Format verdict (B2B only) | `SUPPORTED_BY_EVIDENCE`: Keysight BIN v10, one waveform, float32 little-endian samples from byte 164, 40,959,993 samples, time increment 1/2.048 THz, scale `normalized`; the "136-byte prefix" hypothesis is rejected by structure; the record's 256 GSa/s (INFERRED, 5.12 samples per symbol) is not the rate of the stored stream (40.96 samples per symbol, symbol tone at 50.00019 GHz). 2 km and 10 km: `NOT_ASSESSED_HOLDOUT` |
+| Holdout discipline | sample bytes read from B2B only; 2 km and 10 km hashed and nothing else; the adapter, the CLI and the MD5 check refuse them |
+| Test counts | `1600 passed` (full suite in the shared checkout, 12 min; 59 of them new in `tests/test_benchmark_external_capture.py`; E1a added tests to `test_benchmark_provenance.py` and `test_uxr.py`); anchor 15 passed; ruff check, ruff format --check, mypy clean; `license_audit.py` 34 packages, 0 flagged |
+| Downloads, push, merge, tag, hardware | none |
+
 ### Gate N0 record (NANF workstream, 2026-10-31)
 
 | Item | Value |

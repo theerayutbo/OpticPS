@@ -15,7 +15,7 @@ DEFAULT_ROOT = Path("output/keysight_m8199b")
 DEFAULT_CONFIG = Path("configs/m8199b_profiles.yaml")
 DEFAULT_DEMO = Path("configs/demo.yaml")
 DEFAULT_RESULTS = Path("results/synthetic")
-CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "uxr-report", "analyze")
+CLEAN_COMMANDS = ("ingest-uxr", "compare-uxr", "uxr-report", "analyze", "benchmark")
 CLEAN_ERRORS = (ValueError, FileNotFoundError, KeyError, json.JSONDecodeError, OSError)
 DEFAULT_FIBER_CONFIG = Path("configs/fiber_validation.yaml")
 DEFAULT_FIBER_RESULTS = Path("results/fiber_validation")
@@ -222,6 +222,71 @@ def cmd_demo(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
+    """Offline format inspection of one external capture. Never downloads, never writes under
+    data/external, never reads a sample of a holdout file (the adapter refuses it)."""
+    from opticps.benchmarks import teriphic
+    from opticps.benchmarks.external_capture import ExternalCapture, FormatStatus, RawSpec
+
+    if args.allow_download:
+        print(
+            "REFUSED: --allow-download is not implemented. Gate E1 is offline; a transfer needs "
+            "the owner and a verified licence and asset check.",
+            file=sys.stderr,
+        )
+        return 2
+    source = teriphic.load_config()
+    path = args.file or teriphic.DEFAULT_ROOT / teriphic.B2B_FILENAME
+    if args.metadata_only:
+        known = {a.filename.casefold(): a for a in source.assets}
+        asset = known.get(path.name.casefold())
+        if asset is None:
+            raise ValueError(f"{path.name} is not a registered asset of {source.source_id}")
+        print(f"{asset.filename}: split {asset.split.value}, group {asset.group}")
+        print(f"size_bytes {asset.size_bytes}, md5_supplied {asset.checksum.md5_supplied}")
+        for name, value in sorted(asset.parameters.items()):
+            print(f"  {name}: {value.value!r} [{value.provenance.value}]")
+        print("metadata only: the file was not opened")
+        return 0
+    teriphic.guard_sample_read(path, source)
+    if args.metadata is not None:
+        spec = RawSpec.from_sidecar(args.metadata)
+        capture = ExternalCapture.open_raw(path, spec)
+        print(f"{path.name}: layout {spec.dtype}@{spec.data_offset}, {capture.count} samples")
+        print(f"scale {capture.scale}; physical checks pass; no BER or SER is computed")
+        capture.close()
+        return 0
+    if path.name.casefold() == teriphic.B2B_FILENAME.casefold():
+        report = teriphic.verify_b2b_format(path, source=source)
+        print(report.summary)
+        for key, value in report.layout.items():
+            print(f"  {key}: {value}")
+        timebase = report.evidence.get("timebase", {})
+        for key in (
+            "header_sample_rate_hz",
+            "header_samples_per_symbol",
+            "record_samples_per_symbol_nominal",
+            "measured_samples_per_symbol",
+            "measured_offset_ppm_vs_published_baud",
+        ):
+            if key in timebase:
+                print(f"  {key}: {timebase[key]}")
+        print(f"  holdout files: {report.holdout_status}")
+        if report.status is not FormatStatus.SUPPORTED_BY_EVIDENCE:
+            print(report.blocked_label)
+            print("the exporter must tell us:")
+            for item in report.exporter_must_tell:
+                print(f"  - {item}")
+            return 3
+        return 0
+    capture = ExternalCapture.open_keysight_bin(path)
+    print(
+        f"{path.name}: Keysight BIN structure accepted, {capture.count} samples, scale normalized"
+    )
+    capture.close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="opticps", description=__doc__)
     parser.add_argument("--version", action="version", version=__version__)
@@ -311,6 +376,20 @@ def build_parser() -> argparse.ArgumentParser:
     command = add("slides", cmd_slides, "build the PowerPoint and PDF slides")
     command.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
     command.add_argument("--output-dir", type=Path, default=Path("slides"))
+
+    benchmark = sub.add_parser("benchmark", help="offline published-experiment benchmark tools")
+    benchmark_sub = benchmark.add_subparsers(dest="benchmark_command", required=True)
+    command = benchmark_sub.add_parser(
+        "inspect-format",
+        help="check the format of one external capture (default: TERIPHIC B2B); offline, read-only",
+    )
+    command.set_defaults(handler=cmd_benchmark_inspect_format)
+    command.add_argument(
+        "--file", type=Path, help="default: the TERIPHIC B2B file; holdouts refused"
+    )
+    command.add_argument("--metadata", type=Path, help="sidecar JSON with the layout of a raw file")
+    command.add_argument("--metadata-only", action="store_true", help="print the register metadata")
+    command.add_argument("--allow-download", action="store_true", help="refused: not implemented")
 
     command = add("demo", cmd_demo, "regenerate waveforms, simulation, report and slides")
     command.add_argument("--results", type=Path, default=DEFAULT_RESULTS)
