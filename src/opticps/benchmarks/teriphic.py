@@ -2,9 +2,14 @@
 
 Roles (plan `docs/benchmarks/FIT_HOLDOUT_PLAN.md`, R.3 and R5.2): only the characterisation file,
 `50G_PAM4_PD1_B2B_Subassembly1.bin`, may have a sample byte read. The 2 km and 10 km files may be
-hashed (`verify_local_asset`) and nothing else: this module refuses to open them, by registered
-name, by any file under `data/external/` that is not the B2B file, and by supplied MD5 after the
-hash-only step (so a renamed copy is caught before any header is read).
+hashed (`verify_local_asset`) and nothing else. `gate_sample_read` is the one gate that every
+sample-reading route of this module and of `opticps benchmark inspect-format` passes, for any
+`--file` wherever it lives: registered name of the resolved path (symbolic links followed), any file
+under `data/external/` that is not the B2B file, then the MD5 and SHA-256 of the whole file against
+the recorded holdout hashes. The file is hashed (bytes pass through a digest, no sample value is
+decoded) before any header or sample byte is returned, so a renamed or copied holdout is caught
+whatever its name. Not covered, and listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`:
+`ExternalCapture.open_*` and `uxr_import.read_bin` called directly, which are generic readers.
 
 The verdict of `verify_b2b_format` is evidence-based and only about B2B. It never says
 anything about the other two files: the accepted hypothesis is applied to them unchanged
@@ -14,6 +19,7 @@ only after the plan's freeze, and until then their format is `NOT_ASSESSED_HOLDO
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -23,12 +29,14 @@ import numpy as np
 from opticps.benchmarks.capture_stats import (
     describe_capture_with_timing,
     explore_eye,
+    native_rate_reading,
 )
 from opticps.benchmarks.catalog import load_source_config
 from opticps.benchmarks.external_capture import (
     ExternalCapture,
     FormatCheck,
     FormatStatus,
+    RawSpec,
     default_hypotheses,
     evaluate_hypotheses,
     parse_keysight_bin_header,
@@ -91,35 +99,166 @@ def guard_sample_read(path: Path, source: SourceRecord | None = None) -> AssetRe
     return asset
 
 
-def _refuse_renamed_holdout(checksum: Checksum, source: SourceRecord, name: str) -> None:
-    """After the hash-only step: a file whose MD5 equals a holdout MD5 is that holdout."""
-    if checksum.md5_local is None:
-        return
+# SHA-256 of the two holdout files as recorded in SOURCE_REGISTER.md ("Local hashes", E1a, equal to
+# the orchestrator's values); a test compares this table with the register text.
+HOLDOUT_SHA256 = {
+    "50G_PAM4_PD1_2km_Subassembly1.bin": (
+        "22fc7bb592681ed6135b5be28a28b1f124344924316b4333508823f7674266d3"
+    ),
+    "50G_PAM4_PD1_10km_Subassembly1.bin": (
+        "053bf8c9ba8df00063f5d686508833dc18685ec320d7e373b1877947e15b118b"
+    ),
+}
+
+
+@dataclass(frozen=True)
+class SampleGate:
+    """What `gate_sample_read` learned about a file it let through."""
+
+    asset: AssetRecord | None  # the B2B record when the registered name is the B2B file
+    checksum: Checksum  # hashed locally; reused by the reader so the file is hashed once
+    is_b2b: bool  # the bytes hash to the recorded B2B MD5, whatever the file is called
+
+
+def _refuse_holdout_hash(
+    checksum: Checksum,
+    source: SourceRecord,
+    name: str,
+    holdout_sha256: Mapping[str, str],
+) -> None:
+    """After the hash-only step: a file whose MD5 or SHA-256 is a holdout's is that holdout."""
     for asset in source.assets:
-        if (
-            asset.split is not Split.CHARACTERISATION
-            and asset.checksum.md5_supplied == checksum.md5_local
-        ):
+        if asset.split is Split.CHARACTERISATION:
+            continue
+        md5_hit = (
+            checksum.md5_local is not None and asset.checksum.md5_supplied == checksum.md5_local
+        )
+        sha = holdout_sha256.get(asset.filename)
+        sha_hit = sha is not None and checksum.sha256_local == sha
+        if md5_hit or sha_hit:
+            which = "MD5" if md5_hit else "SHA-256"
             raise BenchmarkError(
-                f"{name} has the MD5 of {asset.filename} ({asset.split.value}); refusing, "
+                f"{name} has the {which} of {asset.filename} ({asset.split.value}); refusing, "
                 "no sample read",
                 ErrorCode.LEAKAGE_DETECTED,
             )
 
 
-def open_b2b(path: Path | None = None, *, source: SourceRecord | None = None) -> ExternalCapture:
-    """Open the B2B capture read-only after the role, hash and structure checks."""
+def gate_sample_read(
+    path: Path,
+    source: SourceRecord | None = None,
+    *,
+    holdout_sha256: Mapping[str, str] | None = None,
+) -> SampleGate:
+    """The single gate before any sample byte of any file is returned (plan R.3, R5.2).
+
+    Checks, in order: the registered name of the resolved path (a symbolic link to a holdout is
+    refused by the name of its target), any file under `data/external/` other than the B2B file,
+    then the whole file's MD5 and SHA-256 (hashed here, streaming, no sample decoded) against the
+    recorded hashes of every non-characterisation asset. Raises LEAKAGE_DETECTED on any hit. Returns
+    the checksum so a reader does not hash again. `holdout_sha256` defaults to `HOLDOUT_SHA256`
+    (injectable for tests, which must never touch a real holdout).
+    """
     source = source or load_config()
-    path = Path(path) if path is not None else DEFAULT_ROOT / B2B_FILENAME
+    path = Path(path)
     asset = guard_sample_read(path, source)
     checksum = verify_local_asset(path, asset.checksum.md5_supplied if asset else None)
-    _refuse_renamed_holdout(checksum, source, path.name)
-    return ExternalCapture.open_keysight_bin(path, checksum=checksum)
+    _refuse_holdout_hash(
+        checksum, source, path.name, HOLDOUT_SHA256 if holdout_sha256 is None else holdout_sha256
+    )
+    b2b = next(a for a in source.assets if a.split is Split.CHARACTERISATION)
+    is_b2b = (
+        checksum.md5_local is not None
+        and b2b.checksum.md5_supplied is not None
+        and checksum.md5_local == b2b.checksum.md5_supplied
+    )
+    return SampleGate(asset, checksum, is_b2b)
+
+
+def open_b2b(
+    path: Path | None = None,
+    *,
+    source: SourceRecord | None = None,
+    gate: SampleGate | None = None,
+) -> ExternalCapture:
+    """Open the B2B capture read-only after the gate and the structure checks."""
+    source = source or load_config()
+    path = Path(path) if path is not None else DEFAULT_ROOT / B2B_FILENAME
+    gate = gate or gate_sample_read(path, source)
+    return ExternalCapture.open_keysight_bin(path, checksum=gate.checksum)
+
+
+@dataclass(frozen=True)
+class CaptureInspection:
+    """Structure pass and physical pass of a capture that is not the B2B file, kept apart.
+
+    A well-formed header is a structure pass and nothing more: `accepted` needs both.
+    """
+
+    count: int
+    scale: str
+    layout: str
+    structure_pass: bool
+    structure_detail: tuple[FormatCheck, ...]
+    physical_pass: bool
+    physical_detail: tuple[FormatCheck, ...]
+
+    @property
+    def accepted(self) -> bool:
+        return self.structure_pass and self.physical_pass
+
+
+def inspect_capture(
+    path: Path,
+    gate: SampleGate,
+    spec: RawSpec | None = None,
+    *,
+    max_samples: int = 1 << 20,
+) -> CaptureInspection:
+    """Structure and physical checks of one gated file (fixtures, other captures).
+
+    Structure: the Keysight header against the file size (or the raw layout against the size).
+    Physical: every sample finite and of plausible scale (a full pass) and the waveform checks on
+    slices (smooth, band-limited, continuous, not clipped, no wild outliers). Neither pass implies
+    anything about the transmitted signal, a calibration or a format verdict. A structure failure
+    raises FORMAT_UNKNOWN; a physical failure is reported, not raised.
+    """
+    if spec is None:
+        capture = ExternalCapture.open_keysight_bin(path, checksum=gate.checksum)
+        layout = f"{capture.layout.dtype}@{capture.layout.data_offset} (Keysight BIN header)"
+    else:
+        capture = ExternalCapture.open_raw(path, spec, checksum=gate.checksum, verify=False)
+        layout = f"{spec.dtype}@{spec.data_offset} (sidecar)"
+    try:
+        structure = (FormatCheck("structure", True, "layout consistent with the file size"),)
+        physical = capture.full_scan() + capture.physical_checks(max_samples)
+        return CaptureInspection(
+            capture.count,
+            capture.scale,
+            layout,
+            True,
+            structure,
+            all(c.passed for c in physical),
+            physical,
+        )
+    finally:
+        capture.close()
 
 
 def _band_db(freq: np.ndarray, psd: np.ndarray, low: float, high: float) -> float:
+    """Mean density in [low, high) over the peak, in dB; an empty or silent band is refused."""
     selected = (freq >= low) & (freq < high)
-    return float(10.0 * np.log10(psd[selected].mean() / psd.max()))
+    if not selected.any():
+        raise BenchmarkError(
+            f"the band [{low:g}, {high:g}) Hz holds no spectral bin (sample rate or resolution)",
+            ErrorCode.FORMAT_UNKNOWN,
+        )
+    level, peak = float(psd[selected].mean()), float(psd.max())
+    if not (level > 0 and peak > 0 and np.isfinite(level) and np.isfinite(peak)):
+        raise BenchmarkError(
+            f"the band [{low:g}, {high:g}) Hz has no measurable power", ErrorCode.FORMAT_UNKNOWN
+        )
+    return float(10.0 * np.log10(level / peak))
 
 
 @dataclass(frozen=True)
@@ -150,9 +289,9 @@ EXPORTER_QUESTIONS = (
     "vertical calibration: the header says Volt, but the input attenuation or probe, coupling "
     "(AC or DC), vertical gain and any normalisation applied at export are not stated, so the "
     "samples stay `normalized` (no volts, no optical power)",
-    "sample-rate chain: the header time increment is 1/2.048 THz while the record says 256 (Gbaud "
-    "sic); was the record captured at 256 GSa/s and interpolated 8x at export, and with "
-    "what filter",
+    "sample-rate chain: compare the time increment in the file header (reported in this run) with "
+    "the record's 256 (Gbaud sic); if the stored stream is faster, was the record captured at "
+    "256 GSa/s and interpolated at export, and with what filter",
     "oscilloscope model and settings behind the frame string, bandwidth limit, ENOB, any digital "
     "filter applied before export (the EML record mentions a 50 GHz low-pass; this record "
     "is silent)",
@@ -161,22 +300,130 @@ EXPORTER_QUESTIONS = (
 )
 
 
+def _unknown_report(error: BenchmarkError | str) -> FormatReport:
+    return FormatReport(
+        FormatStatus.FORMAT_UNKNOWN,
+        f"FORMAT_UNKNOWN: {error}",
+        {},
+        (),
+        (),
+        {},
+        (str(error),),
+        EXPORTER_QUESTIONS,
+    )
+
+
+def _size_hypothesis_136(layout: Any, file_size: int) -> str:
+    """The 136-byte-prefix reading, computed from this file's size and declared point count."""
+    rest = file_size - 136
+    if rest < 0 or rest % 4:
+        return (
+            f"136-byte prefix: arithmetically impossible, {rest} bytes after it are not a whole "
+            "number of 4-byte samples"
+        )
+    points_136 = rest // 4
+    start = layout.data_offset
+    return (
+        f"136-byte prefix + {points_136:,} four-byte samples would fill the file, but the header "
+        f"declares {layout.count:,} points after a {start}-byte header ({4} x {layout.count:,} + "
+        f"{start} = {4 * layout.count + start:,}; file size {file_size:,}): "
+        + (
+            "rejected by structure (statistics cannot separate the two: "
+            f"{(start - 136) // 4} samples)"
+            if 4 * layout.count + start == file_size
+            else "the declared structure does not fill the file either"
+        )
+    )
+
+
+def _rate_chain_reading(
+    layout: Any, timebase: dict[str, Any], native: dict[str, Any], tone_confirmed: bool
+) -> str:
+    """Words for the rate chain, built from this file's measured numbers only."""
+    header_rate = timebase.get("header_sample_rate_hz")
+    if header_rate is None:
+        return "no time increment in the file: no rate chain can be stated"
+    parts = [
+        f"stored stream: header time increment {layout.x_increment_s:.10g} s "
+        f"({header_rate / 1e9:.6g} GHz), {timebase['header_samples_per_symbol']:.6g} samples "
+        f"per symbol at {BAUD_BD / 1e9:g} GBd"
+    ]
+    if tone_confirmed:
+        parts.append(
+            f"a symbol tone at {timebase['measured_symbol_rate_hz'] / 1e9:.6f} GHz "
+            f"({timebase['measured_offset_ppm_vs_published_baud']:+.1f} ppm from the published "
+            "baud) confirms that time axis"
+        )
+    else:
+        parts.append("NO symbol tone confirms that time axis at the published baud")
+    ratio = timebase.get("header_rate_over_record_rate")
+    nominal = timebase.get("record_samples_per_symbol_nominal")
+    if ratio is not None and abs(ratio - 1.0) > 1e-3:
+        parts.append(
+            f"the record's inferred {RECORD_SAMPLE_RATE_HZ / 1e9:g} GSa/s gives {nominal:.6g} "
+            f"samples per symbol and is {ratio:.6g} times slower than the stored stream: it is not "
+            "the rate of the stored stream"
+        )
+    elif ratio is not None:
+        parts.append("the record's inferred rate agrees with the stored stream")
+    if native.get("status") == "tested":
+        counting = native["counting"]
+        lines = native["lines_in_squared_signal"]
+        period = native["second_difference_period"]
+        factor = native["integer_factor"]
+        profile = period["profiles"][str(factor)]
+        controls = [period["profiles"][str(c)]["max_over_min"] for c in period["control_periods"]]
+        parts.append(
+            f"reading (not a fact): {factor}x integer upsampling of a native stream at the "
+            "record's rate, seen as "
+            + (
+                f"{counting['points_minus_one']:,} = {factor} x "
+                f"{counting['points_minus_one_over_factor']:,} steps, "
+                f"{counting['native_points']:,} native points in "
+                f"{counting['native_span_s_at_record_rate'] * 1e6:.6g} us at the record rate; "
+                if counting["points_minus_one_divisible_by_factor"]
+                else "a point count that does not fit an endpoint-preserving stretch; "
+            )
+            + (
+                "lines in the squared signal at "
+                + ", ".join(
+                    f"{row['measured_frequency_hz'] / 1e9:.3f} GHz "
+                    f"(+{row['line_over_median_db']:.0f} dB over the median bin)"
+                    for row in lines
+                )
+                + "; "
+                if lines
+                else "no line testable; "
+            )
+            + f"squared second difference with period {factor} (max/min "
+            f"{profile['max_over_min']:.4g}, controls {controls[0]:.4g} and {controls[1]:.4g}). "
+            "The exporter must confirm it"
+        )
+    else:
+        parts.append(f"no integer upsampling test: {native.get('status', 'not run')}")
+    return "; ".join(parts) + "."
+
+
 def verify_b2b_format(
-    path: Path | None = None, *, source: SourceRecord | None = None
+    path: Path | None = None,
+    *,
+    source: SourceRecord | None = None,
+    gate: SampleGate | None = None,
 ) -> FormatReport:
     """Verify the B2B file's format by independent evidence, or leave it FORMAT_UNKNOWN.
 
     The evidence, all computed here from B2B bytes only: the documented Keysight BIN structure
     against the real file size (every redundant field must agree); the same bytes decoded under 84
     dtype/endianness/offset hypotheses with physical checks (one survivor required); a four-hump
-    amplitude structure; and a symbol-rate tone in the squared waveform at the published baud under
-    the header time increment. A hypothesis with the 136-byte offset the file size suggests is
-    reported with the others; statistics cannot separate it from the structural 164-byte offset
-    (seven samples), so structure decides.
+    amplitude structure; a symbol-rate tone in the squared waveform at the published baud under
+    the header time increment; and, as a labelled reading, a test for integer upsampling of the
+    record's rate. A hypothesis with the 136-byte offset the file size suggests is reported with
+    the others; statistics cannot separate it from the structural 164-byte offset (seven samples),
+    so structure decides. The path passes `gate_sample_read` first.
     """
     source = source or load_config()
     path = Path(path) if path is not None else DEFAULT_ROOT / B2B_FILENAME
-    capture = open_b2b(path, source=source)
+    capture = open_b2b(path, source=source, gate=gate)
     reasons: list[str] = []
     try:
         with path.open("rb") as handle:
@@ -197,82 +444,78 @@ def verify_b2b_format(
                 reasons.append(f"survivor {survivor.name} is not the structurally declared layout")
         except BenchmarkError as error:
             reasons.append(str(error))
-        stats, timing = describe_capture_with_timing(
+        stats, _ = describe_capture_with_timing(
             capture, baud_bd=BAUD_BD, record_sample_rate_hz=RECORD_SAMPLE_RATE_HZ
         )
+        structure = stats["level_exploration"]["structure"]
+        if not structure["four_levels"]:
+            reasons.append("amplitude histogram does not show four separated levels")
+        timebase = stats["timebase"]
+        offset_ppm = timebase["measured_offset_ppm_vs_published_baud"]
+        tone_ok = not (
+            abs(offset_ppm) > TONE_TOLERANCE_PPM
+            or timebase["tone_strength_median"] < TONE_MIN_STRENGTH
+        )
+        if not tone_ok:
+            reasons.append(
+                f"no symbol tone at the published baud under the header time increment "
+                f"(offset {offset_ppm:.1f} ppm, strength {timebase['tone_strength_median']:.3f})"
+            )
+        psd = stats["psd"]
+        freq = np.asarray(psd["frequency_hz"])
+        density = np.asarray(psd["density_normalized"])
+        rate = timebase["header_sample_rate_hz"]
+        spur = {
+            "band_around_record_rate_db_vs_peak": _band_db(
+                freq,
+                density,
+                RECORD_SAMPLE_RATE_HZ - SPUR_BAND_HZ,
+                RECORD_SAMPLE_RATE_HZ + SPUR_BAND_HZ,
+            ),
+            "quiet_band_db_vs_peak": _band_db(freq, density, 0.16 * rate, 0.22 * rate),
+            "band_below_25ghz_db_vs_peak": _band_db(freq, density, 0.0, 25e9),
+            "band_above_100ghz_db_vs_peak": _band_db(freq, density, 100e9, 0.5 * rate),
+        }
+        spur["excess_around_record_rate_db"] = (
+            spur["band_around_record_rate_db_vs_peak"] - spur["quiet_band_db_vs_peak"]
+        )
+        native = native_rate_reading(capture, RECORD_SAMPLE_RATE_HZ)
+        evidence = {
+            "dc_over_std": stats["dc_over_std_file_units"],
+            "level_structure": structure,
+            "timebase": timebase,
+            "spectrum": spur,
+            "qc": stats["qc"],
+            "physical_checks_on_slices": [
+                (c.name, c.passed, c.detail) for c in capture.physical_checks()
+            ],
+            "native_rate_reading": native,
+            "rate_chain_reading": _rate_chain_reading(layout, timebase, native, tone_ok),
+        }
+        layout_summary = {
+            "container": layout.container,
+            "dtype": layout.dtype,
+            "data_offset": layout.data_offset,
+            "samples": layout.count,
+            "x_increment_s": layout.x_increment_s,
+            "x_origin_s": layout.x_origin_s,
+            "header_fields": dict(layout.header_fields),
+            "scale": layout.scale,
+            "size_hypothesis_136_bytes": _size_hypothesis_136(layout, path.stat().st_size),
+        }
     except BenchmarkError as error:
+        return _unknown_report(error)
+    finally:
         capture.close()
-        return FormatReport(
-            FormatStatus.FORMAT_UNKNOWN,
-            f"FORMAT_UNKNOWN: {error}",
-            {},
-            (),
-            (),
-            {},
-            (str(error),),
-            EXPORTER_QUESTIONS,
-        )
-    structure = stats["level_exploration"]["structure"]
-    if not structure["four_levels"]:
-        reasons.append("amplitude histogram does not show four separated levels")
-    timebase = stats["timebase"]
-    offset_ppm = timebase["measured_offset_ppm_vs_published_baud"]
-    if abs(offset_ppm) > TONE_TOLERANCE_PPM or timebase["tone_strength_median"] < TONE_MIN_STRENGTH:
-        reasons.append(
-            f"no symbol tone at the published baud under the header time increment "
-            f"(offset {offset_ppm:.1f} ppm, strength {timebase['tone_strength_median']:.3f})"
-        )
-    psd = stats["psd"]
-    freq = np.asarray(psd["frequency_hz"])
-    density = np.asarray(psd["density_normalized"])
-    rate = timebase["header_sample_rate_hz"]
-    spur = {
-        "band_around_record_rate_db_vs_peak": _band_db(
-            freq,
-            density,
-            RECORD_SAMPLE_RATE_HZ - SPUR_BAND_HZ,
-            RECORD_SAMPLE_RATE_HZ + SPUR_BAND_HZ,
-        ),
-        "quiet_band_db_vs_peak": _band_db(freq, density, 0.16 * rate, 0.22 * rate),
-        "band_below_25ghz_db_vs_peak": _band_db(freq, density, 0.0, 25e9),
-        "band_above_100ghz_db_vs_peak": _band_db(freq, density, 100e9, 0.5 * rate),
-    }
-    spur["excess_around_record_rate_db"] = (
-        spur["band_around_record_rate_db_vs_peak"] - spur["quiet_band_db_vs_peak"]
-    )
-    evidence = {
-        "dc_over_std": stats["dc_over_std_file_units"],
-        "level_structure": structure,
-        "timebase": timebase,
-        "spectrum": spur,
-        "qc": stats["qc"],
-        "physical_checks_on_slices": [
-            (c.name, c.passed, c.detail) for c in capture.physical_checks()
-        ],
-        "rate_chain_reading": (
-            "stored stream: header time increment 1/2.048 THz, confirmed by a symbol tone at the "
-            "published 50 GBd (40.96 samples per symbol). The record's 256 GSa/s (INFERRED) gives "
-            "5.12 samples per symbol; it is not the rate of the stored stream. Spectral energy "
-            "round multiples of 256 GHz is consistent with 256 GSa/s native sampling stored after "
-            "8x interpolation, which is a reading, not a verified fact."
-        ),
-    }
-    layout_summary = {
-        "container": layout.container,
-        "dtype": layout.dtype,
-        "data_offset": layout.data_offset,
-        "samples": layout.count,
-        "x_increment_s": layout.x_increment_s,
-        "header_fields": dict(layout.header_fields),
-        "scale": layout.scale,
-        "size_hypothesis_136_bytes": "rejected by structure: header+data headers are 164 bytes "
-        "and the declared point count is 40,959,993 (4 x 40,959,993 + 164 = file size)",
-    }
-    capture.close()
     status = FormatStatus.FORMAT_UNKNOWN if reasons else FormatStatus.SUPPORTED_BY_EVIDENCE
+    kind = np.dtype(layout.dtype)
+    sample_words = (
+        f"{'float' if kind.kind == 'f' else 'integer'}{kind.itemsize * 8} "
+        f"{'little' if kind.byteorder in '<=' else 'big'}-endian"
+    )
     summary = (
-        "SUPPORTED_BY_EVIDENCE (B2B only): Keysight BIN v10, one waveform, float32 little-endian "
-        "samples at byte 164, scale normalized"
+        f"SUPPORTED_BY_EVIDENCE (B2B only): Keysight BIN v{layout.header_fields['version']}, one "
+        f"waveform, {sample_words} samples at byte {layout.data_offset}, scale {layout.scale}"
         if not reasons
         else "FORMAT_UNKNOWN (BLOCKED: FORMAT_UNVERIFIED): " + "; ".join(reasons)
     )

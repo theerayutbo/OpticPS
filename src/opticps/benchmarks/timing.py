@@ -4,7 +4,8 @@ Nothing here rounds the sampling ratio. The samples-per-symbol ratio is the exac
 sample rate and the baud rate (`samples_per_symbol`: 256/50 = 5.12, or 2048/50 = 40.96). The symbol
 clock is then measured from the waveform, not assumed: the square of the mean-removed signal of an
 intensity-modulated waveform carries a tone at the symbol rate, and the phase of that tone, tracked
-over windows of whole symbols, gives the symbol phase at every sample. A frequency offset and slow
+over windows of a fixed whole number of samples (about 256 symbols each), gives the symbol phase
+at every sample. A frequency offset and slow
 wander of the clock show up as a drifting phase, which is followed by piecewise-linear
 interpolation, so the symbol instants are fractional sample positions that follow the measured
 timing. Waveform values at those instants come from a four-point cubic Lagrange interpolator.
@@ -148,7 +149,14 @@ class TimingModel:
 
 @dataclass
 class TimingTracker:
-    """Accumulates the tone phase window by window; windows are of fixed, whole size."""
+    """Accumulates the tone phase window by window; windows are of a fixed whole number of samples.
+
+    A window holds `window_symbols` symbols only approximately: `window_samples` rounds the exact
+    product to the nearest sample (256 x 40.96 = 10485.76 becomes 10486). The tone phase of each
+    window is taken against the absolute sample index, so the rounding does not shift the phase; it
+    only leaves a window that is a fraction of a symbol longer than a whole number of symbols (a
+    little leakage of the DC term into the tone, 0.24 sample in 10486 here).
+    """
 
     sps_nominal: float
     window_symbols: int = DEFAULT_WINDOW_SYMBOLS
@@ -164,6 +172,8 @@ class TimingTracker:
 
     @property
     def window_samples(self) -> int:
+        """Samples per window: `window_symbols * sps_nominal` rounded to the nearest whole sample
+        (so a window is not a whole number of symbols unless that product is an integer)."""
         return max(int(round(self.window_symbols * self.sps_nominal)), 64)
 
     def add_window(self, start: int, window: FloatArray) -> None:

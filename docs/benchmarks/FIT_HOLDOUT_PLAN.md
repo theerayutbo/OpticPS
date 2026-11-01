@@ -522,3 +522,58 @@ the report states what the exporter must supply. A plausible picture is not evid
 `normalized`: no volts, no optical power, unless a document says otherwise. The sample rate stays
 INFERRED (the record says "256 Gbaud"); timing uses 256/50 = 5.12 samples per symbol as a nominal
 ratio and nothing is rounded to 5.
+
+## Revision 6 (2026-11-01): R5.2 departures recorded, holdout route rule, M4 rate stated
+
+Previous version: SHA-256 `7b7f93dd20506d617ddc5245166c55cf44e605dbc23789a6644e2a2e16ec3185`
+(Revision 5, commit 57643ca; Revision 4 `b638aa1a...`). New version: the pin in
+`tests/test_benchmark_provenance.py` and in `configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an
+addendum: no earlier line is edited. Reason: the Gate E1 review (`handoff/E1_qa.md`, finding 3a) found
+that E1 departed from R5.2, a pinned plan whose checks were "fixed now", and that the departures stood
+only as notes in `MISSING_PARAMETERS.md` section 4 (or nowhere). A departure from a pinned plan is stated
+in a dated section with a new pin, so it is stated here, as the reviewer listed it.
+
+### R6.1 Departures from R5.2, each stated as it happened
+
+1. **Nyquist roll-off check.** R5.2: "rolls off within the 128 GHz Nyquist band for the claimed
+   256 GSa/s". E1 ran it on the header axis. The header time increment of the B2B file is 1/2.048 THz,
+   so the stored stream has a 1.024 THz Nyquist band and its content ends near 80 GHz; under 256 GSa/s as
+   the stored rate a 50 GBd signal would not fit. Disclosed in `MISSING_PARAMETERS.md` section 4 and
+   nowhere in the plan until now.
+2. **Samples per symbol in the timing code.** R5.2: "timing uses 256/50 = 5.12 samples per symbol as a
+   nominal ratio". E1 timing uses **40.96 samples per symbol of the stored stream** (2.048 THz / 50 GBd),
+   measured by a symbol tone at 50.000189 GHz (+3.8 ppm). 5.12 stays only as the nominal ratio of the
+   record's inferred rate (`record_samples_per_symbol_nominal`); no code applies it to the stored stream.
+   This was not disclosed as a departure; it is one. Nothing is rounded to 5 or to 41.
+3. **A `continuous` check was added** to the physical checks (99.9th percentile of the first difference
+   at most 1.5 standard deviations). R5.2 does not list it. E1 is one commit (12eb480); the repository does
+   not record whether the check was written before or after the first B2B sample read, so it is treated as
+   possibly post hoc. Effect on the verdict, reproduced in the fix round on B2B bytes only: without
+   `continuous`, without the structure check and without the later scale check, 11 of the 84 hypotheses pass
+   the remaining physical checks (`<f4@136`, `<f4@164`, `>f4@167` and the 4-byte integer readings); applying
+   the level-structure check to each of them, as R5.2 words it, leaves `<f4@136` and `<f4@164` (four
+   histogram peaks) and rejects the rest (two peaks for the integers, six for `>f4@167`). The same two survive
+   with `continuous` and the survivor-only level check, and structure separates them. The check is
+   outcome-neutral for the format.
+4. **Level and tone checks were applied to the survivor, not to every hypothesis.** R5.2 judges each
+   hypothesis by all its checks including the four-cluster level structure and the 50 GHz content. E1 applies
+   the physical checks to every hypothesis, requires exactly one survivor, and applies the four-level and
+   symbol-tone checks to that survivor (a wrong survivor would fail them: they are in `verify_b2b_format`
+   with negative tests). Outcome-neutral for the format, by the reproduction in item 3.
+5. **R2.2 metric M4 needs the sample rate, and it is stated now, before any freeze.** M4 (Welch distance,
+   bins up to the baud rate) uses the **stored-stream rate read from the header, 1 / x_increment =
+   2.048 THz for B2B**, as its frequency axis; 4096-sample segments therefore resolve 500 MHz and hold
+   about 100 bins up to 50 GBd. The record's inferred 256 GSa/s is **not** used for M4. A length whose own header
+   gives another increment, or none, is BLOCKED for M4, not converted. This changes no earlier line of R2.2.
+
+### R6.2 Holdout route rule (what "hash only" means in code)
+
+Every sample-reading route, including `opticps benchmark inspect-format --file <any path>`, passes one
+gate first (`teriphic.gate_sample_read`): the registered file name of the resolved path (symbolic links
+followed), any file under `data/external/` that is not the B2B file, and the MD5 and SHA-256 of the whole
+file against the recorded holdout hashes, before any header or sample byte is returned. The file is hashed
+for this (cost accepted). A renamed or copied holdout is refused by its hash whatever it is called. A file
+that is neither a holdout nor registered is then checked on its own merits: structure and physical checks
+are reported separately and a well-formed header alone is never "accepted". `ExternalCapture.open_*`,
+`read_bin` and other generic readers called directly are not gated; that is a known limit
+(`FREEZE_GUARD_KNOWN_LIMITS.md`), the plan's promise being procedural there.

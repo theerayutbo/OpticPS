@@ -586,3 +586,153 @@ def describe_capture_with_timing(
         else {"status": "no baud rate given"},
     }
     return stats, timing
+
+
+# ---------------------------------------------------------------------------- native-rate reading
+_LINE_CHUNK = 4096
+
+
+def native_rate_reading(
+    capture: ExternalCapture,
+    record_sample_rate_hz: float,
+    *,
+    block_samples: int = DEFAULT_BLOCK_SAMPLES,
+) -> dict[str, Any]:
+    """Test the reading "native samples at the record's rate, stored after an integer upsampling".
+
+    Everything here is computed from the samples and the header time increment, none of it from a
+    document, and the result is a labelled READING: it says what the file would look like if that
+    were so, and says nothing about the exporter. Three independent observations.
+
+    1. Counting. With header rate R and record rate r, F = R / r. If F is an integer of at least 2
+       and (N - 1) is a multiple of F, the file holds N_native = (N - 1) / F + 1 native points and
+       an endpoint-preserving stretch; N_native / r is the native record span.
+    2. Lines. The squared, mean-removed waveform of an upsampled stream carries a line at every
+       multiple k * r below R / 2 (image residue of the upsampling). The squared waveform is
+       demodulated at k * r, averaged over chunks of 4096 samples and Fourier transformed over the
+       chunk sequence; the strongest bin gives the line frequency (parabolic refinement) and its
+       power over the median bin gives the line height in dB.
+    3. Curvature period. The mean squared second difference, grouped by sample index modulo F,
+       has period F when samples were made by interpolation between native points: interpolated
+       samples sit between native ones and have a different curvature from native ones. The
+       profile is reported with control periods F - 1 and F + 1, which must stay flat.
+
+    A record rate at or above the header rate (factor 1, or less) is reported "not testable".
+    """
+    layout = capture.layout
+    out: dict[str, Any] = {
+        "label": "READING from the samples; not an exporter statement, not a verified fact",
+        "record_sample_rate_hz": record_sample_rate_hz,
+    }
+    if layout.x_increment_s is None or not record_sample_rate_hz > 0:
+        out["status"] = "not testable: no time increment or record rate"
+        return out
+    rate = 1.0 / layout.x_increment_s
+    ratio = rate / record_sample_rate_hz
+    out["header_sample_rate_hz"] = rate
+    out["header_rate_over_record_rate"] = ratio
+    factor = round(ratio)
+    if factor < 2 or abs(ratio / factor - 1.0) > 1e-3:
+        out["status"] = (
+            "not testable: the header rate is not an integer multiple (at least 2) of the record "
+            "rate, so there is no integer upsampling factor to look for"
+        )
+        return out
+    if block_samples % _LINE_CHUNK:
+        raise BenchmarkError(f"block_samples must be a multiple of {_LINE_CHUNK}")
+    out["status"] = "tested"
+    out["integer_factor"] = factor
+    count = layout.count
+    steps = count - 1
+    counting: dict[str, Any] = {
+        "points_minus_one": steps,
+        "points_minus_one_divisible_by_factor": steps % factor == 0,
+    }
+    if steps % factor == 0:
+        native = steps // factor + 1
+        counting.update(
+            {
+                "points_minus_one_over_factor": steps // factor,
+                "native_points": native,
+                "native_span_s_at_record_rate": native / record_sample_rate_hz,
+                "header_span_s_points_times_increment": count * layout.x_increment_s,
+            }
+        )
+    out["counting"] = counting
+    lines = [k for k in (1, 2) if k * record_sample_rate_hz < rate / 2]
+    cycles = {k: k * record_sample_rate_hz / rate for k in lines}
+    chunk_sums: dict[int, list[complex]] = {k: [] for k in lines}
+    periods = (factor, factor - 1, factor + 1)
+    curvature = {p: np.zeros(p) for p in periods}
+    curvature_n = {p: np.zeros(p) for p in periods}
+    tail = np.empty(0)
+    for first, block in capture.blocks(block_samples):
+        if not np.isfinite(block).all():
+            raise BenchmarkError(f"non-finite sample in block at {first}", ErrorCode.FORMAT_UNKNOWN)
+        y = (block - block.mean()) ** 2
+        n = first + np.arange(block.size, dtype=np.float64)
+        usable = block.size // _LINE_CHUNK * _LINE_CHUNK
+        for k in lines:
+            phase = np.mod(n[:usable] * cycles[k], 1.0)
+            z = y[:usable] * np.exp(-2j * np.pi * phase)
+            chunk_sums[k].extend(z.reshape(-1, _LINE_CHUNK).mean(axis=1))
+        joined = np.concatenate([tail, block]) if tail.size else block
+        second = joined[2:] - 2.0 * joined[1:-1] + joined[:-2]
+        centre = first - tail.size + 1 + np.arange(second.size)
+        for p in periods:
+            residue = centre % p
+            curvature[p] += np.bincount(residue, weights=second**2, minlength=p)
+            curvature_n[p] += np.bincount(residue, minlength=p)
+        tail = block[-2:].copy()
+    line_rows = []
+    for k in lines:
+        seq = np.asarray(chunk_sums[k])
+        power = np.abs(np.fft.fft(seq - 0.0)) ** 2
+        m = power.size
+        peak = int(np.argmax(power))
+        left, right = power[(peak - 1) % m], power[(peak + 1) % m]
+        denom = left - 2.0 * power[peak] + right
+        shift = 0.5 * (left - right) / denom if denom != 0 else 0.0
+        bin_index = peak + shift
+        if bin_index > m / 2:
+            bin_index -= m
+        offset_hz = bin_index / m * rate / _LINE_CHUNK
+        floor = float(np.median(power))
+        line_rows.append(
+            {
+                "multiple_k": k,
+                "nominal_frequency_hz": k * record_sample_rate_hz,
+                "measured_frequency_hz": k * record_sample_rate_hz + offset_hz,
+                "offset_from_nominal_hz": offset_hz,
+                "line_over_median_db": 10.0 * math.log10(float(power[peak]) / floor)
+                if floor > 0
+                else math.inf,
+                "frequency_resolution_hz": rate / (m * _LINE_CHUNK),
+            }
+        )
+    out["lines_in_squared_signal"] = line_rows
+    profiles = {}
+    for p in periods:
+        mean_second = curvature[p] / np.maximum(curvature_n[p], 1.0)
+        profiles[str(p)] = {
+            "period": p,
+            "mean_squared_second_difference": mean_second.tolist(),
+            "max_over_min": float(mean_second.max() / mean_second.min())
+            if mean_second.min() > 0
+            else math.inf,
+            "argmin_residue": int(np.argmin(mean_second)),
+            "argmax_residue": int(np.argmax(mean_second)),
+            "mirror_symmetry_max_relative_difference": float(
+                max(
+                    abs(mean_second[r] - mean_second[(p - r) % p])
+                    / max(mean_second[r], mean_second[(p - r) % p])
+                    for r in range(p)
+                )
+            ),
+        }
+    out["second_difference_period"] = {
+        "factor_period": factor,
+        "profiles": profiles,
+        "control_periods": [factor - 1, factor + 1],
+    }
+    return out

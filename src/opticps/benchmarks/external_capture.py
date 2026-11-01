@@ -18,6 +18,13 @@ What this module does and does not promise.
   power. No sample is converted to any physical unit.
 * This module has no BER, SER or post-FEC code; those are in `capture_stats` and refuse without a
   published reference sequence.
+* `ExternalCapture.open_keysight_bin` and `open_raw` are generic: they check structure (and, for a
+  raw layout, the physical checks on slices), hash the file, and know nothing about which file is a
+  holdout. The holdout rule lives in `opticps.benchmarks.teriphic.gate_sample_read`, which every
+  sample-reading route of the CLI and the TERIPHIC adapter passes first. Calling an `open_*`
+  constructor or `opticps.measurement.uxr_import.read_bin` directly on a holdout is not refused here
+  (listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`). Structure alone is never a verdict:
+  `ExternalCapture.full_scan` and `physical_checks` give the physical pass, reported separately.
 
 The Keysight layout used here is the one `opticps.measurement.uxr_import.read_bin` cites (UXR
 Programmer's Guide, BIN file format). The parser below is written separately from `read_bin` on
@@ -60,6 +67,8 @@ _WAVE_HEADER = struct.Struct("<iiiiifdddii16s16s24s16sdI")
 _DATA_HEADER = struct.Struct("<ihhi")  # header size, buffer type, bytes per point, buffer size
 KEYSIGHT_HEADER_BYTES = _FILE_HEADER.size + _WAVE_HEADER.size + _DATA_HEADER.size  # 164
 _X_INCREMENT_RANGE_S = (1e-14, 1e-3)  # sample rates from 1 kHz to 100 THz
+SCALE_ABS_MAX = 1e6  # file units: a header that says Volt cannot hold a megavolt waveform
+SCALE_STD_MIN = 1e-12  # file units: a spread below a picovolt is not a waveform
 _ALLOWED_DTYPES = frozenset(
     {
         "|i1",
@@ -156,6 +165,16 @@ def _text(raw: bytes) -> str:
     return raw.split(b"\x00", 1)[0].decode("ascii", errors="replace").strip()
 
 
+def _frame_model_claim(raw: bytes) -> str:
+    """The model part of the header frame string (text before the first colon).
+
+    Whatever follows the colon (an instrument serial in the file this was written for) is neither
+    kept in the layout nor printed: the model is a claim made by the file header about the
+    exporting instrument, not evidence of an instrument.
+    """
+    return _text(raw).split(":", 1)[0].strip()
+
+
 def parse_keysight_bin_header(
     head: bytes, file_size: int
 ) -> tuple[SampleLayout, tuple[FormatCheck, ...]]:
@@ -165,7 +184,9 @@ def parse_keysight_bin_header(
     wrong cookie or version, a size field that is not the file size, more or fewer than one
     waveform, header or data-header sizes other than the documented 140 and 12, a buffer that is not
     4-byte float, a buffer size that is not 4 times the point count, bytes before or after the
-    structure, units other than Volt and Second, an implausible time increment.
+    structure, units other than Volt and Second, an implausible time increment, and a display range
+    that disagrees with points times increment by more than 0.1 % (a header inconsistent with
+    itself). This is structure only; the physical pass is separate.
     """
     if len(head) < KEYSIGHT_HEADER_BYTES or file_size < KEYSIGHT_HEADER_BYTES:
         raise format_unknown(
@@ -252,13 +273,12 @@ def parse_keysight_bin_header(
             "display_range_matches_record",
             math.isfinite(span) and x_range > 0 and abs(span / x_range - 1) < 1e-3,
             f"points*increment {span!r} s, display range {x_range!r} s",
-            fatal=False,
         ),
         FormatCheck(
             "header_strings_ascii",
             all(r.split(b"\x00", 1)[0].isascii() for r in (date, clock, frame, label)),
-            f"date {_text(date)!r}, time {_text(clock)!r}, frame {_text(frame)!r}, "
-            f"label {_text(label)!r}",
+            f"date {_text(date)!r}, time {_text(clock)!r}, frame model claim "
+            f"{_frame_model_claim(frame)!r}, label {_text(label)!r}",
             fatal=False,
         ),
     )
@@ -285,7 +305,11 @@ def parse_keysight_bin_header(
             "header_y_unit": "Volt (header claim; not a calibration, samples stay normalized)",
             "date": _text(date),
             "time": _text(clock),
-            "frame": _text(frame),
+            "frame_model_claim": _frame_model_claim(frame),
+            "frame_model_claim_note": (
+                "text before the colon of the header frame string: a header claim about the "
+                "exporting model, not instrument evidence; the remainder is not recorded"
+            ),
             "label": _text(label),
             "time_tag": time_tag,
             "segment_index": segment,
@@ -303,7 +327,9 @@ def waveform_checks(x: FloatArray) -> tuple[FormatCheck, ...]:
     standard deviation between neighbours; the bit pattern of a float read as an integer jumps at
     every sign change), not clipped (at most 0.1 % of samples at the extremes), and
     non-degenerate (at
-    least 16 distinct values). Random bytes, a wrong byte order or a wrong width fail at least one.
+    least 16 distinct values), and of plausible scale (largest magnitude at most 1e6 and spread at
+    least 1e-12 in file units: an absurdly scaled but smooth signal is not a measurement). Random
+    bytes, a wrong byte order or a wrong width fail at least one.
     """
     with np.errstate(all="ignore"):
         return _waveform_checks(x)
@@ -333,8 +359,15 @@ def _waveform_checks(x: FloatArray) -> tuple[FormatCheck, ...]:
     ratio_db = 10.0 * math.log10(max(upper, 1e-300) / float(psd.max()))
     rail = float(((x == x.max()).sum() + (x == x.min()).sum()) / x.size)
     jump = float(np.quantile(np.abs(np.diff(x)), 0.999) / std)
+    peak = float(np.abs(x).max())
     return (
         FormatCheck("finite", True, "all finite"),
+        FormatCheck(
+            "plausible_scale",
+            peak <= SCALE_ABS_MAX and std >= SCALE_STD_MIN,
+            f"largest magnitude {peak:.3g}, spread {std:.3g} file units "
+            f"(limits {SCALE_ABS_MAX:g} and {SCALE_STD_MIN:g})",
+        ),
         FormatCheck(
             "bounded",
             outlier <= 20.0,
@@ -637,6 +670,39 @@ class ExternalCapture:
         self.assert_unchanged()
         with np.errstate(all="ignore"):
             return np.asarray(self._samples[start:stop], dtype=np.float64)
+
+    def full_scan(self, block_samples: int = DEFAULT_BLOCK_SAMPLES) -> tuple[FormatCheck, ...]:
+        """Every sample, once: all finite, and a plausible scale over the whole record.
+
+        `physical_checks` looks at three slices and can miss a short corrupted block between them;
+        this pass cannot. It streams, so it never holds more than one block.
+        """
+        bad_values = 0
+        first_bad: int | None = None
+        peak = 0.0
+        for first, block in self.blocks(block_samples):
+            finite = np.isfinite(block)
+            if not finite.all():
+                bad_values += int((~finite).sum())
+                if first_bad is None:
+                    first_bad = first + int(np.argmin(finite))
+                block = block[finite]
+            if block.size:
+                peak = max(peak, float(np.abs(block).max()))
+        return (
+            FormatCheck(
+                "finite_everywhere",
+                bad_values == 0,
+                "every sample finite"
+                if bad_values == 0
+                else f"{bad_values} non-finite samples, the first at index {first_bad}",
+            ),
+            FormatCheck(
+                "plausible_scale_everywhere",
+                peak <= SCALE_ABS_MAX,
+                f"largest magnitude {peak:.3g} file units (limit {SCALE_ABS_MAX:g})",
+            ),
+        )
 
     def physical_checks(self, max_samples: int = 1 << 20) -> tuple[FormatCheck, ...]:
         """`waveform_checks` on up to three slices (start, middle, end), reporting any failure."""

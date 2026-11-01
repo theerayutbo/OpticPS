@@ -29,6 +29,21 @@ Not refused, deliberate or outside the tool:
   tests the last path component only, so "a symbolic link is refused" and "any other path is ignored"
   hold for the file itself, not for its parents. Listed, not chased.
 
+Holdout reading (plan R6.2, `handoff/E1_qa.md` findings 1 and 5). The route rule: every sample-reading
+route of `opticps benchmark inspect-format` (any `--file`, wherever it lives, with or without a sidecar) and
+of the TERIPHIC adapter passes `teriphic.gate_sample_read` first: registered name of the resolved path
+(symbolic links followed), any file under `data/external/` other than the B2B file, and the MD5 and SHA-256
+of the whole file against the recorded holdout hashes, before any header or sample byte is returned. Not
+covered, listed and not chased:
+
+- `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
+  are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they
+  open it; the plan's promise is procedural there. A reviewer's fixture with a holdout name confirmed it
+  (`read_bin` returns 16,384 samples, `open_keysight_bin` opens).
+- The gate compares recorded hashes, so a holdout altered by a single byte is not recognised by hash; its
+  registered name still is. A holdout copied under another name AND altered is not recognised at all.
+- `verify_local_asset` reads every byte of a holdout through a digest (that is the allowed operation).
+
 Refused (closed routes, for reference): edit, revert or delete and re-add of the criterion;
 a changed plan after the freeze; rename into the fixed path (20 % similarity); a merge from a side
 branch with another limit (full history); a symbolic link at the criterion, plan or an input;

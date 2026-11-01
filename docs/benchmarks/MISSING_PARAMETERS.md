@@ -107,7 +107,9 @@ Code: `src/opticps/benchmarks/{external_capture,capture_stats,timing,teriphic}.p
 | Time axis | header time increment 4.8828125e-13 s (2.048 THz), 40,959,993 samples, 20 microseconds | the symbol tone of the squared waveform sits at 50.00019 GHz under that increment (+3.8 ppm from 50 GBd), 40.96 samples per symbol | evidence-supported |
 | Record's "256 Gbaud" | **not the rate of the stored stream**; 256/50 = 5.12 is the nominal ratio of the record, kept INFERRED | no content near 5.12 samples per symbol exists: all signal power is below about 80 GHz of the header axis; energy near multiples of 256 GHz (24 dB above the quiet band) is consistent with 256 GSa/s native sampling stored after 8x interpolation, a reading and not a fact | exporter must confirm |
 | Vertical scale | `normalized` only | header unit code Volt is recorded as a header claim; attenuation, coupling and export gain unknown | U |
-| Channel, date, frame | `Channel 2`, `20 APR 2023 13:27:40`, frame string `UXR0704AP:[instrument serial removed]` (a Keysight UXR family string; its bandwidth and rate specifications are from memory and not used) | header strings | descriptive |
+| Channel, date, frame | `Channel 2`, `20 APR 2023 13:27:40`; the header frame string names the model `UXR0704AP` (text before the colon; what follows is an instrument serial and is not recorded here or in code output) | header strings | **a header claim about the exporting model, not instrument evidence**: it supports "a Keysight BIN file" and nothing about the instrument, its bandwidth or its rate; the layout field is `frame_model_claim` |
+| Time origin | x origin -1.1755e-5 s (-11.755 microseconds), display origin -1.1755e-5 s, display range 2.0e-5 s; points x increment = 19.99999658 microseconds, 1.7e-7 relative to the display range | header (`x_origin_s` in the layout, now reported); a display range that disagrees with points x increment by more than 0.1 % is now a fatal structure failure | descriptive |
+| Native-rate reading (a READING, not a fact) | N - 1 = 40,959,992 = 8 x 5,119,999, so 5,120,000 native points, which is exactly 20 microseconds at 256 GSa/s (endpoint-preserving 8x stretch); lines in the squared, mean-removed waveform at 256.000 GHz and 512.000 GHz (29 and 27 dB over the median bin of the chunk spectrum, our own definition); the mean squared second difference has period 8 (max/min 1.118 against 1.0002 for the controls of period 7 and 9) and is mirror-symmetric about n = 0 mod 8 to 2e-4 | `capture_stats.native_rate_reading`, computed from the file at each run (reproduced here by our own code on B2B only; the reviewer's independent code found the same); an integer-factor upsampling of a 256 GSa/s native record is what this looks like | exporter must confirm; it does not change the status, the scale or any config |
 | DC, sign, clipping | mean over std 0.0065 (DC about zero), levels on both sides, one sample at each extreme, longest identical run 9 samples | `qc` block of the diagnostics | descriptive |
 
 B2B diagnostics (all `normalized`, z = (x - mean)/std; mean 4.9e-5 and std 7.57e-3 in file units, which are
@@ -127,3 +129,10 @@ Deviation from the plan's wording, reported plainly: R5.2 said the spectrum shou
 128 GHz Nyquist band for the claimed 256 GSa/s". The stored stream is at 2.048 THz, so the check was run on
 the header axis, where the content ends near 80 GHz; under 256 GSa/s as the stored rate a 50 GBd signal would
 not fit below 10 GHz, so the record's rate cannot describe this stream.
+
+Fix round (2026-11-01, after the Gate E1 review): the rate-chain wording of the verdict and the 136-byte
+reading are now computed from the file at each run (before, two strings were fixed text); an empty or
+silent spectral band is refused instead of returning NaN; the non-B2B inspection reports a structure pass
+and a physical pass separately (every sample finite and of plausible scale, plus the waveform checks) and
+never calls a well-formed header "accepted". The departures from plan R5.2 that this section reports are
+stated in the plan itself, Revision 6, R6.1.

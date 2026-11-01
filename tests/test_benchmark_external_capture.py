@@ -12,9 +12,11 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import os
 import re
 import struct
 import tracemalloc
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -22,6 +24,7 @@ import pytest
 from scipy.signal import welch
 
 from opticps.benchmarks import teriphic
+from opticps.benchmarks import timing as timing_module
 from opticps.benchmarks.capture_stats import (
     PublishedReference,
     decision_clusters,
@@ -30,10 +33,12 @@ from opticps.benchmarks.capture_stats import (
     explore_eye,
     measured_ber,
     measured_ser,
+    native_rate_reading,
     post_fec_ber,
 )
 from opticps.benchmarks.external_capture import (
     ExternalCapture,
+    FormatCheck,
     FormatStatus,
     Hypothesis,
     RawSpec,
@@ -42,6 +47,7 @@ from opticps.benchmarks.external_capture import (
     evaluate_hypotheses,
     parse_keysight_bin_header,
     unique_survivor,
+    waveform_checks,
 )
 from opticps.benchmarks.provenance import (
     AssetRecord,
@@ -51,9 +57,11 @@ from opticps.benchmarks.provenance import (
     Md5State,
     Provenance,
     Split,
+    verify_local_asset,
 )
 from opticps.benchmarks.timing import (
     TimingError,
+    TimingTracker,
     interpolate_cubic,
     recover_timing,
     samples_per_symbol,
@@ -83,6 +91,7 @@ def pam4_waveform(
     wander_period: float = 3000.0,
     noise: float = 0.03,
     alpha: float = 0.5,
+    levels: tuple[float, ...] = (-3.0, -1.0, 1.0, 3.0),
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """(samples, symbols, true symbol times in samples) of a PAM4 waveform with a drifting clock.
 
@@ -90,7 +99,7 @@ def pam4_waveform(
     the sum of pulses evaluated at the exact fractional sample times: no resampling is involved.
     """
     rng = np.random.default_rng(seed)
-    symbols = rng.choice([-3.0, -1.0, 1.0, 3.0], size=n_symbols)
+    symbols = rng.choice(list(levels), size=n_symbols)
     k = np.arange(n_symbols)
     times = (
         40.0
@@ -122,6 +131,9 @@ def keysight_image(
     version: bytes = b"10",
     byte_order: str = "<",
     extra: bytes = b"",
+    x_range: float | None = None,
+    x_origin: float = 0.0,
+    frame: bytes = b"SYNTH:SN0",
 ) -> bytes:
     """A Keysight-BIN-like file written field by field (independent of the reader's packing)."""
     e = byte_order
@@ -131,11 +143,11 @@ def keysight_image(
         [
             struct.pack(e + "i", 140), struct.pack(e + "i", 1), struct.pack(e + "i", 1),
             struct.pack(e + "i", n + points_delta), struct.pack(e + "i", 1),
-            struct.pack(e + "f", n * xinc), struct.pack(e + "d", 0.0),
-            struct.pack(e + "d", xinc), struct.pack(e + "d", 0.0),
+            struct.pack(e + "f", n * xinc if x_range is None else x_range), struct.pack(e + "d", 0.0),
+            struct.pack(e + "d", xinc), struct.pack(e + "d", x_origin),
             struct.pack(e + "i", x_units), struct.pack(e + "i", y_units),
             b"01 JAN 2026".ljust(16, b"\x00"), b"12:00:00".ljust(16, b"\x00"),
-            b"SYNTH:SN0".ljust(24, b"\x00"), b"Channel 1".ljust(16, b"\x00"),
+            frame.ljust(24, b"\x00"), b"Channel 1".ljust(16, b"\x00"),
             struct.pack(e + "d", 0.0), struct.pack(e + "I", 0),
         ]
     )  # fmt: skip
@@ -748,7 +760,7 @@ def test_cli_refuses_download_and_holdout_and_reads_nothing_for_metadata_only(tm
 
 def test_cli_inspects_fixtures(fixture_bin, tmp_path, capsys):
     assert cli_main(["benchmark", "inspect-format", "--file", str(fixture_bin)]) == 0
-    assert "Keysight BIN structure accepted" in capsys.readouterr().out
+    assert "physical pass: yes" in capsys.readouterr().out
     raw = raw_float_file(tmp_path, np.sin(np.arange(20000) / 7.0) + 0.01 * np.cos(np.arange(20000)))
     sidecar = tmp_path / "raw.json"
     sidecar.write_text(json.dumps({"dtype": "<f4", "x_increment_s": 4e-12}))
@@ -781,6 +793,467 @@ def test_read_bin_still_refuses_what_the_adapter_refuses(tmp_path, signal):
     good.write_bytes(keysight_image(signal[0][:4096]))
     assert len(read_bin(good).samples_v) == 4096  # the two parsers agree on a well-formed file
     assert open_fixture(good).count == 4096
+
+
+# ----------------------------------------------------------------------------- fix round (E1 review)
+STORED_XINC = 1.0 / 2.048e12  # the stored-stream time increment of the B2B file
+HOLDOUT_2KM = "50G_PAM4_PD1_2km_Subassembly1.bin"
+HOLDOUT_10KM = "50G_PAM4_PD1_10km_Subassembly1.bin"
+
+
+def upsample8(native: np.ndarray) -> np.ndarray:
+    """Endpoint-preserving 8x windowed-sinc interpolation: samples at multiples of 8 are kept."""
+    taps = 8 * 16
+    k = np.arange(-taps, taps + 1)
+    h = np.sinc(k / 8.0) * np.hanning(2 * taps + 3)[1:-1]
+    stuffed = np.zeros(8 * (native.size - 1) + 1)
+    stuffed[::8] = native
+    return np.convolve(stuffed, h, mode="same")
+
+
+def held_pam4(
+    n_symbols: int,
+    sps: float,
+    *,
+    seed: int = 11,
+    drift: float = 0.0,
+    levels: tuple[float, ...] = (-3.0, -1.0, 1.0, 3.0),
+    noise: float = 0.03,
+    edge: float = 0.12,
+) -> np.ndarray:
+    """Levels held for one symbol each, edges smoothed by a Gaussian of `edge` symbols, plus noise.
+
+    A heavily oversampled waveform of this kind shows separated amplitude humps (unlike a
+    raised-cosine train sampled at 40 points per symbol), as an oscilloscope trace does.
+    """
+    rng = np.random.default_rng(seed)
+    symbols = rng.choice(list(levels), size=n_symbols)
+    n = np.arange(int(n_symbols * sps * (1.0 + drift)))
+    index = np.minimum((n / (sps * (1.0 + drift))).astype(int), n_symbols - 1)
+    sigma = edge * sps
+    half = int(4 * sigma) + 1
+    kernel = np.exp(-0.5 * (np.arange(-half, half + 1) / sigma) ** 2)
+    x = np.convolve(symbols[index], kernel / kernel.sum(), mode="same")
+    return x + rng.normal(0.0, noise, size=x.size)
+
+
+@pytest.fixture(scope="module")
+def stored_signal() -> np.ndarray:
+    """PAM4 at 40.96 samples per symbol (header rate 2.048 THz), analytic, not interpolated."""
+    return held_pam4(3000, 40.96)
+
+
+@pytest.fixture(scope="module")
+def interpolated_signal() -> np.ndarray:
+    """A native 256 GSa/s PAM4 waveform stored after our own 8x interpolation (2.048 THz axis)."""
+    return upsample8(held_pam4(20000, 5.12, seed=12, edge=0.15))
+
+
+def write_fixture(tmp_path: Path, samples: np.ndarray, name: str = "fx.bin", **kwargs) -> Path:
+    path = tmp_path / name
+    path.write_bytes(keysight_image(samples, xinc=kwargs.pop("xinc", STORED_XINC), **kwargs))
+    return path
+
+
+def md5_of(path: Path) -> str:
+    return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def source_with_b2b_md5(md5: str):
+    source = teriphic.load_config()
+    assets = []
+    for asset in source.assets:
+        if asset.split is Split.CHARACTERISATION:
+            asset = dataclasses.replace(asset, checksum=Checksum(md5_supplied=md5))
+        assets.append(asset)
+    return dataclasses.replace(source, assets=tuple(assets))
+
+
+def forbid_sample_readers(monkeypatch) -> list[str]:
+    """Make any mapping or constructor call of a reader fail the test; hashing stays possible."""
+    called: list[str] = []
+
+    def refuse(*args, **kwargs):
+        called.append("reader")
+        raise AssertionError("a sample reader was called before the gate refused")
+
+    monkeypatch.setattr(np, "memmap", refuse)
+    monkeypatch.setattr(ExternalCapture, "open_keysight_bin", classmethod(refuse))
+    monkeypatch.setattr(ExternalCapture, "open_raw", classmethod(refuse))
+    return called
+
+
+# --- finding 1: one gate for every route, any file name or place
+def test_cli_gate_catches_a_renamed_holdout_on_every_route(tmp_path, signal, monkeypatch, capsys):
+    innocent = tmp_path / "innocent.bin"
+    innocent.write_bytes(keysight_image(signal[0][:8192]))
+    injected = source_with_holdout_md5(md5_of(innocent))
+    monkeypatch.setattr(teriphic, "load_config", lambda *a, **k: injected)
+    sidecar = tmp_path / "side.json"
+    sidecar.write_text(json.dumps({"dtype": "<f4"}))
+    called = forbid_sample_readers(monkeypatch)
+    for extra in ([], ["--metadata", str(sidecar)]):
+        assert cli_main(["benchmark", "inspect-format", "--file", str(innocent), *extra]) == 1
+        error = capsys.readouterr().err
+        assert "LEAKAGE_DETECTED" in error and "MD5" in error and HOLDOUT_10KM in error
+    assert called == []
+
+
+def test_gate_catches_a_holdout_by_sha256_and_by_symlink(tmp_path, signal):
+    path = tmp_path / "innocent.bin"
+    path.write_bytes(keysight_image(signal[0][:8192]))
+    sha = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(BenchmarkError, match="LEAKAGE_DETECTED") as caught:
+        teriphic.gate_sample_read(path, holdout_sha256={HOLDOUT_2KM: sha})
+    assert "SHA-256" in str(caught.value) and HOLDOUT_2KM in str(caught.value)
+    assert teriphic.gate_sample_read(path, holdout_sha256={HOLDOUT_2KM: "0" * 64}).asset is None
+    target = tmp_path / HOLDOUT_2KM
+    target.write_bytes(b"x")
+    link = tmp_path / "harmless_name.bin"
+    link.symlink_to(target)
+    with bad(ErrorCode.LEAKAGE_DETECTED):
+        teriphic.gate_sample_read(link)
+    assert cli_main(["benchmark", "inspect-format", "--file", str(link)]) == 1
+
+
+def test_gate_hashes_every_file_and_knows_the_b2b_by_hash(tmp_path, signal):
+    path = tmp_path / "any_name.bin"
+    path.write_bytes(keysight_image(signal[0][:8192]))
+    gate = teriphic.gate_sample_read(path)
+    assert gate.checksum.md5_local == md5_of(path) and gate.checksum.sha256_local
+    assert gate.is_b2b is False and gate.asset is None
+    twin = teriphic.gate_sample_read(path, source_with_b2b_md5(md5_of(path)))
+    assert twin.is_b2b is True
+
+
+def test_recorded_holdout_sha256_table_equals_the_register():
+    register = " ".join(Path("docs/benchmarks/SOURCE_REGISTER.md").read_text().split())
+    assert set(teriphic.HOLDOUT_SHA256) == {HOLDOUT_2KM, HOLDOUT_10KM}
+    for name, sha in teriphic.HOLDOUT_SHA256.items():
+        assert re.search(rf"`{re.escape(name)}`.*?`{sha}`", register), name
+
+
+# --- finding 2: a valid header never earns "accepted"; structure and physical are separate
+def test_cli_refuses_noise_scaled_noise_and_nan_blocks_behind_a_valid_header(
+    tmp_path, signal, capsys
+):
+    rng = np.random.default_rng(21)
+    noise = rng.normal(size=30000)
+    nan_block = signal[0].copy()
+    nan_block[12000:12100] = np.nan
+    cases = {
+        "white_noise": noise,
+        "noise_times_1e30": noise * 1e30,
+        "nan_block": nan_block,
+        "smooth_but_absurd_scale": signal[0] * 1e30,
+    }
+    for tag, samples in cases.items():
+        path = tmp_path / f"{tag}.bin"
+        path.write_bytes(keysight_image(samples, xinc=1.0 / 256e9))
+        assert cli_main(["benchmark", "inspect-format", "--file", str(path)]) == 1, tag
+        captured = capsys.readouterr()
+        assert "structure pass: yes" in captured.out, tag
+        assert "physical pass: NO" in captured.out, tag
+        assert "accepted" not in captured.out and "FORMAT_UNKNOWN" in captured.err, tag
+
+
+def test_cli_good_fixture_reports_two_passes_not_acceptance(fixture_bin, capsys):
+    assert cli_main(["benchmark", "inspect-format", "--file", str(fixture_bin)]) == 0
+    out = capsys.readouterr().out
+    assert "structure pass: yes" in out and "physical pass: yes" in out
+    assert "not a format verdict" in out and "accepted" not in out
+
+
+def test_full_scan_finds_a_nan_block_that_the_slices_miss(tmp_path, signal):
+    x = signal[0][:40000].copy()
+    x[8000:8100] = np.nan  # between the start slice and the middle slice
+    path = tmp_path / "gap.bin"
+    path.write_bytes(keysight_image(x, xinc=1.0 / 256e9))
+    gate = teriphic.gate_sample_read(path)
+    capture = ExternalCapture.open_keysight_bin(path)
+    assert all(c.passed for c in capture.physical_checks(3 * 4096))  # slices alone: all pass
+    capture.close()
+    result = teriphic.inspect_capture(path, gate, max_samples=3 * 4096)
+    assert result.structure_pass is True and result.physical_pass is False
+    failed = {c.name: c.detail for c in result.physical_detail if not c.passed}
+    assert set(failed) == {"finite_everywhere"} and "100 non-finite" in failed["finite_everywhere"]
+    assert "index 8000" in failed["finite_everywhere"]
+
+
+def test_plausible_scale_is_a_named_check_with_both_limits():
+    t = np.arange(20000)
+    base = np.sin(t / 40.0) + 0.5 * np.sin(t / 97.0)
+    for factor, expected in ((1.0, True), (1e30, False), (1e-30, False)):
+        checks = {c.name: c for c in waveform_checks(base * factor)}
+        assert checks["plausible_scale"].passed is expected, factor
+
+
+# --- finding 3b: the negative path of verify_b2b_format, one test per guard
+def verify(path: Path):
+    return teriphic.verify_b2b_format(path)
+
+
+def test_verify_supports_a_clean_stored_stream_fixture(tmp_path, stored_signal):
+    report = verify(write_fixture(tmp_path, stored_signal))
+    assert report.status is FormatStatus.SUPPORTED_BY_EVIDENCE, report.summary
+    assert report.reasons_unknown == () and report.blocked_label == ""
+    assert report.summary.startswith("SUPPORTED_BY_EVIDENCE (B2B only): Keysight BIN v10")
+    assert report.evidence["level_structure"]["four_levels"] is True
+
+
+def test_verify_is_unknown_when_levels_are_not_four(tmp_path):
+    pam2 = held_pam4(3000, 40.96, levels=(-1.0, 1.0))
+    report = verify(write_fixture(tmp_path, pam2))
+    assert report.status is FormatStatus.FORMAT_UNKNOWN
+    assert report.reasons_unknown == ("amplitude histogram does not show four separated levels",)
+    assert report.blocked_label == "BLOCKED: FORMAT_UNVERIFIED"
+    assert report.summary.startswith("FORMAT_UNKNOWN (BLOCKED: FORMAT_UNVERIFIED)")
+
+
+def test_verify_is_unknown_when_the_tone_is_off_by_more_than_the_tolerance(tmp_path):
+    drifted = held_pam4(3000, 40.96, drift=0.0013)  # symbol rate 1300 ppm low
+    report = verify(write_fixture(tmp_path, drifted))
+    assert report.status is FormatStatus.FORMAT_UNKNOWN
+    assert len(report.reasons_unknown) == 1
+    assert report.reasons_unknown[0].startswith("no symbol tone at the published baud")
+    assert abs(report.evidence["timebase"]["measured_offset_ppm_vs_published_baud"]) > 1000
+
+
+def test_verify_is_unknown_when_the_tone_is_too_weak(tmp_path, stored_signal, monkeypatch):
+    path = write_fixture(tmp_path, stored_signal)
+    strength = verify(path).evidence["timebase"]["tone_strength_median"]
+    assert 0.02 < strength < 0.9  # a real tone; only the threshold changes below
+    monkeypatch.setattr(teriphic, "TONE_MIN_STRENGTH", 0.9)
+    report = verify(path)
+    assert report.status is FormatStatus.FORMAT_UNKNOWN
+    assert len(report.reasons_unknown) == 1 and "strength" in report.reasons_unknown[0]
+
+
+def test_verify_is_unknown_when_the_survivor_is_not_the_declared_layout(
+    tmp_path, stored_signal, monkeypatch
+):
+    path = write_fixture(tmp_path, stored_signal)
+    monkeypatch.setattr(teriphic, "unique_survivor", lambda results: Hypothesis("<f4", 168))
+    report = verify(path)
+    assert report.status is FormatStatus.FORMAT_UNKNOWN
+    assert report.reasons_unknown == ("survivor <f4@168 is not the structurally declared layout",)
+
+
+def test_verify_is_unknown_when_no_or_several_hypotheses_survive(
+    tmp_path, stored_signal, monkeypatch
+):
+    noise = np.random.default_rng(4).normal(size=60000)
+    report = verify(write_fixture(tmp_path, noise, "noise.bin"))
+    assert report.status is FormatStatus.FORMAT_UNKNOWN and report.reasons_unknown
+    path = write_fixture(tmp_path, stored_signal)
+    real = teriphic.evaluate_hypotheses
+
+    def all_pass(*args, **kwargs):
+        return tuple(
+            dataclasses.replace(r, checks=(FormatCheck("physical_checks", True, "forced"),))
+            for r in real(*args, **kwargs)
+        )
+
+    monkeypatch.setattr(teriphic, "evaluate_hypotheses", all_pass)
+    ambiguous = verify(path)
+    assert ambiguous.status is FormatStatus.FORMAT_UNKNOWN
+    assert "ambiguous format" in ambiguous.reasons_unknown[0]
+
+
+def test_verify_refuses_an_empty_band_instead_of_warning_or_returning_nan(tmp_path, signal):
+    path = tmp_path / "rate256.bin"  # 256 GSa/s header: no bin near the record rate to inspect
+    path.write_bytes(keysight_image(signal[0], xinc=1.0 / 256e9))
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        report = verify(path)
+    assert report.status is FormatStatus.FORMAT_UNKNOWN
+    assert "holds no spectral bin" in report.summary
+    assert report.evidence == {} and "2.048 THz" not in repr(report)
+
+
+def test_band_db_refuses_empty_and_silent_bands():
+    freq = np.linspace(0.0, 100.0, 11)
+    psd = np.ones(11)
+    assert teriphic._band_db(freq, psd, 0.0, 50.0) == pytest.approx(0.0)
+    with bad():
+        teriphic._band_db(freq, psd, 200.0, 300.0)
+    with bad():
+        teriphic._band_db(freq, np.zeros(11), 0.0, 50.0)
+    with bad():
+        teriphic._band_db(freq, np.where(freq < 50.0, 0.0, psd), 0.0, 50.0)
+
+
+# --- finding 4: evidence text comes from the file
+def test_rate_chain_and_size_reading_follow_the_file(tmp_path, stored_signal):
+    report = verify(write_fixture(tmp_path, stored_signal))
+    text = report.evidence["rate_chain_reading"]
+    assert "2048 GHz" in text and "40.96 samples per symbol" in text and "confirms" in text
+    other = verify(write_fixture(tmp_path, held_pam4(3000, 20.0, seed=5), xinc=1e-12))
+    assert other.status is FormatStatus.SUPPORTED_BY_EVIDENCE, other.summary
+    other_text = other.evidence["rate_chain_reading"]
+    assert "1000 GHz" in other_text and "20 samples per symbol" in other_text
+    assert "2048 GHz" not in other_text and "40.96" not in other_text
+    size_text = other.layout["size_hypothesis_136_bytes"]
+    assert f"{other.layout['samples']:,}" in size_text
+    assert "40,959,993" not in repr(other)
+    drifted = held_pam4(3000, 40.96, drift=0.0013)
+    weak = verify(write_fixture(tmp_path, drifted, "d.bin"))
+    assert "NO symbol tone confirms" in weak.evidence["rate_chain_reading"]
+
+
+# --- finding 7: x origin is reported, an inconsistent display range is fatal
+def test_x_origin_is_reported_and_display_range_must_agree(tmp_path, stored_signal):
+    report = verify(write_fixture(tmp_path, stored_signal, x_origin=-1.1755e-5))
+    assert report.layout["x_origin_s"] == -1.1755e-5
+    path = write_fixture(tmp_path, stored_signal, "range.bin", x_range=1.0)
+    with pytest.raises(BenchmarkError, match="display_range_matches_record"):
+        ExternalCapture.open_keysight_bin(path)
+    span = stored_signal.size * STORED_XINC
+    near = write_fixture(tmp_path, stored_signal, "near.bin", x_range=span * 1.0005)
+    assert ExternalCapture.open_keysight_bin(near).count == stored_signal.size
+    zero = write_fixture(tmp_path, stored_signal, "zero.bin", x_range=0.0)
+    with bad():
+        ExternalCapture.open_keysight_bin(zero)
+
+
+# --- finding 8: the 8x reading is reproduced by our own code
+def test_native_rate_reading_finds_integer_upsampling_and_not_its_absence(
+    interpolated_signal, stored_signal, tmp_path
+):
+    up = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, interpolated_signal, "up.bin"))
+    reading = native_rate_reading(up, 256e9)
+    assert reading["status"] == "tested" and reading["integer_factor"] == 8
+    counting = reading["counting"]
+    assert counting["points_minus_one"] == 8 * (counting["native_points"] - 1)
+    assert counting["native_span_s_at_record_rate"] == pytest.approx(
+        counting["native_points"] / 256e9
+    )
+    profiles = reading["second_difference_period"]["profiles"]
+    assert profiles["8"]["max_over_min"] > 1.05
+    assert all(profiles[k]["max_over_min"] < 1.02 for k in ("7", "9"))
+    assert profiles["8"]["argmin_residue"] != 0
+    assert profiles["8"]["mirror_symmetry_max_relative_difference"] < 0.01
+    assert "READING" in reading["label"] and "not a verified fact" in reading["label"]
+    # control: edges at an incommensurate fractional spacing, so no period-8 beat by accident
+    # (40.96 samples per symbol would repeat its edge phase every 25 symbols = 3 x 8 samples)
+    plain = ExternalCapture.open_keysight_bin(
+        write_fixture(tmp_path, held_pam4(20000, 41.1, seed=3), "plain.bin")
+    )
+    flat = native_rate_reading(plain, 256e9)["second_difference_period"]["profiles"]["8"]
+    assert flat["max_over_min"] < 1.02  # no 8-periodic curvature without interpolation
+    same = ExternalCapture.open_keysight_bin(
+        write_fixture(tmp_path, stored_signal, "same.bin", xinc=1 / 256e9)
+    )
+    assert native_rate_reading(same, 256e9)["status"].startswith("not testable")
+    for capture in (up, plain, same):
+        capture.close()
+
+
+def test_line_detector_finds_a_planted_line_at_the_record_rate_multiple(tmp_path, stored_signal):
+    n = np.arange(stored_signal.size)
+    planted = stored_signal + 0.8 * np.cos(2 * np.pi * n / 16.0 + 0.3)  # its square: line at fs/8
+    with_line = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, planted, "line.bin"))
+    without = ExternalCapture.open_keysight_bin(write_fixture(tmp_path, stored_signal, "no.bin"))
+    strong = native_rate_reading(with_line, 256e9)["lines_in_squared_signal"][0]
+    weak = native_rate_reading(without, 256e9)["lines_in_squared_signal"][0]
+    assert strong["multiple_k"] == 1 and abs(strong["offset_from_nominal_hz"]) < 1e6
+    assert strong["measured_frequency_hz"] == pytest.approx(256e9, rel=1e-5)
+    assert strong["line_over_median_db"] > 25.0 and weak["line_over_median_db"] < 15.0
+    with_line.close()
+    without.close()
+
+
+def test_verify_carries_the_reading_labelled_and_computed(tmp_path, interpolated_signal):
+    report = verify(write_fixture(tmp_path, interpolated_signal))
+    assert report.status is FormatStatus.SUPPORTED_BY_EVIDENCE, report.summary
+    assert report.evidence["native_rate_reading"]["integer_factor"] == 8
+    text = report.evidence["rate_chain_reading"]
+    assert "reading (not a fact)" in text and "8x integer upsampling" in text
+    assert "The exporter must confirm it" in text
+
+
+# --- finding 9: the frame string is a header claim about a model; no serial anywhere
+def test_frame_string_is_recorded_as_a_model_claim_without_its_serial(tmp_path, stored_signal):
+    path = write_fixture(tmp_path, stored_signal, frame=b"UXR0704AP" + b":" + b"ZZ00000000")
+    report = verify(path)
+    fields = report.layout["header_fields"]
+    assert fields["frame_model_claim"] == "UXR0704AP"
+    assert "frame" not in fields and "not instrument evidence" in fields["frame_model_claim_note"]
+    blob = repr(report) + repr([c.detail for c in report.structural_checks])
+    assert "ZZ00000000" not in blob and "UXR0704AP" in blob
+
+
+def test_no_instrument_serial_in_committed_text():
+    pattern = re.compile(r"UXR0704AP:[A-Z0-9]{4,}|MY\d{8}")
+    for root in (Path("docs"), Path("src"), Path("tests"), Path("configs"), Path("reports")):
+        for path in root.rglob("*"):
+            if path.is_file() and path.suffix in {".md", ".py", ".yaml", ".yml", ".json", ".txt"}:
+                assert not pattern.search(path.read_text(errors="ignore")), path
+
+
+# --- finding 5: the generic readers are listed as known limits and the gate rule is stated
+def test_known_limits_list_the_generic_readers_and_the_route_rule():
+    limits = " ".join(Path("docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
+    for needle in (
+        "read_bin",
+        "ExternalCapture.open_keysight_bin",
+        "gate_sample_read",
+        "MD5 and SHA-256",
+    ):
+        assert needle in limits, needle
+
+
+# --- finding 6: guards that other checks used to shadow
+def test_bounded_is_decided_by_its_own_check():
+    t = np.arange(20000)
+    base = np.sin(t / 40.0) + 0.5 * np.sin(t / 97.0)
+    assert {c.name: c.passed for c in waveform_checks(base)}["bounded"] is True
+    spiked = base.copy()
+    spiked[10000] = 40.0 * float(base.std())
+    results = {c.name: c for c in waveform_checks(spiked)}
+    assert results["bounded"].passed is False and "limit 20" in results["bounded"].detail
+
+
+def test_a_stale_checksum_is_refused_whatever_the_change(tmp_path, signal):
+    path = tmp_path / "s.bin"
+    path.write_bytes(keysight_image(signal[0][:8192]))
+    checksum = verify_local_asset(path)
+    assert checksum.still_current(path) is True
+    assert checksum.still_current(tmp_path / "missing.bin") is False
+    status = path.stat()
+    os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns + 10**9))  # time only
+    assert checksum.still_current(path) is False
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        ExternalCapture.open_keysight_bin(path, checksum=checksum)
+    os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
+    assert checksum.still_current(path) is True
+    with path.open("ab") as handle:
+        handle.write(b"\x00" * 4)  # size only
+    os.utime(path, ns=(status.st_atime_ns, status.st_mtime_ns))
+    assert checksum.still_current(path) is False
+
+
+def test_a_capture_opened_before_a_change_refuses_every_read(fixture_bin):
+    capture = ExternalCapture.open_keysight_bin(fixture_bin)
+    assert capture.read(0, 16).size == 16
+    status = fixture_bin.stat()
+    os.utime(fixture_bin, ns=(status.st_atime_ns, status.st_mtime_ns + 10**9))
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.read(0, 16)
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.assert_unchanged()
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        next(capture.blocks(4096))
+    capture.close()
+
+
+# --- finding 10: the window is a whole number of samples, not of symbols
+def test_window_samples_is_rounded_and_documented_as_such():
+    tracker = TimingTracker(40.96)
+    assert tracker.window_samples == 10486 and tracker.window_samples != 256 * 40.96
+    doc = " ".join((TimingTracker.window_samples.__doc__ or "").split())
+    assert "nearest whole sample" in doc and "not a whole number of symbols" in doc
+    assert "windows of whole symbols" not in " ".join((timing_module.__doc__ or "").split())
 
 
 # ----------------------------------------------------------------------------- real B2B file
@@ -830,6 +1303,25 @@ def test_real_b2b_format_verdict_and_evidence(monkeypatch):
     assert timebase["header_samples_per_symbol"] == pytest.approx(40.96)
     assert timebase["record_samples_per_symbol_nominal"] == pytest.approx(5.12)
     assert abs(evidence["dc_over_std"]) < 0.01
+    assert report.layout["x_origin_s"] == pytest.approx(-1.1755e-5, rel=1e-6)  # reported
+    assert report.layout["header_fields"]["frame_model_claim"] == "UXR0704AP"
+    assert not re.search(r"MY\d{8}", repr(report))  # no serial leaves the file
+    native = evidence["native_rate_reading"]  # the labelled reading, reproduced by our own code
+    assert native["integer_factor"] == 8 and "READING" in native["label"]
+    assert native["counting"]["points_minus_one"] == 8 * 5_119_999
+    assert native["counting"]["native_points"] == 5_120_000
+    assert native["counting"]["native_span_s_at_record_rate"] == pytest.approx(20e-6, rel=1e-12)
+    for row, multiple in zip(native["lines_in_squared_signal"], (256e9, 512e9), strict=True):
+        assert row["measured_frequency_hz"] == pytest.approx(multiple, abs=2e5)
+        assert row["line_over_median_db"] > 20.0
+    profiles = native["second_difference_period"]["profiles"]
+    assert profiles["8"]["max_over_min"] > 1.1 and profiles["8"]["argmin_residue"] == 4
+    assert profiles["8"]["mirror_symmetry_max_relative_difference"] < 1e-3
+    assert profiles["7"]["max_over_min"] < 1.001 and profiles["9"]["max_over_min"] < 1.001
+    text = evidence["rate_chain_reading"]
+    assert "40.96 samples per symbol" in text and "confirms that time axis" in text
+    assert "40,959,992 = 8 x 5,119,999" in text and "reading (not a fact)" in text
+    assert "7 samples" in report.layout["size_hypothesis_136_bytes"]
     assert report.holdout_status.startswith("NOT_ASSESSED_HOLDOUT")
     source = teriphic.load_config()
     b2b = next(a for a in source.assets if a.split is Split.CHARACTERISATION)

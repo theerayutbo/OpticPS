@@ -224,9 +224,10 @@ def cmd_demo(args: argparse.Namespace) -> int:
 
 def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
     """Offline format inspection of one external capture. Never downloads, never writes under
-    data/external, never reads a sample of a holdout file (the adapter refuses it)."""
+    data/external. Every sample-reading route passes `teriphic.gate_sample_read` first (name,
+    symbolic-link target, MD5 and SHA-256 against the recorded holdout hashes), for any --file."""
     from opticps.benchmarks import teriphic
-    from opticps.benchmarks.external_capture import ExternalCapture, FormatStatus, RawSpec
+    from opticps.benchmarks.external_capture import FormatStatus, RawSpec, format_unknown
 
     if args.allow_download:
         print(
@@ -248,16 +249,9 @@ def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
             print(f"  {name}: {value.value!r} [{value.provenance.value}]")
         print("metadata only: the file was not opened")
         return 0
-    teriphic.guard_sample_read(path, source)
-    if args.metadata is not None:
-        spec = RawSpec.from_sidecar(args.metadata)
-        capture = ExternalCapture.open_raw(path, spec)
-        print(f"{path.name}: layout {spec.dtype}@{spec.data_offset}, {capture.count} samples")
-        print(f"scale {capture.scale}; physical checks pass; no BER or SER is computed")
-        capture.close()
-        return 0
-    if path.name.casefold() == teriphic.B2B_FILENAME.casefold():
-        report = teriphic.verify_b2b_format(path, source=source)
+    gate = teriphic.gate_sample_read(path, source)
+    if args.metadata is None and (gate.asset is not None or gate.is_b2b):
+        report = teriphic.verify_b2b_format(path, source=source, gate=gate)
         print(report.summary)
         for key, value in report.layout.items():
             print(f"  {key}: {value}")
@@ -271,6 +265,8 @@ def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
         ):
             if key in timebase:
                 print(f"  {key}: {timebase[key]}")
+        if "rate_chain_reading" in report.evidence:
+            print(f"  rate_chain_reading: {report.evidence['rate_chain_reading']}")
         print(f"  holdout files: {report.holdout_status}")
         if report.status is not FormatStatus.SUPPORTED_BY_EVIDENCE:
             print(report.blocked_label)
@@ -279,11 +275,20 @@ def cmd_benchmark_inspect_format(args: argparse.Namespace) -> int:
                 print(f"  - {item}")
             return 3
         return 0
-    capture = ExternalCapture.open_keysight_bin(path)
-    print(
-        f"{path.name}: Keysight BIN structure accepted, {capture.count} samples, scale normalized"
-    )
-    capture.close()
+    spec = RawSpec.from_sidecar(args.metadata) if args.metadata is not None else None
+    result = teriphic.inspect_capture(path, gate, spec)
+    print(f"{path.name}: layout {result.layout}, {result.count} samples, scale {result.scale}")
+    print(f"structure pass: {'yes' if result.structure_pass else 'NO'}")
+    print(f"physical pass: {'yes' if result.physical_pass else 'NO'}")
+    failed = [c for c in result.physical_detail if not c.passed]
+    for check in failed:
+        print(f"  physical check failed: {check.name} ({check.detail})")
+    if not result.accepted:
+        raise format_unknown(
+            f"{path.name}: the structure is well formed but the samples fail the physical checks: "
+            + "; ".join(c.name for c in failed)
+        )
+    print("both passes hold; this is not a format verdict (no BER or SER is computed)")
     return 0
 
 

@@ -31,3 +31,15 @@ Vertical calibration and export gain/coupling; native sample rate and any 8x int
 
 ## Next (not started)
 E2 only after review PASS and the plan's freeze steps; the accepted layout is applied to 2 km and 10 km unchanged and only then.
+
+## Fix round (after handoff/E1_qa.md: 3 MAJOR, minors 4 to 10)
+Local only, a new commit (E1 was 12eb480). Tip SHA and counts in the final report. Plan Revision 6 (previous pin 7b7f93dd, new pin in test and config).
+- 1: `teriphic.gate_sample_read` is the one gate (resolved name, `data/external`, MD5 and SHA-256 of the whole file vs recorded holdout hashes, file hashed once and the checksum reused); the CLI uses it for every `--file`, with or without `--metadata`; tests inject a fixture hash, a SHA-only hit and a symlink to a holdout name, and forbid any reader call.
+- 2: non-B2B route reports `structure pass` and `physical pass` apart, full-file finite and scale scan plus slice checks (new `plausible_scale`); white noise, noise x 1e30, NaN block, smooth x 1e30 all refused; "accepted" is gone.
+- 3a: plan R6.1 lists each R5.2 departure (128 GHz check on the header axis, 40.96 vs 5.12, `continuous`, survivor-only level and tone checks, M4 rate = 2.048 THz header axis); I reproduced on B2B that they are outcome-neutral. The repository cannot show whether `continuous` preceded the first B2B read. R6.2 states the holdout route rule; also in FREEZE_GUARD_KNOWN_LIMITS.
+- 3b: one test per guard of `verify_b2b_format` (status, four levels, tone ppm, tone strength, survivor mismatch, none or several survivors); mutation run on a scratch copy: 19 of 19 mutants killed (the five named, `bounded`, four `stale` variants, gate, display range, scans, band guards).
+- 4: `rate_chain_reading` and `size_hypothesis_136_bytes` computed from the file; `_band_db` refuses an empty or silent band (the 256 GSa/s fixture now returns FORMAT_UNKNOWN without NaN or warning). EXPORTER_QUESTIONS no longer carries a fixed 2.048 THz.
+- 5: `read_bin`, `open_keysight_bin`, `open_raw` stay generic and are listed as known limits. 6: `bounded` and `stale` have direct tests (spike, time-only and size-only change, never-hashed checksum).
+- 7: x origin reported (-11.755 us); a display range inconsistent with points x increment is now fatal (B2B still passes, 1.7e-7). 8: `capture_stats.native_rate_reading` reproduces on B2B N-1 = 8 x 5,119,999, 5,120,000 native points = 20 us at 256 GSa/s, lines at 256.000 and 512.000 GHz (29 and 27 dB over the median bin), second-difference period 8 (max/min 1.118, controls 1.0002), labelled READING.
+- 9: frame string recorded as `frame_model_claim` (UXR0704AP, header claim, not instrument evidence); serial removed from MISSING_PARAMETERS, code output and tests, with a scan test. It stays in the history of 12eb480 (new commits only). 10: `window_samples` docstring and timing module text corrected (10485.76 becomes 10486).
+- Python: the checks run on `.venv` (3.11); system 3.14 fails `test_md5_verified_cannot_be_typed` (replace raises TypeError there), unrelated.
