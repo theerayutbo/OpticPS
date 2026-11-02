@@ -59,8 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 11 of the plan (2026-11-02, Gate E2 part a, freeze bound to its inputs;
-# Revision 10 is REVISION_10_PLAN_SHA256 at 1b496d2; Revision 9 is
+# Pinned for Revision 12 of the plan (2026-11-02, Gate E2 part a fix round after the failed review
+# of Revision 11; Revision 11 is REVISION_11_PLAN_SHA256 at 9976d3b; Revision 10 is REVISION_10_PLAN_SHA256 at 1b496d2; Revision 9 is
 # REVISION_9_PLAN_SHA256 at 1e1e90a; Revision 8 is
 # REVISION_8_PLAN_SHA256 at 9778ce8; Revision 7 is
 # REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
@@ -74,7 +74,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d"  # Revision 11
+PLAN_SHA256 = "7b02c1938823173cd94e27c29ee5ae3067cdc225b7589c873bdecfa212d8898b"  # Revision 12
+REVISION_11_PLAN_SHA256 = (
+    "554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d"  # commit 9976d3b
+)
 REVISION_10_PLAN_SHA256 = (
     "1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e"  # commit 1b496d2
 )
@@ -224,6 +227,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_11_PLAN_SHA256,
         REVISION_10_PLAN_SHA256,
         REVISION_9_PLAN_SHA256,
         REVISION_8_PLAN_SHA256,
@@ -246,6 +250,33 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 9 (2026-11-02)" in text
     assert "## Revision 10 (2026-11-02)" in text
     assert "## Revision 11 (2026-11-02)" in text
+    assert "## Revision 12 (2026-11-02)" in text
+    revision_12 = text[text.index("## Revision 12 (2026-11-02)") :]
+    for needle in (
+        REVISION_11_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "Revision 11 was reviewed, failed and **never scored**",
+        "no 2 km or 10 km sample, header or hash was read or produced",
+        "`expected_freeze_commit` is a required argument of `score_holdout` and the script",
+        "A pin held on the same machine as the repository checks against ordinary",
+        "it is not date proof",
+        "The promise of R3.1 is unchanged and not widened",
+        "fixed by name in code (`ROLE_BY_NAME`)",
+        "**Gain-invariant map instead of one normalisation.**",
+        "reported, not tested",
+        "a single scenario is carried alone only if it is the only survivor or wins by a psi margin of 0.25",
+        "**all survivors** are carried",
+        "**INCONCLUSIVE with the claim",
+        "`NO_GRID_SCENARIO_FITS`, never FAILED",
+        "`VALIDATED` is never returned, at either length, whatever is declared",
+        "R12.4 Power study (pre-registered",
+        "D = 9 FAILs 5/5",
+        "FAIL caveats, one per nuisance",
+        "PASS caveats: a PASS never validates dispersion",
+        "import closure of the scoring entry point, 12 files",
+        "Nothing was scored on a holdout",
+    ):
+        assert needle in revision_12, needle
     revision_11 = text[text.index("## Revision 11 (2026-11-02)") :]
     for needle in (
         REVISION_10_PLAN_SHA256,

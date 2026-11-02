@@ -1086,3 +1086,191 @@ Data files: `b2b_model.yaml` `ed142aacb59721b149bc24b884edd906974ff253068bf3d6db
 
 No 2 km or 10 km sample, header or hash was read or produced at any point of Gate E2 part a; the scorer
 has never run on a holdout. The tests of R11.2 use synthetic repositories only.
+
+## Revision 12 (2026-11-02): R11 reviewed, failed and never scored; criterion redesigned after a power study; new freeze
+
+Previous version: SHA-256 `554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d` (Revision 11, commit 9976d3b; Revision 10 is `1bd5bbad...` at 1b496d2).
+New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. The criterion file is committed in the commit after this revision, at
+`docs/benchmarks/TERIPHIC_CRITERION_R12.yaml`; the commit that first holds it is the freeze.
+
+### R12.0 What happened to R10 and R11
+
+Revision 10 (freeze d520ff7) was superseded by Revision 11 (freeze 007b8b2) after a security finding.
+The independent review of Revision 11 (`docs/orchestration/opticps-v2/handoff/E2a_qa.md`, verified at
+df7fdc1) returned **FAIL**: 2 BLOCKER, 5 MAJOR, 4 MINOR and 1 OBSERVATION. Revision 11 was reviewed,
+failed and **never scored**: no 2 km or 10 km sample, header or hash was read or produced by any
+code at any point, before or after that review. Its criterion file (`TERIPHIC_CRITERION_R11.yaml`)
+and the first one (`TERIPHIC_CRITERION.yaml`) stay in the repository as records, are ignored by the
+guard (another path is not a criterion) and must not be used. Since no holdout has been read, a new
+revision and a new freeze are legitimate. The findings and their fixes:
+
+| # | Finding (review) | Fix | Test |
+|---|---|---|---|
+| 1 | a side commit with the same criterion bytes became "the freeze" | `expected_freeze_commit` is a required argument of `score_holdout` and the script; compared with the commit found, and with the first commit on the first-parent history, before any hash, header or sample read | `test_the_freeze_commit_must_be_the_pinned_one`, `test_a_side_commit_with_the_same_criterion_cannot_become_the_freeze`, `test_first_parent_resolution_names_the_first_commit_on_the_main_line` |
+| 2 | the role register was unbound: 10 km as VALIDATION, 2 km as LOCKED_TEST | the register is bound to its bytes at the freeze; the role of each file is fixed by name in code (`ROLE_BY_NAME`) | `test_the_10km_file_cannot_be_given_the_validation_role`, `test_the_2km_file_cannot_be_given_the_locked_test_role_so_it_never_gives_validated`, `test_the_role_register_changed_after_the_freeze_is_refused` |
+| 3, 4 | 2 km selection arbitrary and decisive; thresholds neither too wide nor too narrow for nuisance | redesign, R12.2 to R12.4 | `test_the_carry_rule_needs_a_margin_and_otherwise_carries_every_survivor` and the scoring tests |
+| 5 | unknown scenario id and prediction drift refused after the holdout was read | the comparator is read and the predictions recomputed, and the ids checked, before the holdout is hashed or opened | `test_every_refusal_before_the_holdout_comes_before_any_hash_or_open_of_it`, `test_a_carried_id_that_is_not_listed_and_a_drifted_prediction_are_refused_unread` |
+| 6 | a burned 10 km returned INCONCLUSIVE, outside `allowed_verdicts`; false mutant reason | a verdict outside the allowed set becomes EXPLORATORY (BLOCKED if that is not allowed) | `test_a_burned_file_ends_exploratory_and_a_shared_sequence_may_too` |
+| 7 | the frozen script could never supply `sequence_check` or `state` | the script has `--sequence-check` and `--state`; VALIDATED is never returned (R12.4), so the declarations only reach EXPLORATORY; `not-shared` cannot be established by the script and the 10 km run stays unspent until the owner decides | `test_the_frozen_script_reaches_every_allowed_verdict_and_never_validated` |
+| 8 | a path move resets the binding | stated as a known limit; the external pin catches it | `test_a_moved_criterion_path_resets_the_binding_and_only_the_pin_catches_it` |
+| 9 | surviving mutants | tests for each (psi equal to 1 on both tests, the 10 km length, `--full-history`) | `test_a_psi_of_exactly_one_is_within_the_criterion`, `test_the_10km_scorer_uses_the_10km_length`, `test_the_same_selected_bytes_on_two_branches_are_two_additions` |
+| 10 | `--repo` ran changed code against a clean tree; unlisted modules imported | the code identity is the import closure (12 files, a test recomputes it) and the running modules must be the files of the repository | `test_the_code_identity_is_the_import_closure_of_the_scoring_entry_point`, `test_the_running_code_must_be_the_code_of_the_repository` |
+| 11 | duplicate key raised a YAML error; stage `banana`; rename-in | `BenchmarkError`; `selected_at_stage` must be `2km`; the file must be a new file in its commit | `test_a_duplicate_key_in_the_selected_scenario_is_a_benchmark_error`, `test_a_malformed_selected_scenario_is_refused`, `test_a_selected_scenario_renamed_in_from_a_draft_is_refused` |
+| 12 | 2 km identifiability true through loss only; test header said Gaussian-smoothed | `identifiable_in_principle` asks for a dispersion-only separable scenario; the test header is corrected | `test_the_control_is_never_separable_whatever_the_limits` |
+
+The pin, restated plainly: the owner records the freeze commit id outside the repository before E2b,
+and passes it on every run. A pin held on the same machine as the repository checks against ordinary
+commits; it is not date proof. The promise of R3.1 is unchanged and not widened. `holdout.py` changes
+in one line, `CRITERION_PATH`, as R3.2 requires for a new path.
+
+### R12.1 Why the criterion of R10 could not stand
+
+The review's cases, run on pseudo-captures made from real B2B (R12.4), showed: the 2 km choice among
+matched-amplitude scenarios was noise (pairwise psi 0.09 to 0.38 against a limit of 1) and then fixed
+the only 10 km hypothesis; a 5 percent amplitude error already failed M1 at 2 km, and launch power and
+any re-tuning are unknown, so a FAIL would mostly report amplitude; the dispersion grid was too coarse
+(a first study with a step of 1.5 ps/(nm km) FAILed a true D of 5.2 at 10 km, a second with a step of 0.5 FAILed it again, and a
+first exploration whose noise always stayed after the fibre FAILed every D from 4.5 up, because the
+B2B-filtered pseudo-captures carry the noise through the fibre). None of these was tuned away by moving
+a limit: the structure changed, and what could not be made to separate is capped (R12.4).
+
+### R12.2 What changes
+
+1. **Gain-invariant map instead of one normalisation.** Every window (measured, predicted, B2B copy)
+   goes through the same map x -> (x - c) / g from its own four k-means centroids (c their mean, g the
+   mean gap), after the B2B-fixed affine map. The amplitude ratio g (relative to B2B) is **reported,
+   not tested**: launch power and loss are UNKNOWN, and a result that fails on amplitude says nothing
+   about the model. This supersedes the one-normalisation rule of R2.2 for the criterion (the estimators
+   M1 to M4 are unchanged); it does not hide loss, because the ratio is printed with every result.
+2. **Scenarios** (`scenario_list.yaml`, 123, counted): dispersion |D| in 0 to 3 ps/(nm km) in steps
+   of 0.5, 3.25 to 6.25 in steps of 0.25 and the G.652.D O-band bound 6.352 (SPECIFICATION_LIMIT, from `g652d_dispersion_limits`),
+   crossed with a noise factor 1, 1.5, 2.2 (any SNR change: UNKNOWN loss, launch power, re-tuning) and,
+   for D > 0, with the noise after the fibre or crossing it (the two bounds of the unidentifiable
+   noise origin). D = 0 with factor 1 is the no-fibre control. Chirp is zero (MODEL GAP: CHIRP).
+3. **Limits** (R12.3) keep the formula of R10.3: basis = the larger of the model's misfit on B2B and the
+   B2B spread (both now gain-invariant), times 2.0. The multiplier is not changed after seeing the
+   power study.
+
+### R12.3 The two-stage procedure, pre-stated
+
+- **2 km (selection stage).** All 123 scenarios scored; survivors = scenarios with psi <= 1. Carry
+  rule: if there is no survivor the stage is `FAIL` and nothing is carried (10 km is not run); a single
+  scenario is carried alone only if it is the only survivor or wins by a psi margin of 0.25 over the
+  next survivor; otherwise **all survivors** are carried (rule `all_survivors`). A 2 km `FAIL` is
+  reported FAILED: dispersion hardly acts at 2 km, so no grid or dispersion effect can cause it. `selected_scenario.yaml`
+  lists the carried ids, the rule and `2km`, and is added once after the freeze (R11.2).
+- **10 km (locked test).** Only the carried scenarios and the control are scored. Survivors = carried
+  scenarios with psi <= 1. Outcome: `FAIL` if none, reported **INCONCLUSIVE with the claim
+  `NO_GRID_SCENARIO_FITS`, never FAILED** (the power table: a true D above 3 ps/(nm km) that lies
+  between grid points FAILs, about 40 percent of such D); `PASS, NOT DISCRIMINATING` if the B2B copy or the
+  control is also within every limit or only the control survives; otherwise `PASS, DISCRIMINATING`.
+  Multiplicity: k carried scenarios give k chances; this is accounted for by the cap below and by the
+  false-pass rates of the power table, not by a corrected threshold.
+- **Cap.** A `PASS, DISCRIMINATING` carries the claim `PARTIAL` and the verdict INCONCLUSIVE. `VALIDATED`
+  is never returned, at either length, whatever is declared. Reasons, from the study: with the 2 km gate
+  bypassed an unmodelled low-pass is accepted by dispersion scenarios at 10 km (last column), wavelength
+  and chirp are unknown so dispersion cannot be predicted before the capture, and selecting among
+  123 scenarios on the capture is a fit, so a pass is a consistency statement about a set.
+  `PASS, NOT DISCRIMINATING` gives UNIDENTIFIABLE_PARAMETER when no dispersion-only scenario was separable
+  from the copy for that length in advance (true at 2 km), INCONCLUSIVE otherwise; a 2 km FAIL gives
+  FAILED; a verdict outside `allowed_verdicts` (a burned file, a shared sequence) becomes EXPLORATORY.
+
+Limits (from B2B only):
+
+| Metric | (a) surrogate misfit | (b) B2B spread | basis | multiplier | limit |
+|---|---|---|---|---|---|
+| M1 | 0.00906767 | 0.00290499 | 0.00906767 | 2 | 0.0181353 |
+| M2 | 0.0300007 | 0.00131942 | 0.0300007 | 2 | 0.0600013 |
+| M3 | 0.0653318 | 0.00422885 | 0.0653318 | 2 | 0.130664 |
+| M4 | 0.608961 | 0.0806479 | 0.608961 | 2 | 1.21792 |
+
+### R12.4 Power study (pre-registered; `power_study.yaml`, hash below)
+
+Pseudo-captures were made from five real B2B windows that are not the fit, spread or evaluation window,
+with the study script's own filters (not `e2_model`): a cosine dispersion filter over the whole waveform
+(so the noise crosses the fibre), a Gaussian low-pass with its -3 dB power point at 32, 34 or 36 GHz, a
+gain of 0.95 or 1.05, extra band-limited noise of 0.3 gap, and surrogate-made captures (noise after the
+fibre, other seeds). Each was run through the frozen two-stage procedure at 2 km and then at 10 km with
+the carried set. Counts are over 5 windows (P,ND = PASS, NOT DISCRIMINATING; P,D = PASS, DISCRIMINATING).
+
+| Case | 2 km outcome | scenarios carried | 10 km outcome | 10 km verdict | dispersions of the 10 km survivors | 10 km if the 2 km gate were bypassed |
+|---|---|---|---|---|---|---|
+| B2B filtered, D=0 | P,ND 5 | 82 | P,ND 5 | INCONCLUSIVE 5 | 0, 0.5, 1, 1.5, 2 | P,ND 5 |
+| B2B filtered, D=2.2 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 1.5, 2, 2.5, 3 | P,D 5 |
+| B2B filtered, D=3.4 | P,ND 5 | 82 | FAIL 5 | INCONCLUSIVE 5 | none | FAIL 5 |
+| B2B filtered, D=3.85 | P,ND 5 | 82 | FAIL 5 | INCONCLUSIVE 5 | none | FAIL 5 |
+| B2B filtered, D=4.1 | P,ND 5 | 82 | FAIL 5 | INCONCLUSIVE 5 | none | FAIL 5 |
+| B2B filtered, D=4.5 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 4.5 | P,D 5 |
+| B2B filtered, D=4.9 | P,ND 5 | 82 | FAIL 5 | INCONCLUSIVE 5 | none | FAIL 5 |
+| B2B filtered, D=5.2 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 5.25 | P,D 5 |
+| B2B filtered, D=5.45 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 5.5 | P,D 5 |
+| B2B filtered, D=5.7 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 5.75 | P,D 5 |
+| B2B filtered, D=6.352 | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 6.25, 6.352 | P,D 5 |
+| B2B filtered, D=9 | P,ND 5 | 78 | FAIL 5 | INCONCLUSIVE 5 | none | FAIL 5 |
+| B2B, D=0 plus unmodelled low-pass 32 GHz | FAIL 5 | 0 | not run 5 | none 5 | none | P,D 5 |
+| B2B, D=0 plus unmodelled low-pass 34 GHz | FAIL 5 | 0 | not run 5 | none 5 | none | P,D 5 |
+| B2B, D=0 plus unmodelled low-pass 36 GHz | FAIL 5 | 0 | not run 5 | none 5 | none | P,D 5 |
+| B2B, D=0, amplitude x0.95 | P,ND 5 | 82 | P,ND 5 | INCONCLUSIVE 5 | 0, 0.5, 1, 1.5, 2 | P,ND 5 |
+| B2B, D=0, amplitude x1.05 | P,ND 5 | 82 | P,ND 5 | INCONCLUSIVE 5 | 0, 0.5, 1, 1.5, 2 | P,ND 5 |
+| B2B filtered D=4.5, extra noise 0.3 gap | FAIL 5 | 0 | not run 5 | none 5 | none | P,D 5 |
+| surrogate, D=2.2, noise after fibre | P,ND 5 | 78 | P,D 5 | INCONCLUSIVE 5 | 1, 1.5, 2, 2.5, 3 | P,D 5 |
+| surrogate, D=4.5, noise after fibre | P,ND 5 | 82 | P,D 5 | INCONCLUSIVE 5 | 4.25, 4.5, 4.75 | P,D 5 |
+
+Reading, fixed here:
+
+1. Amplitude: a gain of 0.95 or 1.05 gives the same outcome and survivors as no change (the gain-invariant map); amplitude is not a failure cause.
+2. 2 km: every true D from 0 to 9 gives `PASS, NOT DISCRIMINATING` with nearly every scenario carried (a single scenario is never carried: 0 of 100 windows), so at 2 km the carry rule is a pass-through and dispersion is not identifiable. What the 2 km stage does is gate: an unmodelled low-pass (32, 34, 36 GHz) and 0.3 gap of extra noise FAIL 5/5.
+3. 10 km, true D = 0: `PASS, NOT DISCRIMINATING` with survivors from 0 to 2.0 ps/(nm km): a dispersion up to about 2 cannot be told from none. At D = 2.2 the survivors are 1.5 to 3.0 (a width of about +-0.75).
+4. 10 km, D above 3: the survivors are the single grid point within 0.05 of the truth (4.5, 5.25, 5.5, 5.75; 6.25 and 6.352 for the bound), a resolution of about +-0.075. True D of 3.4, 3.85, 4.1 and 4.9, which lie 0.1 or more from a grid point, FAIL 5/5. About 40 percent of true D above 3 (the part of a 0.25 step farther than 0.075 from a grid point) would therefore end with no survivor. A 10 km FAIL is thus reported INCONCLUSIVE with the claim `NO_GRID_SCENARIO_FITS`; D = 9 FAILs 5/5, as it should.
+5. False pass: with the 2 km gate bypassed (last column) the unmodelled low-pass cases and the extra-noise case pass at 10 km as `PASS, DISCRIMINATING` 5/5. The gate stops the low-pass cases (they FAIL at 2 km) but a milder one was not tested, so a pass is capped at PARTIAL and VALIDATED is not offered.
+6. Model-consistent truth (surrogate, noise after the fibre) gives `PASS, DISCRIMINATING` 5/5 with the true D among the survivors (D = 4.5: 4.25 to 4.75). Real-B2B pseudo-captures filter the noise too, which is the other noise-origin bound; both bounds are scenarios.
+7. Not tuned: the grid was refined from a step of 1.5 to 0.5 to 0.25 above 3 after the first two studies FAILed true D between grid points; limits, multiplier (2.0), margin (0.25) and the noise factors were not changed. The first two tables are not kept; this one is final.
+
+
+FAIL caveats, one per nuisance (a FAIL says no scenario of the family fits; it does not say the fibre model
+is wrong): chirp (the dispersion response changes shape; MODEL GAP: CHIRP); a true dispersion outside
+0 to 6.352 ps/(nm km) or off the grid by more than the study shows (D = 9 FAILs by construction); an
+SNR change beyond factor 2.2 or a noise colour unlike B2B; an unmodelled low-pass, reflection or filter
+(2 km FAILs for 32 to 36 GHz); a non-uniform or correlated symbol sequence; the large-signal regime (not
+modelled); a different export filter or interpolation. Amplitude and launch power are not a FAIL cause
+(reported, x0.95 and x1.05 are unchanged). PASS caveats: a PASS never validates dispersion (the low-pass
+cases pass at 10 km); it does not establish the chirp-free assumption; the surviving dispersions are a
+fit to the capture and are reported as a set; wavelength and fibre type remain UNKNOWN.
+
+### R12.5 Code identity (narrow) and data
+
+The code identity is the import closure of the scoring entry point, 12 files (SHA-256 as committed at the
+freeze; the scorer refuses any difference, and R11.2 compares them with the freeze commit; the running
+modules must be these files):
+
+- `src/opticps/__init__.py` `73b18c2f2f411e59a48662c13f0b61689edcd899f0b925ba4f6b7e344f1ddf82`
+- `src/opticps/benchmarks/__init__.py` `7930ad4cc12b9c9fd25aae774d7865c25ade13cb52650b6eec2d3ed85b944989`
+- `src/opticps/benchmarks/capture_stats.py` `9a2a9be15cceaf0c07fd9a8549e9a6824dbe212a96f5d556fd56696b8c476683`
+- `src/opticps/benchmarks/catalog.py` `069896ef92e6e2f9271192f423861808480e91c65dc118119d2e9cf5161ed194`
+- `src/opticps/benchmarks/e2_metrics.py` `64ba6abe5fcc0291149c759b28ca1fc9eb26b017dfad5c6dd35a569af0f44bde`
+- `src/opticps/benchmarks/e2_model.py` `f512d29b9ea096d26e6f8093c04607a246d6e483d0b3b345a1af0a8d87d0d853`
+- `src/opticps/benchmarks/e2_score.py` `6a8fb0cf3970446bc8f032e4cdf9f88974a445f3badb89b73407b20628edee0b`
+- `src/opticps/benchmarks/external_capture.py` `7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3`
+- `src/opticps/benchmarks/holdout.py` `de1bd71d77e3de2b868fd08d9dd14510f558a35d76c156bffe0393d195f4f8a4`
+- `src/opticps/benchmarks/provenance.py` `65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d`
+- `src/opticps/benchmarks/teriphic.py` `8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee`
+- `src/opticps/benchmarks/timing.py` `26ea7bcd3ee5416a2cfbf8a4b403217210219d31af1b8fa1d872689204db61be`
+
+Not covered, as in R10.4: the interpreter, NumPy, SciPy, BLAS, the platform, the tests and the scripts
+other than the evaluation script (which the freeze binds). Data files: `b2b_model.yaml` `efbb4a3d7b95724af4adc03af2fd5a4ec3db47c4908630146e75c5714b2ef58c`,
+`scenario_list.yaml` `528600b5e695325835dd649e0a5a50027a24aceb31240ef138c5428282354c99`, `preregistered_predictions.yaml`
+`54013bb430af4ff447261a2d645ad666e5823edc71200281205199008959a8f4`, `power_study.yaml` `64606e484dcc911c3fa99490c0ab0f9b1dddf43dfc326d2452a148062e3a4389`. The pre-registered
+values (`predictions`, with the separation of each scenario from the B2B copy) are recomputed by the
+scorer at 1e-6 relative; that recomputation also exercises the B2B read path. Examples from it: the
+control and every |D| <= 1 scenario are not separable from the copy at 2 km (psi 0.50 for the control);
+at 10 km the |D| = 3 scenario with factor 1 has psi 2.50 and |D| = 6.352 has psi 3.92.
+
+### R12.6 Not done
+
+Nothing was scored on a holdout. E2b, after independent review of this revision: the owner records the
+freeze commit outside the repository; the 2 km run produces the carried set; `selected_scenario.yaml`
+is added in one commit; the 10 km run is then the only one. The shared-sequence check is not
+implemented, so `not-shared` is a declaration by the operator, and nothing in this gate can return
+VALIDATED. BER and SER stay REFERENCE_SEQUENCE_MISSING.
