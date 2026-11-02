@@ -191,6 +191,13 @@ def test_the_artefact_must_record_that_the_checks_ran(tmp_path):
             build_with(tmp_path, label.replace(" ", "_"), checks=checks)
 
 
+def test_eigenvalues_must_ascend_even_when_the_flag_count_would_match(tmp_path):
+    # descending values: the largest is read as 1.0, no value is low, zero flags would match
+    desc = {**good_checks(0), "identifiability_eigenvalues": [6.0, 5.0, 4.0, 3.0, 2.0, 1.0]}
+    with locked(match="six ascending"):
+        build_with(tmp_path, "desc", flags=(), checks=desc)
+
+
 def test_flags_must_match_the_b4_eigenvalues(tmp_path):
     # no flag although one eigenvalue is far below 1e-3 of the largest
     with locked(match="do not match the B4 eigenvalues"):

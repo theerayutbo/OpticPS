@@ -59,6 +59,8 @@ TESTS = (
 # reachable by imports from nanf_chain and nanf_benchmark); reading infinity as censored in
 # `is_censored` (the range check still refuses it); allowing NaN fields in `Crossing` (the per-kind
 # finiteness checks still refuse them).
+# Equivalent, left out: removing `require_scorable([result])` from `run_point` (the same refusal
+# is made by `PointOutcome.__post_init__`, which is itself mutated and killed).
 # Fast files first, so that most mutants are killed early; the slow chain tests run last.
 RUN_ORDER = (
     "tests/test_nanf_n3a_scoring.py",
@@ -1271,12 +1273,6 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         CH,
         "valid = np.array([not o.lost for o in outcomes], dtype=bool)",
         "valid = np.array([True for o in outcomes], dtype=bool)",
-    ),
-    (
-        "chain: run_point accepts an unscorable result",
-        CH,
-        "    require_scorable([result])\n    return PointOutcome(label, rop_dbm, result)",
-        "    return PointOutcome(label, rop_dbm, result)",
     ),
     (
         "scoring: a lost point above the locked run is allowed",
