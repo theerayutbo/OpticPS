@@ -1,19 +1,17 @@
-# E2a Dev handoff (Stage 3A, scoring entry point, model, frozen criterion; Dev)
-base 43402f7. Commits: c0b7886, 1b496d2, d520ff7 (first freeze, SUPERSEDED), 5b504b7, 9976d3b, 007b8b2 (freeze). Local only. Tip and counts in the report.
-Rule kept: no 2 km or 10 km sample, header or hash read by any code run here. B2B read for fit only.
-## What exists
-- e2_score.score_holdout: only holdout reader in src. Order: registered name, require_frozen_criterion, bind_to_freeze, committed docs + code identity, MD5 and SHA-256 at read time, then header and window. Tests scan src for the readers and the call order.
-- e2_metrics (M1 to M4 of R2.2), e2_model (zero-phase B2B surrogate, small-signal cos dispersion, seeded), scripts/freeze_teriphic_e2.py, score_teriphic_e2.py, mutate_e2.py.
-- docs/benchmarks/teriphic_e2: model fitted on B2B, 9 scenarios, pre-registered predictions (results null). Plan Revision 10 (definition) and 11 (binding).
-## Security finding (coordinator): verified REAL, fixed
-- After the first freeze, model, registration, identity table and code could be replaced together and still pass. selected_scenario had no rule.
-- Fix: bind_to_freeze compares model, scenarios, registration, eval script, code files with their bytes at the freeze commit; selected_scenario must be added by exactly one later commit, never changed.
-- d520ff7 cannot be amended, so CRITERION_PATH is now TERIPHIC_CRITERION_R11.yaml (holdout.py, one line, plan R11.3). The old file stays as a record and is ignored by the guard. Same limits.
-## Unknown, declared (never tuned): wavelength, fibre type, dispersion, loss, launch power, chirp (MODEL GAP), modulation depth, response phase, noise origin. Scenarios are ASSUMED_G652D.
+# E2a Dev handoff (Stage 3A, scoring entry point, model, frozen criterion; Dev), fix round after E2a_qa.md
+Review FAIL at df7fdc1. R10 (d520ff7) and R11 (007b8b2) were reviewed, failed or superseded and never scored; both criterion files stay as records. Freeze now: TERIPHIC_CRITERION_R12.yaml, plan Revision 12. Local only. SHAs and counts in the report.
+Rule kept: no 2 km or 10 km sample, header or hash read by any code run here; score_holdout ran on fixtures only. B2B windows only (fit, spread, evaluation, five study windows).
+## Governance (findings 1, 2, 5, 6, 7, 8, 10, 11)
+- expected_freeze_commit is a required argument of score_holdout and the script; compared with the commit found and the first-parent freeze before any read. A path move resets bind_to_freeze: only the external pin catches it (known limits restated, promise verbatim).
+- Role register bound to the freeze; roles fixed by name in code. Every refusal (pin, bind, ids, drift) comes before the holdout is hashed or opened; tests record the order.
+- Verdicts outside allowed_verdicts become EXPLORATORY; the script has --sequence-check and --state; VALIDATED is never returned. Code identity is the 12-file import closure and the running modules must be the repo's.
+## Science (findings 3, 4): redesigned, power study in power_study.yaml
+- Gain-invariant map (amplitude reported, not tested); 123 scenarios (D grid, noise factor, noise through the fibre); 2 km carry rule with a 0.25 margin, else all survivors; 10 km FAIL is INCONCLUSIVE (grid), pass is PARTIAL.
+- 2 km cannot discriminate dispersion (all D carried); 10 km resolves D only to about 0.075 above 3, so about 40 percent of true D above 3 would end with no survivor. Limits and multiplier were not changed.
 ## Reviewer: check
-- 2 km: no matched-amplitude dispersion scenario is separable from the B2B copy (psi 0.50 to 0.60); 10 km is (2.93, 4.14). Results can read PASS, NOT DISCRIMINATING.
-- Surrogate misfit sets the limits (basis = max(misfit, spread), x2); is that too lenient? M4 misfit 0.61 dB vs spread 0.08 dB.
-- Fixture truth uses the surrogate's own pulse generator (fibre, loss, noise are independent code). Independence is partial.
-- Prereg reproduction tolerance 1e-6 relative; platform drift is the only guard against library change.
-- Intermediate commits are not all green (plan pin tests move with the plan commit).
-## Not done: E2b (2 km stage, selected_scenario.yaml, shared-sequence check, 10 km). BER and SER stay REFERENCE_SEQUENCE_MISSING.
+- The 10 km grid sensitivity is a real limit, handled by capping, not by a wider limit. Is INCONCLUSIVE for a 10 km FAIL too conservative?
+- Fixture truth uses the surrogate's own pulse generator (fibre, gain, noise, low-pass are independent code).
+- The shared-sequence check is not implemented: not-shared is the operator's declaration.
+## Open for the owner
+- Record the R12 freeze commit id outside the repository before E2b; the single 10 km run stays unspent until then. Intermediate commits are not all green.
+## Not done: E2b. BER and SER stay REFERENCE_SEQUENCE_MISSING.
