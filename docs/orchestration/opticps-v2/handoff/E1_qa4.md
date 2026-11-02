@@ -1,0 +1,23 @@
+# E1 QA, fourth review (Loki, independent, narrow closing review)
+verified_sha: ae9add3d56ba248b89a3cdaa46f4776156843058
+verdict: FAIL (1 MAJOR, 1 MINOR, 2 OBSERVATION). Everything else in the brief holds. The one MAJOR is a wording defect in the plan and the known limits, not a code defect.
+Machine gates (clean detached worktree, .venv 3.11, opticps.__file__ in the worktree, B2B alone linked, `-o addopts="-rN"`, one run): `1914 passed, 5 skipped in 2063.18s (0:34:23)`. Anchor 15 passed; ruff check clean; ruff format 181 files; mypy 60 files clean; license_audit 34 packages, 0 flagged. No holdout was read or hashed: only holdout-named fixtures of random bytes. B2B alone was read.
+
+## MAJOR
+1. The `require_frozen_criterion` statement is written as a present fact and nothing enforces it yet. FREEZE_GUARD_KNOWN_LIMITS.md lines 63 and 64: "it rests on `require_frozen_criterion` at E2, which refuses to score without the frozen criterion". Plan R8.1: "Holdout integrity for scoring rests on `require_frozen_criterion` at E2". E1_dev says the same. At the pin the function exists and refuses when called, but it has no caller in `src` or `scripts` (only its definition; tests call it directly), nothing imports `holdout` in `src`, nothing takes a `FrozenCriterion`, and no scorer exists for it to guard. So it refuses nothing today, and nothing in the code makes a future scorer call it. The test only checks that the name is in the text. The owner's rule: the text must say this is an E2 obligation. Fix: an addendum and a new pin (in the plan, test and YAML), plus the known-limits sentence, saying E2 must call it before any holdout statistic and that nothing calls it yet.
+
+## MINOR
+2. Known limits, last line: "A file that changes while the pass runs is reported after the pass", and R8.2 says the same for size. A shrink is not reported. Injected `os.truncate` during the pass on a fixture: the process died with SIGBUS (exit 138), no message, no result. It fails closed, since no pass is printed, but the words are wider than the behaviour. Growth and overwrite are reported (item 4 below).
+
+## OBSERVATION
+3. Own mutant `recheck_only_multi_block` survives: the post-loop test uses a record of several blocks. Behaviour at the pin is right; a one-block record is unpinned on this one line.
+4. The "links inside folders" wording covers more than needed: file links inside a typed folder are gated (the gate resolves them); only links to folders escape. The plan under-claims here, in the safe direction.
+
+## Reproduced, no finding
+Claim: R8.1, ROUTES, `cmd_benchmark_inspect_format`, teriphic and external_capture docstrings state only typed paths are gated; grep finds no wider wording outside the R6.2 and R7.4 text that R8.1 replaces by addendum and earlier E1_dev history. Routes accurate: fiber_validation.py lines 330 and 332, `_transmitted_excerpt`, `load_fiber_results`, `default_registry`. "None decodes samples as numbers" holds by reading: `read_scope_file` is called only with typed `--input`, and `load_capture` takes only .csv and .npz.
+Spot tests by fixture: (a) `demo_config` and `demo_results` paths in a YAML: neither reaches the gate, the error quotes one byte; the same fixture typed as `--config` is refused. (b) `validate --output R` with `R/p` a link to a folder holding a holdout-named fixture: passes the gate; the plain folder is refused. The exposure is stated in bold and not softened. On B2B the first bad UTF-8 byte and the YAML reader position are both byte 4, so "one header byte" is right.
+Promise word for word in the plan; same words in known limits (lower-case first "the") and holdout.py.
+Plan: SHA-256 37487f3b...f058 recomputed; equal in test and YAML; previous pin 87e38395 in R8 and test; 65 lines added, 0 removed. R8.3 matches E1_qa3 finding 4 item by item. R8.4 on B2B (84 hypotheses): 3, 4, 16 survivors for `continuous`, `non_degenerate`, `finite`; other five 2; check kept, single `<f4@164`. R8.5: constants 1.02 and 3.0; B2B 1.118, 1.0002, 1.0001; 1.066 and 1.003 against 1.006 agree with the code comments and tests.
+Mutants: `scripts/mutate_e1.py` end to end: `78 applied: 77 killed, 0 survived, 1 harmless, 0 broken, 0 invalid` (exit code not captured). Own 15, git-initialised copies, unmutated copy passes: 14 killed, 1 survived (finding 3). Each own kill is a named behaviour assertion, none from a missing `.git`.
+Post-loop re-check, own injection through `main` inspect-format, hook on `_block_row`: overwrite of a scanned block at block 3 and at the last block, and append, all rc 1 "changed after it was hashed"; overwrite with size and mtime restored rc 0 (R8.2 says so); no injection rc 0.
+Serial: none in this file or in own output.

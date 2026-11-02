@@ -32,4 +32,44 @@ N0 gate: PASS at ee74d05 on second review (handoff/N0_qa2.md, 1107 passed). Aria
 
 E0 second review: FAIL at eba060a (handoff/E0_qa2.md, 1105 passed): MAJOR: require_frozen_criterion passes re-commit, amend, backdate, assume-unchanged. Plus 6 MINOR incl. verbatim NC-ND sentences committed locally. Repros 1-12 and 14 closed. Stop condition reached for E0: owner decision needed. E1 and E2 held.
 
-NEXT ACTION: await owner decision on E0; Dev N1 running (Amendment 2 first). Then E1, N2, N3, E2-E4, C6a minors, C6-C8, Stage 3, Stage 2.
+Owner chose: harden guard and disclose; one more Opus review for E0. Dev fix round 2 running.
+N1 first review FAIL at b54cc18 (handoff/N1_qa.md): slope path ignores reference wavelength. Physics otherwise confirmed. Dev fix running.
+
+N1 second review: FAIL at 6d75b88 (handoff/N1_qa2.md, 1258 passed at pin): slope anchored at reference_wavelength_nm instead of D's stated wavelength (Aria's brief wording contributed); scenario slope keeps D held. Beta3 about carrier, G.652 identity, Amendment 3 confirmed. Stop condition for N1: owner decision needed.
+
+Owner chose Fix the anchor for N1; Dev running.
+E0 third review: FAIL at 47890a6 (handoff/E0_qa3.md, 1333 passed): new-path re-tune and plan change after freeze pass the guard. All E0_qa2 repros closed on stated routes. Owner decision needed: guard scope.
+
+Owner chose Narrow the promise for E0; Dev running.
+N1 gate: PASS at 97b653d on third review (handoff/N1_qa3.md, 1401 passed at clean pin). Aria spot-check: 12.4 and 5.02 by hand. 6 MINORs into N2a. Finding 3 decided by Aria: owner rule read literally, scenario D must state its wavelength or S is refused.
+
+E0 fourth review: FAIL at fc22f41 (handoff/E0_qa4.md, 1437 passed): merge route regression after --follow removal; symlink at fixed path. All else passes. Owner decision needed.
+
+E0 gate: PASS at d52149a on closing check (handoff/E0_qa5.md, 1479 passed at pin). Aria spot-check: 8f57af9 message holds 42a578f5, confirming Loki's correction. Carried to E1a: prefix retraction wording, known-limits additions a-c, ROADMAP count 1524 should be 1479.
+
+N2 first part gate: PASS at 7bd6ab9 on second review (handoff/N2_qa2.md, 1535 passed 6 skipped data absent; 75 passed data linked). Aria spot-check: 655360x80/56 non-integer and error count 129 by hand. MINORs into N3a; Amendment 5 needed before freeze.
+E1 Dev done at 12eb480, 1600 passed; Loki running.
+
+E1 first review FAIL at 12eb480 (handoff/E1_qa.md): renamed holdout passes CLI, noise behind valid header accepted, plan departures unrecorded. Format and diagnostics reproduced. Dev fix running; Loki next, second FAIL to owner.
+
+E1 fix round at 536b3ec (plan Revision 6 c1c274b9). Loki E1 second review dispatched, pinned 536b3ec. A second FAIL on E1 goes to the owner.
+History note for owner before any push: commit 12eb480 holds the instrument serial in MISSING_PARAMETERS.md; Ran NC-ND sentences in 8f57af9 and earlier.
+
+E1 second review FAIL at 536b3ec (handoff/E1_qa2.md): 4 MAJOR, 5 MINOR. Second FAIL on the slice, so it goes to the owner.
+N3a first review FAIL at b7eaab5 (handoff/N3a_qa.md, 1738 passed 8 skipped): 1 BLOCKER, 6 MAJOR. Dev fix dispatched with decisions: cap 1e10 and no cap action allowed, no-crossing FAIL, default deny, freeze binds a committed calibration artefact, wider code identity, real-workbook test no longer reads the holdout, 14 survivors. Open: test_nanf_import read the real withheld series in the main checkout; Dev reports extent from code and history, to be disclosed in Amendment 6 and to owner.
+
+Owner decision, final after two changes: fix all four MAJOR findings, including the whole-file block check for finding 2. Dev E1 third round running on top of b7eaab5.
+
+Dev E1 round 3 delivered bd5a557 (plan 87e38395), Loki E1 third review running.
+
+E1 third review FAIL at bd5a557 (handoff/E1_qa3.md): 2 MAJOR, 4 MINOR. Gate claim false for paths inside files, links and defaults; 14 real mutant survivors. Escalated to owner.
+
+Owner chose: narrow the promise. Gate claim covers path options typed on the command line only; indirect paths (inside files, links, defaults) go to known limits; kill 14 survivors; fix minors 3 to 6.
+
+N3a fix round delivered 263926a (plan 2127d883, 1880 passed 8 skipped in clone, 235 of 235 own mutants). Holdout event: test parsed all 69 series in memory since ba55025; no value found in handoffs, docs or reports; absence not provable; recorded in Amendment 6 G7. Aria ruling on lost-lock points: keep 1e10, Amendment 7, invalid never scored, crossing only from contiguous locked points, point criteria FAIL. Dev N3a Amendment 7 and Dev E1 closing round both running.
+
+E1 closing review FAIL at ae9add3 (handoff/E1_qa4.md, 1914 passed 5 skipped): 1 MAJOR, wording only: require_frozen_criterion stated as present fact, no caller yet. Within the owner close decision, so Aria sends a wording fix rather than a new owner question.
+
+Gate E1 PASS at 1e1e90a after 5 reviews (handoff/E1_qa5.md). Plan Revision 9 9e7b51ad. Owner-chosen limit: only typed CLI options are gated, indirect routes listed. E2 must call require_frozen_criterion. N3a Amendment 7 at dafa062 (plan 34a06373), Loki N3a second review running, must classify the holdout event.
+
+NEXT ACTION: E2a: criterion, scorer and freeze commit with no holdout read, then Loki, then E2b. Await Loki N3a second verdict.
