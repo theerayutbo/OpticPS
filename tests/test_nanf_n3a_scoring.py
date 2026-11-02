@@ -474,17 +474,27 @@ def test_d_is_the_difference_to_the_no_fibre_output_and_discriminating_is_strict
 
 
 def test_the_b2b_gate_needs_mean_max_and_crossing():
-    ok = sc.b2b_gate([10.0, 11.0], [10.9, 11.9], P(-9.0), P(-9.4))
+    ok = sc.b2b_gate([10.0, 11.0], [10.9, 11.9], P(-9.0), P(-9.4), rop=[-9.0, -8.0])
     assert ok.passed and ok.label == ""
-    assert not sc.b2b_gate([10.0, 11.0], [11.1, 12.1], P(-9.0), P(-9.0)).passed  # mean above 1.0
-    bad = sc.b2b_gate([10.0, 11.0], [10.0, 13.01], P(-9.0), P(-9.0))  # max above 2.0, mean 1.5
+    assert not sc.b2b_gate(
+        [10.0, 11.0], [11.1, 12.1], P(-9.0), P(-9.0), rop=[-9.0, -8.0]
+    ).passed  # mean above 1.0
+    bad = sc.b2b_gate(
+        [10.0, 11.0], [10.0, 13.01], P(-9.0), P(-9.0), rop=[-9.0, -8.0]
+    )  # max above 2.0, mean 1.5
     assert not bad.passed and bad.label == "B2B CALIBRATION POOR"
-    cross = sc.b2b_gate([10.0], [10.0], P(-9.0), P(-9.6))  # crossing 0.6 dB apart: above 0.5
+    cross = sc.b2b_gate(
+        [10.0], [10.0], P(-9.0), P(-9.6), rop=[-9.0]
+    )  # crossing 0.6 dB apart: above 0.5
     assert not cross.passed and not cross.crossing_ok
-    assert sc.b2b_gate([10.0], [10.0], P(-9.0), P(-9.5)).passed  # 0.5 inclusive
+    assert sc.b2b_gate([10.0], [10.0], P(-9.0), P(-9.5), rop=[-9.0]).passed  # 0.5 inclusive
     # a bound is judged by B1.3 with 0.5 dB
-    assert sc.b2b_gate([10.0], [10.0], P(-12.4), sc.Crossing("left", -math.inf, -12.0)).passed
-    assert not sc.b2b_gate([10.0], [10.0], P(-11.4), sc.Crossing("left", -math.inf, -12.0)).passed
+    assert sc.b2b_gate(
+        [10.0], [10.0], P(-12.4), sc.Crossing("left", -math.inf, -12.0), rop=[-9.0]
+    ).passed
+    assert not sc.b2b_gate(
+        [10.0], [10.0], P(-11.4), sc.Crossing("left", -math.inf, -12.0), rop=[-9.0]
+    ).passed
 
 
 # --- the verdict ---------------------------------------------------------------------------------

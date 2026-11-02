@@ -11,7 +11,7 @@ import pytest
 
 from opticps.measurement import nanf_chain as nc
 from opticps.measurement import nanf_scoring as sc
-from opticps.receiver.dfe import RlsInstabilityError
+from opticps.receiver.dfe import DfeResult, RlsInstabilityError
 
 SMALL = nc.ChainConfig(n_symbols=14_000, training_symbols=2_000)
 MID = nc.TxRxParameters()
@@ -30,8 +30,15 @@ def healthy_result():
 
 
 def test_a_run_where_the_cap_acts_is_a_lost_outcome_with_its_point_and_reason(monkeypatch):
-    monkeypatch.setattr(nc, "PINNED_P_TRACE_CAP", 1e4)  # the cap now acts on this small real run
-    out = nc.run_point("80G/B2B/-9", MID, 80, -9.0, config=SMALL)
+    def fake(samples, reference, cfg=None):  # the RLS loop stands in; the analogue chain runs
+        n = samples.size // 2
+        zeros = np.zeros(n)
+        return DfeResult(
+            zeros, zeros, np.zeros(n, dtype=np.int64), np.zeros(24), np.eye(24), 1.0, 0.0, 3
+        )
+
+    monkeypatch.setattr(nc, "rls_equalize", fake)  # three cap actions on the pinned chain
+    out = nc.run_point("80G/B2B/-9", MID, 80, -9.0)
     assert out.lost and out.result is None and "trace cap acted" in out.reason
     assert out.label == "80G/B2B/-9" and out.rop_dbm == -9.0
     report = nc.lost_report([out])
@@ -72,6 +79,7 @@ def test_a_good_outcome_carries_a_scorable_result_and_lost_ones_stay_in_the_arra
     ok = nc.run_point("p", MID, 80, -5.0)
     assert not ok.lost and ok.result is good and nc.lost_report([ok]) == []
     lost = nc.PointOutcome("q", -12.0, None, "RlsInstabilityError: x")
+    monkeypatch.setattr(nc, "DECLARED_CALIBRATION_POINTS", frozenset({(80, -5.0, 0)}))
     arrays = nc.curve_arrays([lost, ok], calibration=True)
     assert list(arrays.valid) == [False, True] and arrays.n_lost == 1
     assert math.isnan(arrays.ber[0]) and math.isnan(arrays.snr_db[0])  # not zero, not censored
@@ -166,7 +174,7 @@ def test_c2_c3_c4_c5_and_the_b2b_gate_fail_when_a_needed_point_is_lost():
 
     point = sc.Crossing("point", -9.0, -9.0)
     snr2 = [10.0, 11.0]
-    assert sc.b2b_gate(snr2, snr2, point, point).passed
+    assert sc.b2b_gate(snr2, snr2, point, point, rop=[-9.0, -8.0]).passed
     gate = sc.b2b_gate(snr2, snr2, point, point, rop=[-9.0, -8.0], simulated_valid=[True, False])
     assert gate.passed is False and gate.label == "B2B CALIBRATION POOR"
 

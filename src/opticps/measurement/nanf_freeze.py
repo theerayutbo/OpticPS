@@ -364,7 +364,9 @@ def _verify_calibration(
     if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
         raise _refuse("the calibration artefact does not match its recorded SHA-256")
     try:
-        gitdir = _git(root, "rev-parse", "--absolute-git-dir")
+        # grafts (like replace refs and the shallow file) are read by Git from the COMMON directory:
+        # in a linked worktree the per-worktree git dir is `.git/worktrees/<name>` and holds none
+        gitdir = _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir")
         grafts = Path(gitdir.stdout.decode().strip()) / "info" / "grafts"
         if gitdir.returncode != 0 or grafts.exists():
             raise _refuse("the repository uses grafts, so ancestry cannot be trusted")

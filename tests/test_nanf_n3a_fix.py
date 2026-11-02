@@ -450,7 +450,7 @@ def test_an_unbracketed_copy_point_is_not_scored_and_not_read_as_censored():
 def test_no_value_can_help_a_pass_in_the_verdict_and_the_gate():
     bad = sc.Crossing("invalid", math.nan, math.nan)
     point = sc.Crossing("point", -10.0, -10.0)
-    gate = sc.b2b_gate([10.0, 11.0], [10.0, 11.0], bad, point)
+    gate = sc.b2b_gate([10.0, 11.0], [10.0, 11.0], bad, point, rop=[-9.0, -8.0])
     assert gate.passed is False and gate.crossing_ok is False
     assert sc.d_c1(bad, point) is None and sc.d_c1(point, bad) is None
 

@@ -788,19 +788,18 @@ def b2b_gate(
     simulated_crossing: Crossing,
     published_crossing: Crossing,
     *,
-    rop: Sequence[float] | FloatArray | None = None,
+    rop: Sequence[float] | FloatArray,
     simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> B2bGate:
     """B3.2 on the calibration points: mean |error| at most 1.0 dB, none beyond 2.0 dB, and the
     B2B crossing within 0.5 dB by the C1 rule (a bound by B1.3 with 0.5 dB)."""
     s, p = _arr(simulated_snr, "sim"), _arr(published_snr, "pub")
     locked = _as_valid(simulated_valid, s.size)
-    if rop is not None:  # only the points at most -5 dBm are scored (A4); the rest are dropped
-        if s.size != p.size:
-            raise ValueError("series must be finite, non-empty and of equal length")
-        _, s, p, locked = _scored(_arr(rop, "rop"), s, p, locked)
-    elif simulated_valid is not None:
-        raise ValueError("a validity mask needs the ROP axis (Amendment 8)")
+    # only the points at most -5 dBm are scored (A4); the ROP axis is required (Amendment 9 H-D), so
+    # an unscored point can never earn a pass
+    if s.size != p.size:
+        raise ValueError("series must be finite, non-empty and of equal length")
+    _, s, p, locked = _scored(_arr(rop, "rop"), s, p, locked)
     if not locked.all():  # a lost-lock point of the calibration grid: the gate fails (Amendment 7)
         return B2bGate(False, math.nan, math.nan, False, "B2B CALIBRATION POOR")
     if s.size == 0 or s.size != p.size or not (np.all(np.isfinite(s)) and np.all(np.isfinite(p))):
@@ -996,6 +995,13 @@ class IdentifiabilityResult:
     singular: bool
 
 
+# Round-off bound of the smallest eigenvalue of J^T J relative to the largest (Amendment 9 H-C).
+# The finite-difference Jacobian carries a relative error of about eps / step = 2.2e-16 / 1e-3 =
+# 2.2e-13 in each entry, so J^T J carries about 4.4e-13 of the largest eigenvalue, and `eigh` adds
+# a few eps. 1e-10 is more than 200 times that, and five orders below the B4.3 threshold of 1e-3.
+EIGENVALUE_ROUNDOFF_RELATIVE = 1e-10
+
+
 def identifiability_check(
     residuals: Callable[[Mapping[str, float]], FloatArray],
     optimum: Mapping[str, float],
@@ -1056,6 +1062,13 @@ def identifiability_check(
     info = jac.T @ jac
     values, vectors = np.linalg.eigh(info)
     largest = float(values[-1])
+    # J^T J is positive semi-definite, but `eigh` returns round-off-size negatives for a truly
+    # deficient J (B4.5). Floor those at zero when they are within `EIGENVALUE_ROUNDOFF_RELATIVE` of
+    # the largest eigenvalue; a more negative value cannot come from rounding and is refused.
+    floor = -EIGENVALUE_ROUNDOFF_RELATIVE * max(largest, 0.0)
+    if np.any(values < floor) or not np.all(np.isfinite(values)):
+        raise ValueError("the information matrix has a negative eigenvalue beyond round-off")
+    values = np.where(values < 0.0, 0.0, values)
     singular = not largest > 0.0
     flagged: list[int] = []
     for k in range(values.size):

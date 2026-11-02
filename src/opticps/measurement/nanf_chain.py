@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
@@ -483,6 +483,10 @@ class NotScorableError(ValueError):
 # file (it is part of the code identity). Until then no run after a freeze is scorable.
 DECLARED_LINKS: dict[str, LinkSpec] = {}
 DECLARED_POINT_INDICES: frozenset[int] = frozenset()
+# Plan Amendment 9 H-A: the Fig.4 B2B calibration grid, as (rate_gbps, rop_dbm, point_index). Only
+# results at these points, back-to-back, can enter `curve_arrays(calibration=True)`; the calibration
+# step declares them in this file (part of the code identity). Empty until then.
+DECLARED_CALIBRATION_POINTS: frozenset[tuple[int, float, int]] = frozenset()
 
 
 class FrozenOverrideError(ValueError):
@@ -509,6 +513,10 @@ class PointResult:
     dfe: DfeResult = field(repr=False)
     unscorable_reasons: tuple[str, ...] = ()
     frozen_record_hash: str | None = None  # the verified record the run used, None before a freeze
+    rate_gbps: int = 0
+    rop_dbm: float = math.nan
+    point_index: int = 0
+    link: LinkSpec = field(default_factory=LinkSpec)
 
     @property
     def ber(self) -> float:
@@ -519,19 +527,19 @@ class PointResult:
         return not self.unscorable_reasons
 
 
-def require_scorable(points: Iterable[PointResult], *, frozen: bool = False) -> None:
+def require_scorable(points: Iterable[PointResult], *, frozen_hash: str | None = None) -> None:
     """Raise `NotScorableError` unless every point is a scorable run of the declared chain.
 
-    With `frozen=True` (what scoring against the holdout needs) every point must also have used a
-    verified freeze record: a run made without one, for example after the record was deleted, is
-    refused (Amendment 8).
+    With `frozen_hash` (what scoring against the holdout needs: the hash of the freeze record that
+    verifies now) every point must have been run under exactly that record. A run made without a
+    record, under an older or another record, or with a typed hash, is refused (Amendment 9).
     """
     for k, point in enumerate(points):
         if not isinstance(point, PointResult) or not point.scorable:
             why = ", ".join(point.unscorable_reasons) if isinstance(point, PointResult) else "type"
             raise NotScorableError(f"point {k} cannot be scored: {why}")
-        if frozen and point.frozen_record_hash is None:
-            raise NotScorableError(f"point {k} was not run under a verified freeze record")
+        if frozen_hash is not None and point.frozen_record_hash != frozen_hash:
+            raise NotScorableError(f"point {k} was not run under the verified freeze record")
 
 
 def ceiling_noise_std(scope_signal: FloatArray, ceiling_db: float) -> float:
@@ -699,6 +707,10 @@ def simulate_point(
         dfe=result,
         unscorable_reasons=tuple(reasons),
         frozen_record_hash=frozen_hash,
+        rate_gbps=rate_gbps,
+        rop_dbm=float(rop_dbm),
+        point_index=point_index,
+        link=spec,
     )
 
 
@@ -723,11 +735,40 @@ class PointOutcome:
         if self.result is not None and (
             not isinstance(self.result, PointResult) or not self.result.scorable
         ):
-            raise NotScorableError("an outcome may only hold a scorable result (Amendment 8)")
+            why = (
+                ", ".join(self.result.unscorable_reasons)
+                if isinstance(self.result, PointResult)
+                else "not a point result"
+            )
+            raise NotScorableError(f"an outcome may only hold a scorable result: {why}")
 
     @property
     def lost(self) -> bool:
         return self.result is None
+
+
+def nonpinned_reasons(kwargs: Mapping[str, Any]) -> list[str]:
+    """Why the arguments of a run are not the pinned chain (Amendment 9 H-E). Empty if they are.
+
+    Any chain configuration other than the default, any equaliser other than the declared one (the
+    cap, the forgetting factor, the taps, decision-directed switch and so on, as a whole), noise off
+    and a diagnostic run make a run non-pinned. Unknown arguments are refused too.
+    """
+    known = {"link", "point_index", "config", "equalizer", "noise", "diagnostic"}
+    reasons = [f"unknown argument {k}" for k in kwargs if k not in known]
+    cfg = kwargs.get("config")
+    if cfg is not None and cfg != ChainConfig():
+        reasons.append("chain configuration overridden")
+    used = ChainConfig() if cfg is None else cfg
+    eq = kwargs.get("equalizer")
+    declared = RlsDfeConfig(training_symbols=used.training_symbols, p_trace_cap=PINNED_P_TRACE_CAP)
+    if eq is not None and eq != declared:
+        reasons.append("equaliser overridden (cap, forgetting factor, taps or switch)")
+    if kwargs.get("noise", True) is not True:
+        reasons.append("noise off")
+    if kwargs.get("diagnostic", False) is not False:
+        reasons.append("diagnostic run")
+    return reasons
 
 
 def run_point(
@@ -743,9 +784,9 @@ def run_point(
     refused override or a bad grid, still raises. A result that is not scorable is refused here too
     (`NotScorableError`), so an outcome with a result is always a scorable run.
     """
-    override = kwargs.get("equalizer")
-    if override is not None and override.p_trace_cap != PINNED_P_TRACE_CAP:
-        raise NotScorableError("the trace cap cannot be changed in a scoring run (Amendment 8)")
+    refused = nonpinned_reasons(kwargs)
+    if refused:  # refused before any run: an illegal run is never read as a physical event
+        raise NotScorableError("a scoring run must be the pinned chain: " + ", ".join(refused))
     try:
         result = simulate_point(params, rate_gbps, rop_dbm, **kwargs)
     except TraceCapActedError as err:
@@ -776,11 +817,38 @@ def curve_arrays(outcomes: Sequence[PointOutcome], *, calibration: bool = False)
     """Arrays for the scoring functions; a lost point keeps its place and is marked invalid.
 
     Every non-lost result must be scorable (`require_scorable`), so a changed cap, configuration,
-    noise-off or diagnostic result cannot reach a score (Amendment 8). Unless `calibration=True`
-    (the B2B points of the fit before a freeze) every result must also have used a verified freeze
-    record, so deleting the record does not make a vector scorable.
+    noise-off or diagnostic result cannot reach a score (Amendment 8). Amendment 9 H-A: the flag
+    `calibration` is not trusted, it is checked.
+
+    - Scoring (the default) loads the freeze record that verifies now and requires every result to
+      carry exactly that record's hash: no record, a deleted record, a stale record or a typed hash
+      is refused.
+    - `calibration=True` is refused while any freeze record exists, and every result must be
+      back-to-back, run without a record, and at a declared calibration point
+      (`DECLARED_CALIBRATION_POINTS`, none until the calibration step declares the Fig.4 B2B grid).
     """
-    require_scorable([o.result for o in outcomes if o.result is not None], frozen=not calibration)
+    from opticps.measurement import nanf_freeze  # lazy: nanf_freeze imports this module
+
+    results = [o.result for o in outcomes if o.result is not None]
+    require_scorable(results)
+    for o in outcomes:
+        if o.result is not None and o.result.rop_dbm != o.rop_dbm:
+            raise NotScorableError(f"outcome {o.label} names another ROP than its result")
+    if calibration:
+        if nanf_freeze.freeze_record_present():
+            raise NotScorableError("calibration arrays cannot be built once a freeze record exists")
+        for r in results:
+            point = (r.rate_gbps, r.rop_dbm, r.point_index)
+            if r.link != LinkSpec() or r.frozen_record_hash is not None:
+                raise NotScorableError("calibration arrays take back-to-back runs without a record")
+            if point not in DECLARED_CALIBRATION_POINTS:
+                raise NotScorableError(f"{point} is not a declared calibration point")
+    else:
+        try:
+            record_hash = nanf_freeze.load_freeze_record().freeze_hash
+        except nanf_freeze.HoldoutLockedError as err:
+            raise NotScorableError(f"no verified freeze record to score under: {err}") from None
+        require_scorable(results, frozen_hash=record_hash)
     rop = np.array([o.rop_dbm for o in outcomes], dtype=float)
     ber = np.array([math.nan if o.result is None else o.result.ber for o in outcomes])
     snr = np.array([math.nan if o.result is None else o.result.snr_db for o in outcomes])

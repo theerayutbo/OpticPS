@@ -1108,3 +1108,106 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
 Amendment 7, C6 pre-registered as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped,
 relaxed or added after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 9 (2026-11-02, Gate N3 part a, closing review: typed flags replaced by checks)
+
+Previous SHA-256 of this file, pinned until now (Amendment 8, commit 6d46ecb):
+`2f56696f0398bd5bbd8f306bde536657bb380f4b886929e63d605e0cbcabf4c6`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration and before any holdout scoring: no fit
+has run, no freeze record or calibration artefact exists, and no value of any holdout series was read for it. The trace cap
+stays pinned at 1e10; the label **`LITERATURE BENCHMARK / CALIBRATION ONLY`**, C6 as an expected FAIL at 2.0 GHz, and chirp
+unfitted stay. The evidence is the closing review (`handoff/N3a_qa3.md`, findings 1 to 9) and its repros on synthetic data.
+
+### H-A. The calibration flag is checked, not trusted (corrects the wording of G-C and G-D; finding 1)
+
+`curve_arrays(outcomes, calibration=True)` took a typed flag as the proof that a result was one of "the B2B points of the fit
+before a freeze". It is now a check on both halves:
+
+- Scoring (the default) loads the freeze record that verifies now and requires every result to carry exactly that record's
+  hash. No record, a deleted record, a stale record (the plan or the code changed after the run), a hash typed by hand, or a
+  hash of another record is refused. "Verified" means verified now, not at run time.
+- `calibration=True` is refused while any freeze record is present. Every result must be back-to-back (the default link), run
+  without a record, and at a declared calibration point: `DECLARED_CALIBRATION_POINTS`, the (rate, ROP, point index) triples of
+  the Fig.4 B2B grid, kept in `nanf_chain.py` (so part of the code identity) and empty until the calibration step declares
+  them. An outcome that names another ROP than its result is refused. Results carry their rate, ROP, point index and link for
+  this purpose.
+- Corrected wording. G-C said that deleting the record does not make a vector scorable, and G-D that deleting it makes a vector
+  unscorable; both held only without the flag. They now hold for both paths: with the record deleted, scoring is refused, and
+  the calibration path accepts only back-to-back runs at declared calibration points. Stated limit: before a freeze a vector is
+  free, so someone who deletes the record can rebuild declared B2B calibration points with any vector and call them
+  calibration. Those are Fig.4 B2B points, which no holdout comparison reads (C5's B2B wavelengths are Fig.6, not on that
+  grid), and no NANF or SSMF result passes this path. Order and tampering by the owner of the repository stay unprovable
+  (G-D).
+
+### H-B. Grafts are read from the common git directory (finding 2)
+
+Git reads `info/grafts` (and the shallow file and replace refs) from the common directory. In a linked worktree the
+per-worktree directory is `.git/worktrees/<name>` and holds none of them, so `nanf_freeze` looked in the wrong place. It now asks
+`git rev-parse --path-format=absolute --git-common-dir`, and a test builds a linked worktree with a graft in the main
+repository's common directory. The only other thing read from the git directory by the code is nothing: replace refs are
+switched off by `--no-replace-objects`, and the shallow file is not read (a shallow clone that lacks the named commit is refused
+by the commit check, one that has it is not harmed). The statement of G-D, "a repository with `.git/info/grafts` is refused", now
+holds in a linked worktree.
+
+### H-C. Rank deficiency at B4.5 (finding 3)
+
+B4.5 expects a singular information matrix, and `eigh` returns round-off-size negative eigenvalues for a truly deficient
+J^T J (measured: -2e-15 for two identical columns, -3e-13 for a rank-1 Jacobian), which the artefact check then refused.
+The rule: eigenvalues of J^T J that lie within 1e-10 of the largest eigenvalue below zero (`EIGENVALUE_ROUNDOFF_RELATIVE`) are
+floored at zero; a more negative value cannot come from rounding and is refused (`ValueError`). Numerical justification: the
+finite-difference Jacobian (step 1e-3 in the scaled parameter) carries a relative error of about eps / step = 2.2e-16 / 1e-3 =
+2.2e-13 per entry, so J^T J carries about 4.4e-13 of its largest eigenvalue, and `eigh` adds a few eps; 1e-10 is more than 200
+times that and five orders below the B4.3 threshold 1e-3, so it cannot turn an identifiable direction into a deficient one. The
+artefact check is unchanged: a hand-written negative value is still refused, and the output of the check (floored, ascending) is
+what is recorded. Tests on both sides: a rank-1 and a two-identical-column Jacobian are legal and flag five and one
+parameters; a value at half the tolerance is floored and one at twice the tolerance is refused.
+
+### H-D. The B2B gate needs the ROP axis (finding 4)
+
+`b2b_gate` takes `rop` as a required keyword. With it optional an unscored point (above -5 dBm) could earn a pass (review
+repro: eight scored points at 1.4 dB, five unscored at 0 dB, FAIL with the axis and PASS without). The gate drops points
+above -5 dBm (A4) and applies the validity mask to the rest.
+
+### H-E. Anything that makes a run non-pinned is refused first (finding 5; also the class of finding 6 of the second review)
+
+`run_point` refuses, before any run, with `NotScorableError`, every argument that makes the run something other than the
+pinned chain: a chain configuration other than the default, an equaliser other than the declared one taken as a whole (the cap,
+the forgetting factor, the taps, the delta, the training length, the decision-directed switch, any field), noise off, a
+diagnostic run, and any argument it does not know. Previously only the cap was checked, and an illegal run whose cap acted was
+returned as a lost-lock outcome and read as a physical event. A lost-lock outcome now means exactly a pinned run that lost lock.
+A test parametrises the whole class with the cap forced to act.
+
+### H-F. Sweep for typed arguments that stand in for a check (new in this amendment)
+
+Searched `nanf_chain`, `nanf_scoring`, `nanf_freeze`, `nanf_import` and `dfe` for booleans and typed values that a caller can
+set to obtain a trust the code does not verify. Found and fixed: `calibration` (H-A). Found and not changed, with the reason:
+
+1. `published=True` of `c1_crossing`, `is_censored`, `score_c4` and `b2b_copy` turns a NaN into a flagged censored cell. Nothing
+   verifies that the array is a published series; a simulated curve passed with it would hide an invalid value. The score
+   functions take bare arrays by design (G-C), so this is the same residual as a hand-built array. Remedy for part b: build
+   published curves only from `NanfSeries` and pass the importer's flags; not done here because it changes every scoring call.
+2. The `valid` masks and the `passed` fields of `RateScores` are values a caller supplies; `curve_arrays` produces masks and the
+   score objects produce `passed`, but a caller can type them. Same residual.
+3. `Evaluation`, `EvaluationLog` and `EvaluationLostLockError` take the lost points from the caller's objective; the artefact
+   `checks` are written by the calibration step and can be typed (review observation 6, G-D). They record, they do not prove.
+4. Restrictive flags (`diagnostic`, `noise`, `decision_directed`, `p_trace_cap`) can only make a result unscorable; they are
+   checked by value (`nonpinned_reasons`, `unscorable_reasons`) and not by claim.
+5. `include_holdout` is guarded (truthy values included) and `frozen_hash` is compared with the record now (H-A).
+
+### H-G. Observations
+
+1. The error text of a refused outcome keeps the reasons (`PointOutcome`), so removing `require_scorable` from `run_point` loses
+   nothing but the same text.
+2. The handoff cites only commits that are ancestors of the branch tip.
+3. Review observations 6 and 9 are left as stated: the artefact checks are a record (G-D); `configs/fibers/*.yml` and nested
+   directories are outside the identity, harmless while `DECLARED_LINKS` matches by value, and bound as soon as a link is loaded
+   from them.
+
+### H-Z. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the
+6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
+Amendments 7 and 8 except as corrected above, C6 pre-registered as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule
+that no criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.

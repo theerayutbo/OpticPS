@@ -55,8 +55,8 @@ def stub_equalizer(monkeypatch, caps=0):
 def test_an_unscorable_result_cannot_become_an_outcome_or_an_array():
     r = nc.simulate_point(MID, 100, -6.0, config=SMALL)  # the review's repro: config overridden
     assert not r.scorable
-    with pytest.raises(nc.NotScorableError, match="only hold a scorable result"):
-        nc.PointOutcome("x", -6.0, r)
+    with pytest.raises(nc.NotScorableError, match="chain configuration overridden"):
+        nc.PointOutcome("x", -6.0, r)  # the reasons are kept in the error text (Amendment 9)
     # a forged outcome (the guard bypassed) is still refused by curve_arrays
     forged = object.__new__(nc.PointOutcome)
     for name, value in (("label", "x"), ("rop_dbm", -6.0), ("result", r), ("reason", "")):
@@ -72,18 +72,76 @@ def test_an_unscorable_result_cannot_become_an_outcome_or_an_array():
             nc.PointOutcome("y", -6.0, diagnostic)
 
 
-def test_deleting_the_record_does_not_make_a_vector_scorable_for_scoring():
-    r = nc.simulate_point(MID, 100, -6.0, config=SMALL)
-    ok = dataclasses.replace(r, unscorable_reasons=())  # a scorable result run without a freeze
-    out = nc.PointOutcome("p", -6.0, ok)
+def scorable_result(rate=100, rop=-6.0, index=0, link=None, vector=MID, caps_free=True):
+    r = nc.simulate_point(vector, rate, rop, config=SMALL, point_index=index, link=link)
+    return dataclasses.replace(r, unscorable_reasons=())  # stands in for a pinned full-size run
+
+
+def test_the_calibration_flag_is_checked_not_trusted(tmp_path, monkeypatch):
+    """Amendment 9 H-A: the review's repros. A typed flag cannot make a result scorable."""
+    nanf = nc.LinkSpec(numerical_profile("NANF", length_km=4.76, d_ps_per_nm_km=2.04))
+    declared = frozenset({(100, -6.0, 0), (112, -7.0, 77)})  # the NANF point is "declared" too
+    monkeypatch.setattr(nc, "DECLARED_CALIBRATION_POINTS", declared)
+    b2b = nc.PointOutcome("b2b", -6.0, scorable_result())
+    # a declared back-to-back point, no record anywhere: calibration is allowed ...
+    assert nc.curve_arrays([b2b], calibration=True).valid.tolist() == [True]
+    # ... and scoring is not (no verified freeze record to score under)
+    with pytest.raises(nc.NotScorableError, match="no verified freeze record"):
+        nc.curve_arrays([b2b])
+    # (a) a retuned vector on a NANF link at a free index, then a record appears: refused both ways
+    retuned = scorable_result(
+        rate=112, rop=-7.0, index=77, link=nanf, vector=nc.TxRxParameters(tx_bandwidth_ghz=55.0)
+    )
+    bad = nc.PointOutcome("x", -7.0, retuned)
+    with pytest.raises(nc.NotScorableError, match="back-to-back"):
+        nc.curve_arrays([bad], calibration=True)  # the NANF link is not a calibration point
+    repo = make_repo(tmp_path)
+    patch_module_paths(monkeypatch, repo)
+    assert nf.freeze_record_present()
+    with pytest.raises(nc.NotScorableError, match="once a freeze record exists"):
+        nc.curve_arrays([b2b], calibration=True)  # even a clean B2B point: calibration is over
     with pytest.raises(nc.NotScorableError, match="verified freeze record"):
-        nc.curve_arrays([out])  # the default is scoring: a freeze record is required
-    arrays = nc.curve_arrays([out], calibration=True)  # the B2B points of a fit before a freeze
-    assert arrays.valid.tolist() == [True]
-    framed = nc.PointOutcome("p", -6.0, dataclasses.replace(ok, frozen_record_hash="a" * 64))
-    assert nc.curve_arrays([framed]).valid.tolist() == [True]
+        nc.curve_arrays([b2b])  # run without the record
+    # (b) the record is deleted: the retuned NANF result is neither a calibration nor a scoring input
+    repo.record_path.unlink()
+    assert not nf.freeze_record_present()
     with pytest.raises(nc.NotScorableError):
-        nc.require_scorable([ok], frozen=True)
+        nc.curve_arrays([bad], calibration=True)
+    with pytest.raises(nc.NotScorableError):
+        nc.curve_arrays([bad])
+    # a result at an undeclared point or index cannot be a calibration point either
+    other = nc.PointOutcome("o", -6.0, scorable_result(index=3))
+    with pytest.raises(nc.NotScorableError, match="not a declared calibration point"):
+        nc.curve_arrays([other], calibration=True)
+    # an outcome whose ROP differs from its result's is refused
+    skewed = nc.PointOutcome("s", -5.0, scorable_result())
+    with pytest.raises(nc.NotScorableError, match="another ROP"):
+        nc.curve_arrays([skewed], calibration=True)
+
+
+def test_a_result_must_carry_the_hash_of_the_record_that_verifies_now(tmp_path, monkeypatch):
+    """Amendment 9 H-A (c): 'verified' is true now, not at run time; a typed hash is refused."""
+    base = scorable_result()  # run before the freeze exists (the small chain is refused after it)
+    repo = make_repo(tmp_path)
+    patch_module_paths(monkeypatch, repo)
+    ok = dataclasses.replace(base, frozen_record_hash=repo.hash)
+    assert nc.curve_arrays([nc.PointOutcome("p", -6.0, ok)]).valid.tolist() == [True]
+    for wrong in ("a" * 64, None, "0" * 64):
+        fake = dataclasses.replace(ok, frozen_record_hash=wrong)
+        with pytest.raises(nc.NotScorableError, match="verified freeze record"):
+            nc.curve_arrays([nc.PointOutcome("p", -6.0, fake)])
+    # the plan changes after the run: the record no longer verifies, so the result is refused
+    repo.plan.write_text(repo.plan.read_text() + "\nlate edit\n")
+    with pytest.raises(nc.NotScorableError, match="no verified freeze record"):
+        nc.curve_arrays([nc.PointOutcome("p", -6.0, ok)])
+    # the record is deleted after the run: refused
+    repo.plan.write_text(repo.plan.read_text().replace("\nlate edit\n", ""))
+    assert nc.curve_arrays([nc.PointOutcome("p", -6.0, ok)]).valid.tolist() == [True]
+    repo.record_path.unlink()
+    with pytest.raises(nc.NotScorableError, match="no verified freeze record"):
+        nc.curve_arrays([nc.PointOutcome("p", -6.0, ok)])
+    with pytest.raises(nc.NotScorableError):
+        nc.require_scorable([ok], frozen_hash="b" * 64)
 
 
 # --- finding 3: the fibre and the noise index are not free after a freeze --------------------
@@ -320,8 +378,17 @@ def test_the_b2b_gate_takes_a_rop_axis_and_ignores_points_above_the_cap():
         simulated_valid=[True, True, False],
     )  # fmt: skip
     assert lost_scored.passed is False and lost_scored.label == "B2B CALIBRATION POOR"
-    with pytest.raises(ValueError, match="needs the ROP axis"):
+    # the ROP axis is required: without it the gate cannot say which points are scored (H-D)
+    with pytest.raises(TypeError):
+        sc.b2b_gate([10.0], [10.0], point, point)
+    with pytest.raises(TypeError):
         sc.b2b_gate([10.0], [10.0], point, point, simulated_valid=[False])
+    # the review's repro: 8 scored points with 1.4 dB error, 5 unscored with 0 dB
+    rop13 = [-14.0 + k for k in range(13)]  # -14 ... -2: eight at most -5 dBm
+    sim = [10.0 + 1.4 if r <= -5.0 else 10.0 for r in rop13]
+    pub = [10.0] * 13
+    assert sc.b2b_gate(sim, pub, point, point, rop=rop13).passed is False
+    assert sc.b2b_gate(sim[:8] + pub[8:], pub, point, point, rop=rop13).passed is False
 
 
 def test_c4_and_c5_ignore_a_lost_point_that_is_not_scored():
@@ -342,10 +409,42 @@ def test_a_published_curve_has_no_lost_points():
 # --- finding 6, 7: refused is not lost; the guards of run_point -----------------------------
 
 
-def test_an_illegal_cap_through_run_point_is_refused_not_lost_lock():
-    for cap in (1.0, 1e4, 1e12):
-        with pytest.raises(nc.NotScorableError, match="trace cap cannot be changed"):
-            nc.run_point("p", MID, 80, -5.0, equalizer=RlsDfeConfig(p_trace_cap=cap))
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"config": SMALL},
+        {"config": nc.ChainConfig(dac_bits=6)},
+        {"equalizer": RlsDfeConfig(p_trace_cap=1.0)},
+        {"equalizer": RlsDfeConfig(p_trace_cap=1e4)},
+        {"equalizer": RlsDfeConfig(p_trace_cap=1e12)},
+        {"equalizer": RlsDfeConfig(forgetting=0.5)},
+        {"equalizer": RlsDfeConfig(forgetting=0.5, p_trace_cap=1.0)},
+        {"equalizer": RlsDfeConfig(ff_taps=15)},
+        {"equalizer": RlsDfeConfig(fb_taps=3)},
+        {"equalizer": RlsDfeConfig(delta=1.0)},
+        {"equalizer": RlsDfeConfig(decision_directed=False)},
+        {"noise": False},
+        {"diagnostic": True},
+        {"unknown_switch": 1},
+    ],
+)
+def test_anything_that_makes_a_run_non_pinned_is_refused_before_it_runs(monkeypatch, kwargs):
+    """Amendment 9 H-E: even when the cap acts (stubbed), an illegal run is refused, never lost."""
+    stub_equalizer(monkeypatch, caps=3)
+    with pytest.raises(nc.NotScorableError, match="pinned chain"):
+        nc.run_point("p", MID, 80, -5.0, **kwargs)
+    assert nc.nonpinned_reasons(kwargs)
+
+
+def test_the_pinned_arguments_are_not_refused_and_a_real_loss_is_still_lost(monkeypatch):
+    stub_equalizer(monkeypatch, caps=3)
+    assert nc.nonpinned_reasons({}) == []
+    assert nc.nonpinned_reasons(
+        {"config": nc.ChainConfig(), "equalizer": RlsDfeConfig(), "noise": True, "diagnostic": False,
+         "link": None, "point_index": 3}
+    ) == []  # fmt: skip
+    out = nc.run_point("p", MID, 80, -5.0)  # pinned arguments, the cap acts: a lost-lock run
+    assert out.lost and "trace cap acted" in out.reason
 
 
 def test_run_point_catches_only_the_two_lost_lock_errors(monkeypatch):
@@ -409,3 +508,128 @@ def test_the_calibration_partition_is_unchanged_by_the_fig11_exclusion():
         if s.role is not nanf_import.DataRole.HOLDOUT
     ]
     assert "Fig.11" not in kept and len(kept) == 21
+
+
+# --- Amendment 9 H-B: grafts are read from the common git directory --------------------------
+
+
+def test_grafts_are_refused_from_a_linked_worktree_too(tmp_path):
+    repo = make_repo(tmp_path)
+    main = git(repo.root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(repo.root, "checkout", "-q", "--orphan", "side")
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-q", "-m", "same files, unrelated history")
+    side = git(repo.root, "rev-parse", "HEAD")
+    git(repo.root, "checkout", "-q", "-f", main)
+    wt = tmp_path / "wt"
+    git(repo.root, "worktree", "add", "-q", "--detach", str(wt))
+    head = git(repo.root, "rev-parse", "HEAD")
+    (repo.root / ".git/info").mkdir(exist_ok=True)
+    (repo.root / ".git/info/grafts").write_text(f"{head} {side}\n")  # in the COMMON directory
+    ancestor = subprocess.run(
+        ["git", "-C", str(wt), "merge-base", "--is-ancestor", side, "HEAD"], capture_output=True
+    )
+    assert ancestor.returncode == 0  # plain Git, in the worktree, believes the graft
+    forged = dict(repo.record, calibration={**repo.record["calibration"], "commit": side})
+    forged["freeze_hash"] = nf.compute_freeze_hash(
+        forged["plan_sha256"], forged["code_identity"], forged["parameters"],
+        forged["unidentifiable"], forged["calibration"], forged["calibration_partition_sha256"],
+    )  # fmt: skip
+    write_record(repo, forged)
+    for root in (repo.root, wt):
+        with locked(match="grafts"):
+            nf.require_freeze(
+                forged["freeze_hash"],
+                record_path=repo.record_path,
+                plan_path=root / "docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md",
+                root=root,
+            )
+    # without the graft file, the worktree verifies a genuine record
+    (repo.root / ".git/info/grafts").unlink()
+    write_record(repo)
+    got = nf.require_freeze(
+        repo.hash,
+        record_path=repo.record_path,
+        plan_path=wt / "docs/benchmarks/NANF_FIT_HOLDOUT_PLAN.md",
+        root=wt,
+    )
+    assert got.freeze_hash == repo.hash
+
+
+# --- Amendment 9 H-C: a true rank deficiency is legal at B4.5 ---------------------------------
+
+
+def linear_residuals(matrix):
+    specs = sc.B4_PARAMETERS
+
+    def residuals(values):
+        u = np.array([(values[s.name] - s.low) / (s.high - s.low) for s in specs])
+        return matrix @ u
+
+    return residuals
+
+
+def midpoint():
+    return {s.name: 0.5 * (s.low + s.high) for s in sc.B4_PARAMETERS}
+
+
+def test_a_true_rank_deficiency_with_roundoff_negatives_is_legal_and_flags_the_right_count():
+    rng = np.random.default_rng(0)
+    base = rng.normal(size=(40, 6))
+    same = base.copy()
+    same[:, 1] = same[:, 0]  # two identical columns: rank 5
+    out = sc.identifiability_check(linear_residuals(same), midpoint())
+    assert np.all(out.eigenvalues >= 0.0)
+    assert out.eigenvalues[0] <= sc.EIGENVALUE_ROUNDOFF_RELATIVE * out.eigenvalues[-1]
+    assert len(out.flagged) == 1 and not out.singular
+    rank1 = np.outer(rng.normal(size=40), np.ones(6))  # rank 1: five zero eigenvalues
+    out1 = sc.identifiability_check(linear_residuals(rank1), midpoint())
+    assert np.all(out1.eigenvalues >= 0.0) and len(out1.flagged) == 5
+    assert np.count_nonzero(out1.eigenvalues == 0.0) >= 1  # the round-off negatives were floored
+    zero_col = base.copy()
+    zero_col[:, 2] = 0.0
+    assert len(sc.identifiability_check(linear_residuals(zero_col), midpoint()).flagged) == 1
+    # the artefact can record the output as it is: non-negative, ascending, flags equal the count
+    checks = {
+        "chosen_fit_checked": True,
+        "n_lost_points_in_grid": 0,
+        "identifiability_eigenvalues": [float(e) for e in out1.eigenvalues],
+    }
+    nf._check_checks(checks, out1.flagged)
+
+
+def test_a_truly_negative_eigenvalue_is_still_refused(monkeypatch):
+    rng = np.random.default_rng(4)
+    matrix = rng.normal(size=(40, 6))
+    residuals = linear_residuals(matrix)
+    real = np.linalg.eigh
+
+    def with_negative(factor):
+        def fake(a):
+            w, v = real(a)
+            w = w.copy()
+            w[0] = -factor * w[-1]
+            return w, v
+
+        return fake
+
+    inside = 0.5 * sc.EIGENVALUE_ROUNDOFF_RELATIVE
+    outside = 2.0 * sc.EIGENVALUE_ROUNDOFF_RELATIVE
+    monkeypatch.setattr(np.linalg, "eigh", with_negative(inside))
+    floored = sc.identifiability_check(residuals, midpoint())
+    assert floored.eigenvalues[0] == 0.0
+    monkeypatch.setattr(np.linalg, "eigh", with_negative(outside))
+    with pytest.raises(ValueError, match="negative eigenvalue beyond round-off"):
+        sc.identifiability_check(residuals, midpoint())
+    assert 1e-10 <= sc.EIGENVALUE_ROUNDOFF_RELATIVE <= 1e-9
+    assert sc.EIGENVALUE_ROUNDOFF_RELATIVE < 1e-3 * 1e-5  # far below the B4.3 threshold
+
+
+def test_a_negative_eigenvalue_in_a_hand_written_artefact_is_still_refused():
+    bad = {
+        "chosen_fit_checked": True,
+        "n_lost_points_in_grid": 0,
+        "identifiability_eigenvalues": [-1e-15, 1.0, 2.0, 3.0, 4.0, 5.0],
+    }
+    with locked(match="six ascending non-negative"):
+        nf._check_checks(bad, ("bias_fraction",))
