@@ -1115,11 +1115,13 @@ class Setup:
         freeze: bool = True,
         two_km=None,
         two_km_xinc=None,
+        md5_2km=None,
     ) -> None:
         if shutil.which("git") is None:
             pytest.skip("git is not installed")
         self.world = world
         self.monkeypatch = monkeypatch
+        self.md5_2km = md5_2km
         self.root = tmp_path / "repo"
         self.data = tmp_path / "files"
         self.data.mkdir()
@@ -1173,7 +1175,10 @@ class Setup:
                 rf"filename: {re.escape(name)}\n.*?md5_supplied: \"([0-9a-f]{{32}})\"", text, re.S
             )
             assert real is not None
-            text = text.replace(real.group(1), md5_of(path))
+            text = text.replace(
+                real.group(1),
+                self.md5_2km if (self.md5_2km and name == HOLDOUT_2KM) else md5_of(path),
+            )
         return text
 
     def write_documents(self) -> None:
@@ -1471,12 +1476,20 @@ def test_a_holdout_whose_hash_mismatches_is_refused_and_never_opened(setup, monk
     assert not any(e.startswith("open") for e in events)  # hashed, never opened
 
 
-def test_an_md5_mismatch_alone_is_refused_even_with_a_matching_sha(setup):
+def test_an_md5_mismatch_alone_is_refused_even_with_a_matching_sha(world, tmp_path, monkeypatch):
+    s = Setup(world, tmp_path, monkeypatch, md5_2km="1" * 32)  # the register says another MD5
+    events = watch_holdout(monkeypatch)
+    with pytest.raises(BenchmarkError, match="does not match the recorded"):
+        s.score()  # the SHA-256 is right, the MD5 is not
+    assert not any(e.startswith("open") for e in events)
+
+
+def test_a_register_md5_change_after_the_freeze_is_refused_by_the_bind(setup):
     text = (
         (setup.root / teriphic.CONFIG_PATH).read_text().replace(md5_of(setup.holdout_2), "1" * 32)
     )
     (setup.root / teriphic.CONFIG_PATH).write_text(text)
-    setup.commit_all("md5")  # before the freeze it would be bound; after it, bind refuses first
+    setup.commit_all("md5")
     with pytest.raises(BenchmarkError, match="changed since the freeze"):
         setup.score()
 
