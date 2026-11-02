@@ -1,33 +1,262 @@
-# Pre-listed fibre scenarios (plan Revision 10). Hypotheses, never ground truth.
-scenario_list_version: 1
-count: 9
+# Pre-listed fibre scenarios (plan Revision 12). Hypotheses, never ground truth.
+scenario_list_version: 2
+count: 123
 scenarios:
-- {id: D0_MATCHED, dispersion_ps_nm_km: 0.0, attenuation_db_per_km: 0.0, noise_follows_signal: false,
-  null_control: true, label: no dispersion; received amplitude equal to B2B (assumed)}
-- {id: DHALF_MATCHED, dispersion_ps_nm_km: 3.176, attenuation_db_per_km: 0.0, noise_follows_signal: false,
-  null_control: false, label: half the O-band G.652.D |D| bound; received amplitude equal to B2B (assumed)}
-- {id: DMAX_MATCHED, dispersion_ps_nm_km: 6.352, attenuation_db_per_km: 0.0, noise_follows_signal: false,
-  null_control: false, label: the O-band G.652.D |D| bound; received amplitude equal to B2B (assumed)}
-- {id: D0_LOSS_RX_NOISE, dispersion_ps_nm_km: 0.0, attenuation_db_per_km: 0.5, noise_follows_signal: false,
-  null_control: false, label: 'no dispersion; G.652 typical link loss, receiver-dominated noise'}
-- {id: DHALF_LOSS_RX_NOISE, dispersion_ps_nm_km: 3.176, attenuation_db_per_km: 0.5, noise_follows_signal: false,
-  null_control: false, label: 'half the O-band G.652.D |D| bound; G.652 typical link loss, receiver-dominated
-    noise'}
-- {id: DMAX_LOSS_RX_NOISE, dispersion_ps_nm_km: 6.352, attenuation_db_per_km: 0.5, noise_follows_signal: false,
-  null_control: false, label: 'the O-band G.652.D |D| bound; G.652 typical link loss, receiver-dominated
-    noise'}
-- {id: D0_LOSS_SIGNAL_NOISE, dispersion_ps_nm_km: 0.0, attenuation_db_per_km: 0.5, noise_follows_signal: true,
-  null_control: false, label: 'no dispersion; G.652 typical link loss, signal-borne noise'}
-- {id: DHALF_LOSS_SIGNAL_NOISE, dispersion_ps_nm_km: 3.176, attenuation_db_per_km: 0.5, noise_follows_signal: true,
-  null_control: false, label: 'half the O-band G.652.D |D| bound; G.652 typical link loss, signal-borne
-    noise'}
-- {id: DMAX_LOSS_SIGNAL_NOISE, dispersion_ps_nm_km: 6.352, attenuation_db_per_km: 0.5, noise_follows_signal: true,
-  null_control: false, label: 'the O-band G.652.D |D| bound; G.652 typical link loss, signal-borne noise'}
-provenance: {status: 'ASSUMED_G652D scenarios: hypotheses; the fibre type is UNKNOWN', dispersion: '|D|
-    bound 6.352 ps/(nm km) is the largest |D| of the ITU-T G.652.D limit envelope, 1260 to 1360 nm in
-    1 nm steps, from opticps.optical_channel.fiber.g652d_dispersion_limits (Rec. ITU-T G.652 08/2024 Eq.
-    6-2, 6-3): SPECIFICATION_LIMIT. The sign of D does not matter for a chirp-free modulator (the response
-    is even).', attenuation: '0.5 dB/km is the G.652 Table I.1 typical link value for 1260 to 1360 nm
-    (representative, not measured on this fibre). 0 means received amplitude equal to B2B, which is an
-    assumption (launch power and re-tuning are UNKNOWN).', wavelength: UNKNOWN (O-band only); 1310 nm
-    enters only as lambda^2 of the response, chirp: 'UNKNOWN; all scenarios assume zero (MODEL GAP: CHIRP)'}
+- {id: D0_N1, dispersion_ps_nm_km: 0.0, noise_factor: 1.0, noise_through_fibre: false, null_control: true,
+  label: '|D| 0 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D0.5_N1, dispersion_ps_nm_km: 0.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D0.5_N1_THRU, dispersion_ps_nm_km: 0.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D1_N1, dispersion_ps_nm_km: 1.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D1_N1_THRU, dispersion_ps_nm_km: 1.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D1.5_N1, dispersion_ps_nm_km: 1.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D1.5_N1_THRU, dispersion_ps_nm_km: 1.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D2_N1, dispersion_ps_nm_km: 2.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D2_N1_THRU, dispersion_ps_nm_km: 2.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D2.5_N1, dispersion_ps_nm_km: 2.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D2.5_N1_THRU, dispersion_ps_nm_km: 2.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D3_N1, dispersion_ps_nm_km: 3.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D3_N1_THRU, dispersion_ps_nm_km: 3.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D3.25_N1, dispersion_ps_nm_km: 3.25, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D3.25_N1_THRU, dispersion_ps_nm_km: 3.25, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D3.5_N1, dispersion_ps_nm_km: 3.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D3.5_N1_THRU, dispersion_ps_nm_km: 3.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D3.75_N1, dispersion_ps_nm_km: 3.75, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D3.75_N1_THRU, dispersion_ps_nm_km: 3.75, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D4_N1, dispersion_ps_nm_km: 4.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D4_N1_THRU, dispersion_ps_nm_km: 4.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D4.25_N1, dispersion_ps_nm_km: 4.25, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D4.25_N1_THRU, dispersion_ps_nm_km: 4.25, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D4.5_N1, dispersion_ps_nm_km: 4.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D4.5_N1_THRU, dispersion_ps_nm_km: 4.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D4.75_N1, dispersion_ps_nm_km: 4.75, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D4.75_N1_THRU, dispersion_ps_nm_km: 4.75, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D5_N1, dispersion_ps_nm_km: 5.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D5_N1_THRU, dispersion_ps_nm_km: 5.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D5.25_N1, dispersion_ps_nm_km: 5.25, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D5.25_N1_THRU, dispersion_ps_nm_km: 5.25, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D5.5_N1, dispersion_ps_nm_km: 5.5, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D5.5_N1_THRU, dispersion_ps_nm_km: 5.5, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D5.75_N1, dispersion_ps_nm_km: 5.75, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D5.75_N1_THRU, dispersion_ps_nm_km: 5.75, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D6_N1, dispersion_ps_nm_km: 6.0, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D6_N1_THRU, dispersion_ps_nm_km: 6.0, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D6.25_N1, dispersion_ps_nm_km: 6.25, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D6.25_N1_THRU, dispersion_ps_nm_km: 6.25, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D6.352_N1, dispersion_ps_nm_km: 6.352, noise_factor: 1.0, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x1, noise after the fibre'}
+- {id: D6.352_N1_THRU, dispersion_ps_nm_km: 6.352, noise_factor: 1.0, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x1, noise crosses the fibre'}
+- {id: D0_N1.5, dispersion_ps_nm_km: 0.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 0 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D0.5_N1.5, dispersion_ps_nm_km: 0.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D0.5_N1.5_THRU, dispersion_ps_nm_km: 0.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D1_N1.5, dispersion_ps_nm_km: 1.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D1_N1.5_THRU, dispersion_ps_nm_km: 1.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D1.5_N1.5, dispersion_ps_nm_km: 1.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D1.5_N1.5_THRU, dispersion_ps_nm_km: 1.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D2_N1.5, dispersion_ps_nm_km: 2.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D2_N1.5_THRU, dispersion_ps_nm_km: 2.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D2.5_N1.5, dispersion_ps_nm_km: 2.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D2.5_N1.5_THRU, dispersion_ps_nm_km: 2.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D3_N1.5, dispersion_ps_nm_km: 3.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D3_N1.5_THRU, dispersion_ps_nm_km: 3.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D3.25_N1.5, dispersion_ps_nm_km: 3.25, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D3.25_N1.5_THRU, dispersion_ps_nm_km: 3.25, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D3.5_N1.5, dispersion_ps_nm_km: 3.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D3.5_N1.5_THRU, dispersion_ps_nm_km: 3.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D3.75_N1.5, dispersion_ps_nm_km: 3.75, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D3.75_N1.5_THRU, dispersion_ps_nm_km: 3.75, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D4_N1.5, dispersion_ps_nm_km: 4.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D4_N1.5_THRU, dispersion_ps_nm_km: 4.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D4.25_N1.5, dispersion_ps_nm_km: 4.25, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D4.25_N1.5_THRU, dispersion_ps_nm_km: 4.25, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D4.5_N1.5, dispersion_ps_nm_km: 4.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D4.5_N1.5_THRU, dispersion_ps_nm_km: 4.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D4.75_N1.5, dispersion_ps_nm_km: 4.75, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D4.75_N1.5_THRU, dispersion_ps_nm_km: 4.75, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D5_N1.5, dispersion_ps_nm_km: 5.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D5_N1.5_THRU, dispersion_ps_nm_km: 5.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D5.25_N1.5, dispersion_ps_nm_km: 5.25, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D5.25_N1.5_THRU, dispersion_ps_nm_km: 5.25, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D5.5_N1.5, dispersion_ps_nm_km: 5.5, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D5.5_N1.5_THRU, dispersion_ps_nm_km: 5.5, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D5.75_N1.5, dispersion_ps_nm_km: 5.75, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D5.75_N1.5_THRU, dispersion_ps_nm_km: 5.75, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D6_N1.5, dispersion_ps_nm_km: 6.0, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D6_N1.5_THRU, dispersion_ps_nm_km: 6.0, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D6.25_N1.5, dispersion_ps_nm_km: 6.25, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D6.25_N1.5_THRU, dispersion_ps_nm_km: 6.25, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D6.352_N1.5, dispersion_ps_nm_km: 6.352, noise_factor: 1.5, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x1.5, noise after the fibre'}
+- {id: D6.352_N1.5_THRU, dispersion_ps_nm_km: 6.352, noise_factor: 1.5, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x1.5, noise crosses the fibre'}
+- {id: D0_N2.2, dispersion_ps_nm_km: 0.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 0 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D0.5_N2.2, dispersion_ps_nm_km: 0.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D0.5_N2.2_THRU, dispersion_ps_nm_km: 0.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 0.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D1_N2.2, dispersion_ps_nm_km: 1.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D1_N2.2_THRU, dispersion_ps_nm_km: 1.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 1 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D1.5_N2.2, dispersion_ps_nm_km: 1.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D1.5_N2.2_THRU, dispersion_ps_nm_km: 1.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 1.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D2_N2.2, dispersion_ps_nm_km: 2.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D2_N2.2_THRU, dispersion_ps_nm_km: 2.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 2 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D2.5_N2.2, dispersion_ps_nm_km: 2.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D2.5_N2.2_THRU, dispersion_ps_nm_km: 2.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 2.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D3_N2.2, dispersion_ps_nm_km: 3.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D3_N2.2_THRU, dispersion_ps_nm_km: 3.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 3 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D3.25_N2.2, dispersion_ps_nm_km: 3.25, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D3.25_N2.2_THRU, dispersion_ps_nm_km: 3.25, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.25 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D3.5_N2.2, dispersion_ps_nm_km: 3.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D3.5_N2.2_THRU, dispersion_ps_nm_km: 3.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D3.75_N2.2, dispersion_ps_nm_km: 3.75, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D3.75_N2.2_THRU, dispersion_ps_nm_km: 3.75, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 3.75 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D4_N2.2, dispersion_ps_nm_km: 4.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D4_N2.2_THRU, dispersion_ps_nm_km: 4.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 4 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D4.25_N2.2, dispersion_ps_nm_km: 4.25, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D4.25_N2.2_THRU, dispersion_ps_nm_km: 4.25, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.25 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D4.5_N2.2, dispersion_ps_nm_km: 4.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D4.5_N2.2_THRU, dispersion_ps_nm_km: 4.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D4.75_N2.2, dispersion_ps_nm_km: 4.75, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D4.75_N2.2_THRU, dispersion_ps_nm_km: 4.75, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 4.75 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D5_N2.2, dispersion_ps_nm_km: 5.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D5_N2.2_THRU, dispersion_ps_nm_km: 5.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D5.25_N2.2, dispersion_ps_nm_km: 5.25, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D5.25_N2.2_THRU, dispersion_ps_nm_km: 5.25, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.25 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D5.5_N2.2, dispersion_ps_nm_km: 5.5, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D5.5_N2.2_THRU, dispersion_ps_nm_km: 5.5, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.5 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D5.75_N2.2, dispersion_ps_nm_km: 5.75, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D5.75_N2.2_THRU, dispersion_ps_nm_km: 5.75, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 5.75 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D6_N2.2, dispersion_ps_nm_km: 6.0, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D6_N2.2_THRU, dispersion_ps_nm_km: 6.0, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 6 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D6.25_N2.2, dispersion_ps_nm_km: 6.25, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D6.25_N2.2_THRU, dispersion_ps_nm_km: 6.25, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.25 ps/(nm km), noise x2.2, noise crosses the fibre'}
+- {id: D6.352_N2.2, dispersion_ps_nm_km: 6.352, noise_factor: 2.2, noise_through_fibre: false, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x2.2, noise after the fibre'}
+- {id: D6.352_N2.2_THRU, dispersion_ps_nm_km: 6.352, noise_factor: 2.2, noise_through_fibre: true, null_control: false,
+  label: '|D| 6.352 ps/(nm km), noise x2.2, noise crosses the fibre'}
+provenance: {status: 'ASSUMED_G652D scenarios: hypotheses; the fibre type is UNKNOWN', dispersion: 'The
+    grid is 0 to 3 in steps of 0.5, 3.25 to 6.25 in steps of 0.25 and 6.352 ps/(nm km). 6.352 is the largest
+    |D| of the ITU-T G.652.D limit envelope, 1260 to 1360 nm in 1 nm steps, from opticps.optical_channel.fiber.g652d_dispersion_limits
+    (Rec. ITU-T G.652 08/2024 Eq. 6-2, 6-3): SPECIFICATION_LIMIT. The other points are a grid refined
+    in steps after power studies showed that a true D between grid points FAILs at 10 km (a FAIL dominated
+    by the grid): 1.5, then 0.5, then 0.25 at high D. The sign of D does not matter for zero chirp.',
+  noise_factor: 'Noise standard deviation relative to B2B: 1, 1.5, 2.2. It stands for any SNR change (loss,
+    re-tuning, launch power: UNKNOWN). The amplitude itself is removed by the gain-invariant map of plan
+    R12.3 and is reported, not tested.', noise_origin: 'noise_through_fibre false: noise added after the
+    fibre; true: the noise crosses the fibre like the signal. The B2B split is unidentifiable, so both
+    bounds are scenarios.', wavelength: UNKNOWN (O-band only); 1310 nm enters only as lambda^2 of the
+    response, chirp: 'UNKNOWN; all scenarios assume zero (MODEL GAP: CHIRP)'}

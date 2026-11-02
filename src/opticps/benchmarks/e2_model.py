@@ -219,6 +219,7 @@ def synthesize(
     length_km: float = 0.0,
     amplitude_ratio: float = 1.0,
     noise_follows_signal: bool = False,
+    noise_through_fibre: bool = False,
     levels: Sequence[float] | FloatArray | None = None,
     sigma: float | None = None,
 ) -> FloatArray:
@@ -228,8 +229,9 @@ def synthesize(
     pulses at the symbol instants, each scaled by the fitted level of its seeded symbol; instants
     are exact (40.96 samples per symbol is 1024/25: 25 classes, each with its own fractional
     delay). The amplitude ratio scales the signal; the noise is added unscaled (receiver-dominated)
-    or, with `noise_follows_signal`, scaled by the same ratio (signal-borne): the origin of the
-    B2B noise is unidentifiable, so both are scenarios.
+    or, with `noise_follows_signal`, scaled by the same ratio (signal-borne), or, with
+    `noise_through_fibre`, filtered by the dispersion response like the signal: the origin of the
+    B2B noise is unidentifiable, so these are scenarios.
     """
     if type(n_samples) is not int or n_samples < 1024:
         raise BenchmarkError("n_samples must be an integer of at least 1024")
@@ -274,6 +276,12 @@ def synthesize(
             view += amplitudes[:, c, None] * pieces[j][None, :]
     crop = buffer[pulse_length : pulse_length + n_samples]
     noise = shaped_noise(model["psd_relative"], fs, n_samples, noise_sigma, noise_seed)
+    if noise_through_fibre:
+        # the other bound of the unidentifiable noise origin: the noise crosses the fibre too
+        response = dispersion_response(
+            np.fft.rfftfreq(n_samples, 1.0 / fs), dispersion_ps_nm_km, length_km
+        )
+        noise = np.fft.irfft(np.fft.rfft(noise) * response, n_samples)
     out = amplitude_ratio * crop + (amplitude_ratio * noise if noise_follows_signal else noise)
     if not np.isfinite(out).all():
         raise BenchmarkError("the synthetic waveform is not finite")

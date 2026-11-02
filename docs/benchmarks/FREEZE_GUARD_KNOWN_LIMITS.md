@@ -15,7 +15,8 @@ Not refused, deliberate or outside the tool:
 - A criterion first written at the fixed path after a draft elsewhere: the freeze is that commit.
 - A criterion committed on a branch forked before the freeze and never merged, evaluated on that
   branch (the freeze is not in its history).
-- Editing `CRITERION_PATH` in the source to another path (the plan says this needs a revision).
+- Editing `CRITERION_PATH` in the source to another path (the plan says this needs a revision; the
+  scorer's binding to the freeze commit restarts with the new path, see the E2 paragraph below).
 - Statistics computed outside the tool.
 - Stage declarations (`validation_stage`, `sequence_check`, `state`) and the existence of input
   files are the caller's word; the order in which inputs were committed is not checked.
@@ -68,11 +69,17 @@ a path that is not gated. Not gated, listed and not chased:
   keep that so (a scan of `src` for the readers, and the order of the calls inside `score_holdout`),
   and `scripts/mutate_e2.py` mutates it. This binds that entry point only: code that calls the generic
   readers below directly, statistics computed outside it, and the other routes listed here are
-  unchanged and fall under the promise. Since plan R11 the scorer also compares the model, scenario list,
-  pre-registration, evaluation script and code files with their bytes at the freeze commit, and requires
-  `selected_scenario.yaml` to be added once after the freeze and never changed; this is bound to the
-  local history and inherits the promise. The code identity of E2 (R10.4, R11.3) is a list of file hashes, not
-  a proof about the interpreter or libraries.
+  unchanged and fall under the promise. Since plan R12 the scorer also (a) requires the caller to pin the
+  freeze commit (`expected_freeze_commit`, a required argument of `score_holdout` and the script) and
+  compares it with the commit found, which must be the first on the first-parent history, before any hash,
+  header or sample read; (b) compares the model, scenario list, pre-registration, power study, evaluation
+  script, the role register and every file of the import closure with their bytes at that freeze commit;
+  (c) fixes the role of each holdout by name in code; and (d) requires `selected_scenario.yaml` to be
+  added by exactly one commit after the freeze, as a new file, and never changed. All of this is bound to the
+  local history and inherits the promise. A move of the criterion path is an ordinary commit: it gives a
+  new freeze commit and so resets (b) and (d), and only the external pin catches it. A pin held on the
+  same machine as the repository checks against ordinary commits; it is not date proof. The code
+  identity of E2 (R10.4, R12.5) is a list of file hashes, not a proof about the interpreter or libraries.
 - `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
   are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they
   open it; the plan's promise is procedural there. A reviewer's fixture with a holdout name confirmed it

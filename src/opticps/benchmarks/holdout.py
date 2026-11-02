@@ -93,7 +93,7 @@ REQUIRED_INPUTS: Mapping[Split, tuple[str, ...]] = MappingProxyType(
 )
 DEFAULT_PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 # The one place a criterion can be: relative to the repository root. Not a parameter.
-CRITERION_PATH = Path("docs/benchmarks/TERIPHIC_CRITERION_R11.yaml")
+CRITERION_PATH = Path("docs/benchmarks/TERIPHIC_CRITERION_R12.yaml")
 _LIMIT_RELATIVE_TOLERANCE = 1e-9
 
 

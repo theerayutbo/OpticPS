@@ -89,6 +89,22 @@ def kmeans_levels(x: FloatArray) -> tuple[FloatArray, FloatArray]:
     return centroids[order], counts[order] / ordered.size
 
 
+def renormalise(x: FloatArray) -> tuple[FloatArray, float, float]:
+    """Gain-invariant form of a window: (x - c) / g from its own four centroids.
+
+    Returns (window, c, g) with c the mean centroid and g the mean gap, in the units of the input.
+    Plan R12.2 applies it to every length and every prediction alike and reports g as the
+    amplitude ratio (launch power is unknown, so the amplitude is reported, never tested).
+    """
+    values = require_window(x, "window to renormalise", minimum=KMEANS_K * 16)
+    centroids, _ = kmeans_levels(values)
+    gap = float(np.diff(centroids).mean())
+    if not gap > 0.0:
+        raise BenchmarkError("renormalise: the mean level gap is not positive")
+    centre = float(centroids.mean())
+    return (values - centre) / gap, centre, gap
+
+
 def level_gaps(centroids: FloatArray) -> FloatArray:
     """The three adjacent gaps of four ascending centroids."""
     gaps = np.diff(np.asarray(centroids, dtype=np.float64))
@@ -205,16 +221,26 @@ class WindowSummary:
     quantile_u: FloatArray
     quantile_p: FloatArray
     density: FloatArray  # Welch density in the bins up to the baud rate
+    frequency: FloatArray  # the frequencies of those bins
+    centroids: FloatArray  # descriptive, for the pre-registration; no metric uses them
+    shares: FloatArray
+    std: float
 
 
 def summarise_window(x: FloatArray, sample_rate_hz: float, baud_bd: float) -> WindowSummary:
     window = require_window(x, "window")
     frequency, density = welch_density(window, sample_rate_hz)
+    centroids, shares = kmeans_levels(window)
+    keep = band_bins(frequency, baud_bd)
     return WindowSummary(
-        level_gaps(kmeans_levels(window)[0]),
+        level_gaps(centroids),
         quantile_function(window, w1_probabilities()),
         quantile_function(window, np.asarray(QUANTILE_POINTS, dtype=np.float64)),
-        density[band_bins(frequency, baud_bd)],
+        density[keep],
+        frequency[keep],
+        centroids,
+        shares,
+        float(window.std()),
     )
 
 

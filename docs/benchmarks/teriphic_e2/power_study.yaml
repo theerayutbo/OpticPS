@@ -1,0 +1,210 @@
+# Power study (plan Revision 12, R12.4), B2B only.
+power_study_version: 1
+declared: Pseudo-captures made from B2B windows that are not the fit, spread or evaluation window, with
+  this script's own filters, run through the frozen two-stage procedure. No 2 km or 10 km sample was read.
+  A limit was not changed after seeing this table; where a case fails to separate, the verdict is capped
+  instead.
+model_sha256: efbb4a3d7b95724af4adc03af2fd5a4ec3db47c4908630146e75c5714b2ef58c
+study_window_starts: [12582912, 20971520, 25165824, 29360128, 33554432]
+selection_margin_psi: 0.25
+cases:
+  B2B filtered, D=0:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 15.0
+    ten_km_survivor_dispersions: [0.0, 0.5, 1.0, 1.5, 2.0]
+  B2B filtered, D=2.2:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 11.4
+    ten_km_survivor_dispersions: [1.5, 2.0, 2.5, 3.0]
+  B2B filtered, D=3.4:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {FAIL: 5}
+    ten_km_if_2km_were_bypassed: {FAIL: 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B filtered, D=3.85:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {FAIL: 5}
+    ten_km_if_2km_were_bypassed: {FAIL: 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B filtered, D=4.1:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {FAIL: 5}
+    ten_km_if_2km_were_bypassed: {FAIL: 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B filtered, D=4.5:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 1.4
+    ten_km_survivor_dispersions: [4.5]
+  B2B filtered, D=4.9:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {FAIL: 5}
+    ten_km_if_2km_were_bypassed: {FAIL: 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B filtered, D=5.2:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 1.4
+    ten_km_survivor_dispersions: [5.25]
+  B2B filtered, D=5.45:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 1.4
+    ten_km_survivor_dispersions: [5.5]
+  B2B filtered, D=5.7:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 1.4
+    ten_km_survivor_dispersions: [5.75]
+  B2B filtered, D=6.352:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 4.0
+    ten_km_survivor_dispersions: [6.25, 6.352]
+  B2B filtered, D=9:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 78.2
+    two_km_single_carried: 0
+    ten_km: {FAIL: 5}
+    ten_km_if_2km_were_bypassed: {FAIL: 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B, D=0 plus unmodelled low-pass 32 GHz:
+    windows: 5
+    two_km: {FAIL: 5}
+    two_km_mean_carried: 0.0
+    two_km_single_carried: 0
+    ten_km: {NOT RUN (2 km FAIL): 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {none: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B, D=0 plus unmodelled low-pass 34 GHz:
+    windows: 5
+    two_km: {FAIL: 5}
+    two_km_mean_carried: 0.0
+    two_km_single_carried: 0
+    ten_km: {NOT RUN (2 km FAIL): 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {none: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B, D=0 plus unmodelled low-pass 36 GHz:
+    windows: 5
+    two_km: {FAIL: 5}
+    two_km_mean_carried: 0.0
+    two_km_single_carried: 0
+    ten_km: {NOT RUN (2 km FAIL): 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {none: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  B2B, D=0, amplitude x0.95:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 15.0
+    ten_km_survivor_dispersions: [0.0, 0.5, 1.0, 1.5, 2.0]
+  B2B, D=0, amplitude x1.05:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, NOT DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 15.0
+    ten_km_survivor_dispersions: [0.0, 0.5, 1.0, 1.5, 2.0]
+  B2B filtered D=4.5, extra noise 0.3 gap:
+    windows: 5
+    two_km: {FAIL: 5}
+    two_km_mean_carried: 0.0
+    two_km_single_carried: 0
+    ten_km: {NOT RUN (2 km FAIL): 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {none: 5}
+    ten_km_mean_survivors: 0.0
+    ten_km_survivor_dispersions: []
+  surrogate, D=2.2, noise after fibre:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 77.8
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 14.2
+    ten_km_survivor_dispersions: [1.0, 1.5, 2.0, 2.5, 3.0]
+  surrogate, D=4.5, noise after fibre:
+    windows: 5
+    two_km: {'PASS, NOT DISCRIMINATING': 5}
+    two_km_mean_carried: 82.0
+    two_km_single_carried: 0
+    ten_km: {'PASS, DISCRIMINATING': 5}
+    ten_km_if_2km_were_bypassed: {'PASS, DISCRIMINATING': 5}
+    ten_km_verdict: {INCONCLUSIVE: 5}
+    ten_km_mean_survivors: 4.2
+    ten_km_survivor_dispersions: [4.25, 4.5, 4.75]

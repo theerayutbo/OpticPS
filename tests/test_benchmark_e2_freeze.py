@@ -50,10 +50,30 @@ def test_the_criterion_is_frozen_and_tied_to_the_committed_plan_and_inputs():
     assert frozen.inputs["scenario_list"] == hashlib.sha256(scenarios).hexdigest()
 
 
-def test_the_superseded_first_criterion_is_not_a_criterion():
-    old = ROOT / "docs/benchmarks/TERIPHIC_CRITERION.yaml"
-    assert old.is_file() and old != ROOT / holdout.CRITERION_PATH  # kept as a record (plan R11.3)
-    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R11.yaml"
+def test_the_superseded_criteria_are_not_criteria():
+    current = ROOT / holdout.CRITERION_PATH
+    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R12.yaml"
+    for old in ("TERIPHIC_CRITERION.yaml", "TERIPHIC_CRITERION_R11.yaml"):
+        path = ROOT / "docs/benchmarks" / old
+        assert path.is_file() and path != current  # kept as records (plan R11.3, R12.0)
+
+
+def test_the_power_study_is_committed_and_covers_the_stated_cases():
+    study = yaml.safe_load((ROOT / e2_score.POWER_STUDY_PATH).read_bytes())
+    model = (ROOT / e2_score.MODEL_PATH).read_bytes()
+    assert study["model_sha256"] == hashlib.sha256(model).hexdigest()
+    assert study["selection_margin_psi"] == e2_score.SELECTION_MARGIN
+    names = " | ".join(study["cases"])
+    for needle in (
+        "D=0",
+        "D=4.5",
+        "low-pass 32 GHz",
+        "low-pass 36 GHz",
+        "amplitude x0.95",
+        "noise",
+    ):
+        assert needle in names, needle
+    assert all(case["windows"] >= 5 for case in study["cases"].values())
 
 
 def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
@@ -75,6 +95,10 @@ def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
 def test_the_known_limits_say_the_guard_has_a_caller_and_the_plan_says_so_too():
     limits = " ".join((ROOT / "docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
     assert "which now has a caller" in limits and "plan R10.1" in limits
-    assert "requires\n" not in limits and "added once after the freeze and never changed" in limits
+    assert (
+        "added by exactly one commit after the freeze, as a new file, and never changed" in limits
+    )
+    assert "resets (b) and (d), and only the external pin catches it" in limits
+    assert "it is not date proof" in limits and "expected_freeze_commit" in limits
     plan = " ".join((ROOT / holdout.DEFAULT_PLAN).read_text().split())
     assert "R9.1 now has a caller" in plan
