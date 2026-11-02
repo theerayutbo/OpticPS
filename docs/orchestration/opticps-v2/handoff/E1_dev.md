@@ -59,3 +59,8 @@ Local only, new commits. Tip SHA and counts in the final report. Plan Revision 8
 - 2: the 14 survivors killed by behaviour tests (nested folders, resolve in `_in_external`, source-tree register, four fallback arms with the SHA table unpatched, zero-spread blocks, scale from one block, five limit values); 20 new mutants in `scripts/mutate_e1.py`, run end to end.
 - 3: the block pass re-checks the file after the loop (tested). 4 to 6 and obs 7 are in R8 and the script (harmless, not equivalent).
 
+## Correction (closing review, handoff/E1_qa4.md; plan Revision 9)
+- The lines above that say holdout integrity for scoring "rests on `require_frozen_criterion` at E2" read as a present guard. It is not: the function has no caller in `src` or `scripts` and no scorer exists. It is an E2 obligation: E2's scoring entry point must call it before any holdout statistic, and until then nothing enforces it.
+- A file that shrinks during the block pass ends the process with a bus error and no message (fails closed, not reported). Overwrite and growth are reported.
+- File links inside a typed folder are gated; only links to folders escape.
+

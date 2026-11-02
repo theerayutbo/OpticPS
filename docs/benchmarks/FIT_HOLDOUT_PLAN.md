@@ -759,3 +759,38 @@ seen (B2B period-8 ratio 1.118 against controls of 1.0002 and 1.0001), together 
 eight-fold by windowed-sinc interpolation (1.066) and one without upsampling (1.003 against controls of
 1.006). Revision 7 did not say so. They affect only the wording of the labelled reading and never the format
 status.
+
+## Revision 9 (2026-11-02): an E2 obligation stated as one, a shrinking file, link wording
+
+Previous version: SHA-256 `37487f3b59cd69ceed8344aeb605d3625322fdaaafbce850702e4f9bd96af058`
+(Revision 8). New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. Reason: the closing Gate E1 review (`handoff/E1_qa4.md`). No code changed in this revision.
+
+### R9.1 `require_frozen_criterion` is an E2 obligation, not a present guard
+
+R8.1 says that holdout integrity for scoring "rests on `require_frozen_criterion` at E2". That reads as a
+fact about today. It is not one: the function exists and refuses when it is called, but it has no caller in
+`src` or `scripts`, no scorer exists for it to guard, and nothing in the code makes a future scorer call it.
+Today it refuses nothing. The corrected statement: it is an E2 obligation. E2's scoring entry point must call
+`require_frozen_criterion` before it computes any holdout statistic, and until E2 nothing enforces that.
+`FREEZE_GUARD_KNOWN_LIMITS.md` and `handoff/E1_dev.md` carry the same correction.
+
+### R9.2 A file that shrinks during the block pass
+
+R8.2 says that a change during the block pass is reported. That holds for an overwrite and for growth. A file
+that shrinks while the pass runs ends the process with a bus error (SIGBUS) and no message, because the
+mapped pages are gone; the review reproduced it with a truncation injected during the pass. It fails closed,
+since no pass is printed, but it is not reported. No code change; the words are corrected here and in the
+known limits.
+
+### R9.3 Links inside folders
+
+R8.1 lists "links inside folders" as not gated. Narrower and exact: a link to a file inside a typed folder is
+gated (the gate resolves it, so a holdout reached through a file link is refused); a link to a folder inside a
+typed folder escapes, because the walk does not enter it. R8.1 under-claimed here, in the safe direction.
+
+### R9.4 One-block records
+
+The re-check after the loop (R8.2) is also tested on a record of one block, where the earlier test used
+several blocks.

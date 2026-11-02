@@ -59,7 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 8 of the plan (2026-11-01, third fix round of Gate E1; Revision 7 is
+# Pinned for Revision 9 of the plan (2026-11-02, closing round of Gate E1; Revision 8 is
+# REVISION_8_PLAN_SHA256 at 9778ce8; Revision 7 is
 # REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
 # REVISION_6_PLAN_SHA256 at 536b3ec; Revision 5, before any sample was read, is REVISION_5_PLAN_SHA256 at 57643ca; Revision 4 is
 # REVISION_4_PLAN_SHA256 at d52149a, Revision 3 REVISION_3_PLAN_SHA256 at 8b84914). Revision 2 hashed to
@@ -71,7 +72,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "37487f3b59cd69ceed8344aeb605d3625322fdaaafbce850702e4f9bd96af058"  # Revision 8
+PLAN_SHA256 = "9e7b51adade3a3ecdc4ca855f5f919747b1aab27ca8e2f857884fb1345feef24"  # Revision 9
+REVISION_8_PLAN_SHA256 = (
+    "37487f3b59cd69ceed8344aeb605d3625322fdaaafbce850702e4f9bd96af058"  # commit 9778ce8
+)
 REVISION_7_PLAN_SHA256 = (
     "87e3839513df645930d026a0eef78360058881563b1cb85a3f5d1726aed4bb80"  # commit 936337d
 )
@@ -212,6 +216,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_8_PLAN_SHA256,
         REVISION_7_PLAN_SHA256,
         REVISION_6_PLAN_SHA256,
         REVISION_5_PLAN_SHA256,
@@ -228,6 +233,22 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 6 (2026-11-01)" in text
     assert "## Revision 7 (2026-11-01)" in text
     assert "## Revision 8 (2026-11-01)" in text
+    assert "## Revision 9 (2026-11-02)" in text
+    revision_9 = text[text.index("## Revision 9 (2026-11-02)") :]
+    for needle in (
+        REVISION_8_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "is an E2 obligation, not a present guard",
+        "has no caller in `src` or `scripts`",
+        "must call `require_frozen_criterion` before it computes any holdout statistic",
+        "until E2 nothing enforces that",
+        "ends the process with a bus error (SIGBUS) and no message",
+        "it is not reported",
+        "a link to a file inside a typed folder is gated",
+        "a link to a folder inside a typed folder escapes",
+        "record of one block",
+    ):
+        assert needle in revision_9, needle
     revision_8 = text[text.index("## Revision 8 (2026-11-01)") :]
     for needle in (
         REVISION_7_PLAN_SHA256,

@@ -41,7 +41,7 @@ holdout names, `data/external` and the recorded SHA-256 only. The owner chose th
 three review rounds found that the wider one ("every route") would not close: a gated option can lead to
 a path that is not gated. Not gated, listed and not chased:
 
-- Paths found inside files, links inside folders, paths built at run time and defaults. Each route below
+- Paths found inside files, links to folders inside folders, paths built at run time and defaults. Each route below
   was run by the third review on a holdout-named fixture of random bytes with 0x88 at byte 4. None decodes
   samples as numbers through these routes, per that review. **They do read whole files, and an error
   message can echo one header byte (the review saw byte 4 as 0x88); this is a read of file bytes that
@@ -53,15 +53,18 @@ a path that is not gated. Not gated, listed and not chased:
     `R/<profile>/experiment_manifest.csv` and the decode error is written into
     `validation_results.csv`; `uxr-report` joins the same way in `_transmitted_excerpt`, and takes
     `waveform_root / item["profile"]` from the results JSON (read only, not run);
-  - a symbolic link to a folder inside a folder: `validate --output R` with `R/p` a link (the walk by
+  - a symbolic link to a folder inside a folder (a link to a file inside a typed folder is gated: the
+    gate resolves it): `validate --output R` with `R/p` a link (the walk by
     `rglob` does not enter it, the profile walk does) and `analyze` with a linked profile folder;
   - a path built at run time: `analyze --output R --profile ../outside` reads outside `R`; `ingest-uxr`
     joins the same way (read only, not run);
   - derived and default paths: `slides --results a/b` reads `a/fiber_validation/fiber_results.json`
     (`report` shares `load_fiber_results`, read only); `demo` reads `DEFAULT_CONFIG` relative to the
     working directory; the default `ingest-uxr` registry path.
-  Holdout integrity for scoring does not rest on these gates: it rests on `require_frozen_criterion`
-  at E2, which refuses to score without the frozen criterion.
+  Holdout integrity for scoring does not rest on these gates. It is an E2 obligation: E2's scoring
+  entry point must call `require_frozen_criterion` before it computes any holdout statistic. Nothing
+  calls it today (it has no caller in `src` or `scripts`, and no scorer exists), so until E2 nothing
+  enforces it (plan R9.1).
 - `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
   are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they
   open it; the plan's promise is procedural there. A reviewer's fixture with a holdout name confirmed it
@@ -90,4 +93,6 @@ run or a short noise burst inside a block, a spike under 8 times the record scal
 1.9, an inverted, reversed or replaced block, a replacement by a slow sine of similar spread). Its thresholds
 were set on the B2B file only, so a lab capture with a very different but legitimate waveform may be refused
 (default-deny), and one that passes is not thereby a verified capture. It never runs on a holdout here. A
-file that changes while the pass runs is reported after the pass (the file is checked again at the end).
+file that is overwritten or grows while the pass runs is reported after the pass (the file is checked
+again at the end). A file that shrinks while the pass runs ends the process with a bus error (SIGBUS)
+and no message: it fails closed, because no result is printed, but it is not reported (plan R9.2).

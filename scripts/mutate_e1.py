@@ -120,6 +120,7 @@ MUTANTS: list[Mutant] = [
     ("limit_band_higher", EC, "BLOCK_BAND_DB_MAX = -20.0", "BLOCK_BAND_DB_MAX = -15.0", None),
     ("limit_band_lower", EC, "BLOCK_BAND_DB_MAX = -20.0", "BLOCK_BAND_DB_MAX = -25.0", None),
     ("block_changed_after_the_loop_unchecked", EC, "        self.assert_unchanged()  # a file still being written during the pass is reported\n", "", None),
+    ("recheck_only_multi_block", EC, "        self.assert_unchanged()  # a file still being written during the pass is reported\n", "        if len(rows) > 1:\n            self.assert_unchanged()\n", None),
 ]  # fmt: skip
 
 

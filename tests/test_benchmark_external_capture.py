@@ -2062,9 +2062,17 @@ def test_real_b2b_block_pass_thresholds_have_their_stated_margins():
 def test_known_limits_state_the_exact_cli_claim_and_the_swap_and_keep_the_promise():
     text = " ".join(Path("docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
     assert "only paths typed as CLI options are gated" in text
-    assert "Paths found inside files, links inside folders, paths built at run time" in text
+    assert (
+        "Paths found inside files, links to folders inside folders, paths built at run time" in text
+    )
     assert "an error message can echo one header byte" in text
-    assert "require_frozen_criterion" in text
+    assert "It is an E2 obligation" in text
+    assert "E2's scoring entry point must call `require_frozen_criterion`" in text
+    assert "Nothing calls it today" in text and "until E2 nothing enforces it" in text
+    assert "rests on `require_frozen_criterion`" not in text  # no longer stated as a present fact
+    assert "ends the process with a bus error (SIGBUS) and no message" in text
+    assert "fails closed" in text and "but it is not reported" in text
+    assert "a link to a file inside a typed folder is gated" in text
     assert "every CLI route" not in text
     assert "Time of check to time of use" in text and "deliberate only" in text
     assert "falls under the promise" in text
@@ -2263,4 +2271,25 @@ def test_a_change_before_the_pass_is_refused_before_any_block_is_read(tmp_path, 
     with pytest.raises(BenchmarkError, match="changed after it was hashed"):
         capture.block_rows(4096)
     assert calls == []  # nothing was decoded from a file that had already changed
+    capture.close()
+
+
+def test_post_loop_recheck_also_covers_a_record_of_one_block(tmp_path, monkeypatch):
+    from opticps.benchmarks import external_capture as module
+
+    path = write_fixture(tmp_path, smooth_wave(20000), "one_block.bin")
+    capture = ExternalCapture.open_keysight_bin(path)
+    real = module._block_row
+    calls: list[int] = []
+
+    def touch_during_the_only_block(begin, block):
+        calls.append(begin)
+        stat = path.stat()
+        os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 9_000_000_000))
+        return real(begin, block)
+
+    monkeypatch.setattr(module, "_block_row", touch_during_the_only_block)
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.coverage_scan()  # default 65,536-sample blocks: this record is one block
+    assert calls == [0]
     capture.close()
