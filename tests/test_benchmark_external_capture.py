@@ -2248,3 +2248,19 @@ def test_an_overwrite_during_the_pass_is_reported_after_the_loop(tmp_path, monke
         capture.coverage_scan(4096)
     assert len(calls) == 4  # the pass ran to the end before it was refused
     capture.close()
+
+
+def test_a_change_before_the_pass_is_refused_before_any_block_is_read(tmp_path, monkeypatch):
+    from opticps.benchmarks import external_capture as module
+
+    path = write_fixture(tmp_path, smooth_wave(20000), "early.bin")
+    capture = ExternalCapture.open_keysight_bin(path)
+    stat = path.stat()
+    os.utime(path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 3_000_000_000))
+    calls: list[int] = []
+    real = module._block_row
+    monkeypatch.setattr(module, "_block_row", lambda b, x: calls.append(b) or real(b, x))
+    with pytest.raises(BenchmarkError, match="changed after it was hashed"):
+        capture.block_rows(4096)
+    assert calls == []  # nothing was decoded from a file that had already changed
+    capture.close()
