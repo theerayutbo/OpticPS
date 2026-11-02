@@ -2066,10 +2066,14 @@ def test_known_limits_state_the_exact_cli_claim_and_the_swap_and_keep_the_promis
         "Paths found inside files, links to folders inside folders, paths built at run time" in text
     )
     assert "an error message can echo one header byte" in text
-    assert "It is an E2 obligation" in text
-    assert "E2's scoring entry point must call `require_frozen_criterion`" in text
-    assert "Nothing calls it today" in text and "until E2 nothing enforces it" in text
-    assert "rests on `require_frozen_criterion`" not in text  # no longer stated as a present fact
+    assert (
+        "which now has a caller" in text and "`opticps.benchmarks.e2_score.score_holdout`" in text
+    )
+    assert "before it hashes, opens or reads anything of a 2 km or 10 km file" in text
+    assert "It is the only code in `src` that reads a holdout" in text
+    assert "This binds that entry point only" in text
+    assert "Nothing calls it today" not in text and "until E2 nothing enforces it" not in text
+    assert "It is an E2 obligation" not in text  # replaced by R10.1; the obligation has a caller
     assert "ends the process with a bus error (SIGBUS) and no message" in text
     assert "fails closed" in text and "but it is not reported" in text
     assert "a link to a file inside a typed folder is gated" in text

@@ -61,10 +61,15 @@ a path that is not gated. Not gated, listed and not chased:
   - derived and default paths: `slides --results a/b` reads `a/fiber_validation/fiber_results.json`
     (`report` shares `load_fiber_results`, read only); `demo` reads `DEFAULT_CONFIG` relative to the
     working directory; the default `ingest-uxr` registry path.
-  Holdout integrity for scoring does not rest on these gates. It is an E2 obligation: E2's scoring
-  entry point must call `require_frozen_criterion` before it computes any holdout statistic. Nothing
-  calls it today (it has no caller in `src` or `scripts`, and no scorer exists), so until E2 nothing
-  enforces it (plan R9.1).
+  Holdout integrity for scoring does not rest on these gates. It rests on `require_frozen_criterion`,
+  which now has a caller (plan R10.1, replacing the E2 obligation of R9.1): the scoring entry point
+  `opticps.benchmarks.e2_score.score_holdout` calls it before it hashes, opens or reads anything of a
+  2 km or 10 km file, and refuses otherwise. It is the only code in `src` that reads a holdout. Tests
+  keep that so (a scan of `src` for the readers, and the order of the calls inside `score_holdout`),
+  and `scripts/mutate_e2.py` mutates it. This binds that entry point only: code that calls the generic
+  readers below directly, statistics computed outside it, and the other routes listed here are
+  unchanged and fall under the promise. The code identity of E2 (R10.4) is a list of file hashes, not
+  a proof about the interpreter or libraries.
 - `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
   are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they
   open it; the plan's promise is procedural there. A reviewer's fixture with a holdout name confirmed it
