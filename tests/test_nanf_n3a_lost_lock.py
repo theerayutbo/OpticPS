@@ -117,6 +117,7 @@ def test_no_bracket_among_locked_points_fails_under_the_no_crossing_rule():
         assert sc.score_c1(sc.Crossing("left", -math.inf, -12.0), sim).passed is False
     every = sc.c1_crossing(ROP, [NAN] * 7, valid=[False] * 7)
     assert every.kind == "invalid" and every.n_lost == 7
+    assert "every point lost lock" in every.reason  # not the lost-above-the-run reason
 
 
 def test_a_nan_at_a_locked_point_is_still_invalid_data_and_the_mask_must_be_boolean():
@@ -205,6 +206,10 @@ def test_an_evaluation_with_a_lost_point_gets_the_worst_case_is_counted_logged_a
     assert sc.select_best(mixed).vector == {"x": 3.0}
     with pytest.raises(sc.NoValidFitError):
         sc.check_chosen_fit(sc.Evaluation({"x": 2.0}, math.inf, ()))
+    only_inf = sc.EvaluationLog()
+    only_inf.record(sc.Evaluation({"x": 2.0}, math.inf, ()))
+    with pytest.raises(sc.NoValidFitError):  # an infinite objective is no clean evaluation
+        sc.select_best(only_inf)
     with pytest.raises(sc.NoValidFitError):
         sc.check_chosen_fit(sc.Evaluation({"x": 1.0}, 0.0, ("p",)))  # objective 0 with a lost point
     with pytest.raises(ValueError, match="not finite"):
