@@ -52,6 +52,12 @@ summary as the counts already disclosed in plan A0 and B0.2, but new information
 or code path depends on it. It is entered in the plan's "what was seen" record by Amendment 4. Also, the paper PDF was reread for the axis
 labels of Figs. 1 and 5 and the DSP description (Section III).
 
+Required statement (plan Amendment 8, every N3 report). The holdout is not fully blind. Before any freeze,
+agents saw the ROP lists (axis columns, not outcomes) of the Fig. 4 NANF series, Fig. 9 NANF-OFDM, Fig. 12 NANF-DMT
+and the Fig. 4 SMF column, the Fig. 6 wavelength and the Fig. 8 and Fig. 11 frequency ends, and one y cell (Fig. 11
+SMF-DMT, not used; Fig. 11 is now excluded from scoring). Earlier statements that no ROP axis or value had been
+seen were wrong; the corrected record is in plan Amendment 8 (G-A, G-B). The disclosure does not change a criterion.
+
 ## 3. Benchmark A: Fig. 1 recomputed with our propagation code
 
 Model: the chirp-free intensity-modulated field sqrt(1 + m cos(2 pi f t)) is sent through

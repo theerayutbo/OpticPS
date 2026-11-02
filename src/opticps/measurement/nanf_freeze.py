@@ -61,6 +61,7 @@ ENTRY_MODULES = (
     "opticps.optical_channel.fiber",
 )
 CONFIG_FILES = ("pyproject.toml", "uv.lock")
+CONFIG_GLOBS = ("configs/fibers/*.yaml",)  # fibre profiles a link may be loaded from (Amendment 8)
 RECORD_KEYS = frozenset(
     {
         "plan_sha256",
@@ -74,8 +75,15 @@ RECORD_KEYS = frozenset(
 )
 CALIBRATION_REF_KEYS = frozenset({"path", "sha256", "commit"})
 ARTIFACT_KEYS = frozenset(
-    {"parameters", "unidentifiable", "fit_result", "calibration_partition_sha256"}
+    {"parameters", "unidentifiable", "fit_result", "checks", "calibration_partition_sha256"}
 )
+CHECKS_KEYS = frozenset(
+    {"chosen_fit_checked", "n_lost_points_in_grid", "identifiability_eigenvalues"}
+)
+MIN_EVALUATIONS = 1 + len(B4_NAMES)  # a fit of six parameters needs at least seven evaluations
+MIN_CALIBRATION_POINTS = 9  # three rates, at least three scored B2B ROPs each
+MAX_CALIBRATION_POINTS = 33  # three rates, at most eleven ROPs each (Fig.4 axis)
+IDENTIFIABILITY_RATIO = 1e-3  # plan B4.3
 FIT_RESULT_KEYS = frozenset(
     {"method", "converged", "n_evaluations", "n_calibration_points", "cost"}
 )
@@ -181,8 +189,14 @@ def reachable_sources(root: Path | None = None) -> tuple[str, ...]:
 
 
 def identity_files(root: Path | None = None) -> tuple[str, ...]:
-    """The files of the code identity: reachable sources and the configuration files, sorted."""
-    return tuple(sorted({*reachable_sources(root), *CONFIG_FILES}))
+    """The files of the code identity: reachable sources and the configuration files, sorted.
+
+    The configuration files are `CONFIG_FILES` and every file matching `CONFIG_GLOBS` (the fibre
+    profiles under `configs/fibers/`).
+    """
+    base = ROOT if root is None else root
+    globbed = {p.relative_to(base).as_posix() for g in CONFIG_GLOBS for p in base.glob(g)}
+    return tuple(sorted({*reachable_sources(root), *CONFIG_FILES, *globbed}))
 
 
 def code_identity(root: Path | None = None, files: Iterable[str] | None = None) -> str:
@@ -244,8 +258,10 @@ def calibration_artifact(
     unidentifiable: Iterable[str],
     fit_result: Mapping[str, Any],
     partition: str,
+    checks: Mapping[str, Any],
 ) -> bytes:
-    """The bytes of a calibration artefact: the vector, its flags, the fit result and the partition.
+    """The bytes of a calibration artefact: vector, flags, fit result, the record that the checks
+    ran (`check_chosen_fit` and the B4 eigenvalues) and the partition.
 
     Written by a later calibration step; nothing here runs a fit. The bytes are canonical JSON.
     """
@@ -254,6 +270,7 @@ def calibration_artifact(
             "parameters": parameters.as_dict(),
             "unidentifiable": list(unidentifiable),
             "fit_result": dict(fit_result),
+            "checks": dict(checks),
             "calibration_partition_sha256": partition,
         }
     )
@@ -347,6 +364,10 @@ def _verify_calibration(
     if hashlib.sha256(raw).hexdigest() != ref["sha256"]:
         raise _refuse("the calibration artefact does not match its recorded SHA-256")
     try:
+        gitdir = _git(root, "rev-parse", "--absolute-git-dir")
+        grafts = Path(gitdir.stdout.decode().strip()) / "info" / "grafts"
+        if gitdir.returncode != 0 or grafts.exists():
+            raise _refuse("the repository uses grafts, so ancestry cannot be trusted")
         tracked = _git(root, "ls-files", "--error-unmatch", "--", rel)
         head_blob = _blob_sha(root, "HEAD", rel)
         commit_blob = _blob_sha(root, ref["commit"], rel)
@@ -378,25 +399,59 @@ def _verify_calibration(
     if (
         not isinstance(fit["method"], str)
         or not fit["method"]
-        or not isinstance(fit["converged"], bool)
+        or fit["converged"] is not True
         or isinstance(n_eval, bool)
         or not isinstance(n_eval, int)
-        or n_eval < 1
+        or n_eval < MIN_EVALUATIONS
         or isinstance(n_pts, bool)
         or not isinstance(n_pts, int)
-        or n_pts < 1
+        or not MIN_CALIBRATION_POINTS <= n_pts <= MAX_CALIBRATION_POINTS
         or isinstance(cost, bool)
         or not isinstance(cost, int | float)
         or not math.isfinite(cost)
-        or cost < 0
+        or cost <= 0
     ):
-        raise _refuse("the fit result is not a valid result of a calibration")
+        raise _refuse(
+            "the fit result is not evidence of a converged calibration (converged, at least "
+            f"{MIN_EVALUATIONS} evaluations, {MIN_CALIBRATION_POINTS} to {MAX_CALIBRATION_POINTS} "
+            "points, cost above zero)"
+        )
     if TxRxParameters.from_mapping(artefact["parameters"]) != parameters:
         raise _refuse("the record vector is not the vector inside the calibration artefact")
     if _check_flags(artefact["unidentifiable"]) != flags:
         raise _refuse("the record flags are not the flags inside the calibration artefact")
+    _check_checks(artefact["checks"], flags)
     if artefact["calibration_partition_sha256"] != partition:
         raise _refuse("the calibration artefact was made on another calibration partition")
+
+
+def _check_checks(checks: object, flags: tuple[str, ...]) -> None:
+    """The artefact records that `check_chosen_fit` and the B4 check ran, and they match the flags.
+
+    The B4 eigenvalues are stored; the number below 1e-3 of the largest (all six if the largest is
+    not above zero) must equal the number of flagged parameters (B4.3). A record that says nothing
+    about either check, or flags that the eigenvalues do not support, is refused.
+    """
+    if not isinstance(checks, dict) or set(checks) != CHECKS_KEYS:
+        raise _refuse("the calibration artefact does not record that the checks ran")
+    lost = checks["n_lost_points_in_grid"]
+    if checks["chosen_fit_checked"] is not True or isinstance(lost, bool) or lost != 0:
+        raise _refuse("check_chosen_fit did not run, or the chosen vector has lost-lock points")
+    eig = checks["identifiability_eigenvalues"]
+    ok = isinstance(eig, list) and len(eig) == len(B4_NAMES)
+    ok = ok and all(isinstance(e, int | float) and not isinstance(e, bool) for e in eig)
+    ok = ok and all(math.isfinite(e) and e >= 0 for e in eig)
+    ok = ok and all(a <= b for a, b in zip(eig, eig[1:], strict=False))
+    if not ok:
+        raise _refuse(
+            "the B4 eigenvalues are missing or are not six ascending non-negative numbers"
+        )
+    largest = eig[-1]
+    n_low = (
+        len(eig) if not largest > 0 else sum(1 for e in eig if e < IDENTIFIABILITY_RATIO * largest)
+    )
+    if n_low != len(flags):
+        raise _refuse("the flagged parameters do not match the B4 eigenvalues (plan B4.3)")
 
 
 def current_partition() -> str:

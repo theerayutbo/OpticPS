@@ -46,9 +46,23 @@ def copy_tree(root: Path) -> None:
         root / "src",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
     )
+    shutil.copytree(REPO / "configs/fibers", root / "configs/fibers")
     for rel in ("pyproject.toml", "uv.lock", PLAN_REL):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy(REPO / rel, root / rel)
+
+
+def good_checks(n_flags: int) -> dict:
+    """A record that the checks ran, with B4 eigenvalues of which exactly `n_flags` are low."""
+    if n_flags >= 6:
+        eig = [0.0] * 6
+    else:
+        eig = [1e-7 * (k + 1) for k in range(n_flags)] + [float(k + 1) for k in range(6 - n_flags)]
+    return {
+        "chosen_fit_checked": True,
+        "n_lost_points_in_grid": 0,
+        "identifiability_eigenvalues": eig,
+    }
 
 
 def write_artifact(
@@ -58,9 +72,11 @@ def write_artifact(
     fit_result=GOOD_FIT,
     partition: str | None = None,
     rel: str = ARTIFACT_REL,
+    checks=None,
 ) -> None:
     part = calibration_partition_sha256() if partition is None else partition
-    raw = nf.calibration_artifact(parameters, flags, {}, part)
+    used = good_checks(len(tuple(flags))) if checks is None else checks
+    raw = nf.calibration_artifact(parameters, flags, {}, part, used)
     if fit_result is not GOOD_FIT:
         body = json.loads(raw)
         body["fit_result"] = fit_result
@@ -79,6 +95,7 @@ def make_repo(
     flags=FLAGS,
     fit_result=GOOD_FIT,
     name: str = "repo",
+    checks=None,
 ) -> SimpleNamespace:
     """A committed repository with an artefact, and the record built from it (not yet written)."""
     root = tmp_path / name
@@ -88,7 +105,7 @@ def make_repo(
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "base: code and plan, no calibration artefact yet")
     base_commit = git(root, "rev-parse", "HEAD")
-    write_artifact(root, parameters, flags, fit_result)
+    write_artifact(root, parameters, flags, fit_result, checks=checks)
     git(root, "add", "-A")
     git(root, "commit", "-q", "-m", "the synthetic calibration artefact")
     record = nf.build_freeze_record(ARTIFACT_REL, root=root, plan_path=root / PLAN_REL)

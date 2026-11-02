@@ -182,6 +182,10 @@ def c1_crossing(
     `Crossing("invalid")`, which fails (the no-crossing rule). Nothing is interpolated across a
     lost point.
     """
+    if published and valid is not None:
+        raise ValueError(
+            "a published series has no lost-lock points: valid is for simulated curves"
+        )
     rop_a, ber_a = _arr(rop, "rop"), _arr(ber, "ber")
     mask = _as_valid(valid, rop_a.size) if rop_a.size == ber_a.size else None
     if mask is None:
@@ -198,7 +202,7 @@ def c1_crossing(
                 "invalid", math.nan, math.nan, n_lost, "a lost-lock point lies above the locked run"
             )
         first = int(np.flatnonzero(~locked)[-1]) + 1
-        inner = c1_crossing(r[first:], b[first:], threshold, published=published)
+        inner = c1_crossing(r[first:], b[first:], threshold)
         if inner.kind != "point":
             why = "invalid data" if inner.kind == "invalid" else "no bracket among locked points"
             return Crossing("invalid", math.nan, math.nan, n_lost, why)
@@ -450,11 +454,17 @@ def score_c3(
     s_ber = _arr(simulated_ssmf_ber, "ssmf ber")
     n_ok = _as_valid(nanf_valid, n_rop.size)
     s_ok = _as_valid(ssmf_valid, s_rop.size)
-    if not (_scored(n_rop, n_ok)[1].all() and _scored(s_rop, s_ok)[1].all()):
-        # a needed point lost lock: no substitution, no interpolation across it (Amendment 7)
+    n_r, n_okc = _scored(n_rop, n_ok)
+    s_r, s_okc = _scored(s_rop, s_ok)
+    inside = (n_r >= s_r.min()) & (n_r <= s_r.max()) if s_r.size else np.zeros(n_r.size, bool)
+    if not (s_okc.all() and n_okc[inside].all()):
+        # a needed point lost lock (every scored SSMF point; the NANF points of the ROP set): no
+        # substitution, no interpolation across it (Amendment 7). A lost point above -5 dBm, or a
+        # NANF point outside the ROP set, is not needed and is ignored (Amendment 8).
         return C3Score(False, "lost-lock point at a scored ROP", math.nan, None, False, False, 0)
     _, ber_scored = _scored(s_rop, s_ber)
-    if not (np.all(np.isfinite(n_snr)) and np.all(np.isfinite(s_snr))):
+    n_used = _scored(n_rop, n_snr)[1][inside]
+    if not (np.all(np.isfinite(n_used)) and np.all(np.isfinite(_scored(s_rop, s_snr)[1]))):
         raise ValueError("SNR values must be finite")
     if np.any(~np.isfinite(ber_scored)) or np.any(ber_scored < 0) or np.any(ber_scored > 1):
         raise InvalidDataError("simulated BER must lie in [0, 1] (zero errors is 0.0, never NaN)")
@@ -778,12 +788,19 @@ def b2b_gate(
     simulated_crossing: Crossing,
     published_crossing: Crossing,
     *,
+    rop: Sequence[float] | FloatArray | None = None,
     simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> B2bGate:
     """B3.2 on the calibration points: mean |error| at most 1.0 dB, none beyond 2.0 dB, and the
     B2B crossing within 0.5 dB by the C1 rule (a bound by B1.3 with 0.5 dB)."""
     s, p = _arr(simulated_snr, "sim"), _arr(published_snr, "pub")
     locked = _as_valid(simulated_valid, s.size)
+    if rop is not None:  # only the points at most -5 dBm are scored (A4); the rest are dropped
+        if s.size != p.size:
+            raise ValueError("series must be finite, non-empty and of equal length")
+        _, s, p, locked = _scored(_arr(rop, "rop"), s, p, locked)
+    elif simulated_valid is not None:
+        raise ValueError("a validity mask needs the ROP axis (Amendment 8)")
     if not locked.all():  # a lost-lock point of the calibration grid: the gate fails (Amendment 7)
         return B2bGate(False, math.nan, math.nan, False, "B2B CALIBRATION POOR")
     if s.size == 0 or s.size != p.size or not (np.all(np.isfinite(s)) and np.all(np.isfinite(p))):

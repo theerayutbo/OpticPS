@@ -104,7 +104,9 @@ def test_a_valid_proof_unlocks_the_holdout_and_the_default_read_still_withholds_
 ):
     _, record = record_file
     wb = holdout(workbook, freeze_hash=record["freeze_hash"])
-    assert sum(s.role is DataRole.HOLDOUT for s in wb.series.values()) == 48
+    assert (
+        sum(s.role is DataRole.HOLDOUT for s in wb.series.values()) == 46
+    )  # 48 less the two Fig.11 series, excluded from scoring
     path, digest = workbook
     plain = read_nanf_workbook(path, expected_sha256=digest)  # no proof needed without holdout
     assert not any(s.role is DataRole.HOLDOUT for s in plain.series.values())

@@ -992,3 +992,119 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, C6 pre-registered
 as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added after a number is
 seen except by a dated amendment with a new pin.
+
+## Amendment 8 (2026-11-02, Gate N3 part a, second review: holdout record corrected, Fig.11 excluded, guards closed)
+
+Previous SHA-256 of this file, pinned until now (Amendment 7, commit d4a50d6):
+`34a06373755c25167453da35225ab7b01dbc48af373344706e7bb000f736c623`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration and before any holdout scoring: no fit
+has run, no freeze record or calibration artefact exists, and no value of any holdout series was read for it. The trace
+cap stays pinned at 1e10. The label **`LITERATURE BENCHMARK / CALIBRATION ONLY`** stays, C6 stays pre-registered as an
+expected FAIL at 2.0 GHz, and chirp stays unfitted. The evidence is the second independent review of N3 part a
+(`handoff/N3a_qa2.md`, findings 1 to 10) and its repro scripts on synthetic data.
+
+### G-A. Correction of the holdout record (corrects G0, G7 and H5; finding 1)
+
+Statements made earlier in this plan were false and are withdrawn:
+
+- H5 said "no ROP axis of a holdout series was read". That is false for the project. G0 said "nothing from the workbook
+  beyond the disclosures already recorded" and G7 said the only hits in the records were "counts and ranges already
+  disclosed". Those are false too: the search behind them covered `docs/`, `handoff/` and `reports/` and not the agents'
+  transcripts, and it was masked (it looked for figure names next to numbers).
+- What an agent did see, at Gate N0 (2026-10-31) and not since: the ROP lists (the axis column, rows with a numeric value) of
+  the Fig.4 `NANF-80`, `NANF-100` and `NANF-112` BER and SNR series; of Fig.9 `NANF-OFDM-*`; of Fig.12 `NANF-DMT *`; the Fig.4
+  SMF ROP list (a column shared with the B2B series, so also legitimate calibration knowledge); the Fig.6 wavelength list; the
+  frequency ends of Fig.8 and Fig.11; the per-cell present or absent masks of Fig.4, Fig.9 and Fig.12; and ONE y value, the
+  Fig.11 `240sub-SMF-DMT` cell C164, in a raw XML excerpt (agent af0141). That value is not recorded here, was not used and is
+  not used by anything in this plan. The review (`N3a_qa2.md`) found no other BER or SNR value of any holdout series in 142
+  transcripts, with the limit that its scan masked non-integer numbers and was based on labels and print statements: it is not
+  proof of absence, and neither is any search of this project.
+- The earlier statement of the orchestrator that no value had reached an agent was also wrong. One y value did, and it is
+  recorded here.
+- The holdout read by code is also confirmed, not "probable" (G7): the main-checkout run of agent af805d at N2 reports
+  `1541 passed` with no skip, so the old real-workbook test did parse all 69 series in process; and N2 agents a5a11b (counts,
+  D0), a97d23 and a034b9 (shape checks) called `read_nanf_workbook(..., include_holdout=True)` directly on the real file. No
+  failing run of that test appears in any transcript, so that part of G7 stands.
+- Consequence for H5: with these axes and the G1.4 sweep, which points of a published curve fall in a lost-lock region is
+  computable by anyone who has seen them. It is not computed here and no rule of this plan depends on it, but H5's "not known"
+  must be read as "not decided here", not as "nobody could know".
+
+Owner decision (2026-11-02): ROP axes are experiment design, not outcomes. The NANF holdout stays in use, disclosed as above.
+It is not fully blind, and every N3 report must say so in the words "The holdout is not fully blind" (a test checks the
+report for that string). No criterion is changed by this disclosure.
+
+### G-B. Fig.11 is excluded from scoring
+
+Owner decision (2026-11-02): all Fig.11 series (`240sub-NANF-DMT` and `240sub-SMF-DMT`) are excluded from scoring, because one
+of its y cells was seen. In code the importer validates the sheet but never returns a Fig.11 series, with or without a freeze,
+and `wb[key]` for a Fig.11 key is refused with the code `EXCLUDED_FROM_SCORING`. Effect on the criteria, exactly:
+
+- No criterion of section 4, A3 or A5 takes its published side from Fig.11. C1 to C5 read Fig.4 and Fig.6; C6 reads Fig.8
+  only (A5 moved it, and A5 says Fig.11 is not used); C7 reads the capacities of Fig.12; C8 reads Fig.7 and Fig.9. The only
+  text that still names Fig.11 is the C6 cell of the section-4 table, "Fig. 8, 11", which A5 had already replaced.
+- Therefore the exclusion removes no criterion, changes no tolerance or threshold, and removes no data that a criterion reads.
+  C7 is unchanged. Nothing is chosen to replace Fig.11, and none is needed.
+- What it does remove: the Fig.11 facts that were never criteria (its 24 error cells, its unloaded band of 22.15 to 25.43 GHz
+  as a possible cross-check). They may still be mentioned as disclosed knowledge and are not used. The calibration partition
+  (21 series) is unchanged. The count of holdout series a freeze unlocks is 46, not 48.
+
+### G-C. A scorable result and the way to a score (corrects G1.2; finding 2) and the fibre after a freeze (finding 3)
+
+The sentence of G1.2, "Scoring takes points through `require_scorable`, which refuses anything else", was inexact: only
+`run_point` called it, and the `score_*` functions take bare arrays. It is replaced by: scoring arrays are produced only by
+`curve_arrays`, which calls `require_scorable` on every non-lost result, so a changed cap, configuration, noise-off or
+diagnostic result cannot reach a score through it; `PointOutcome` refuses an unscorable result; and unless
+`calibration=True` (the B2B points of the fit before a freeze) every result must have used a verified freeze record, so
+deleting the record does not make a vector scorable. The `score_*` functions remain pure functions of arrays and are as safe as
+their caller; a caller that builds arrays by hand is outside this guarantee.
+
+After a freeze, "no per-fibre retuning" and F4.2 are enforced as follows. `simulate_point` gives a scorable result only for the
+back-to-back link or a link in `DECLARED_LINKS`, and only for a `point_index` in `DECLARED_POINT_INDICES` (both in
+`nanf_chain.py`, so part of the code identity). Both are empty until part b declares them, so no run after a freeze is
+scorable until then; the flag names this check in its reasons. A different fibre, another wavelength or another noise index
+yields `scorable=False`.
+
+### G-D. The freeze record (extends G4; finding 4)
+
+- A fit result is accepted only as evidence of a converged calibration: `converged` true, at least 7 evaluations (one plus the six
+  parameters), 9 to 33 calibration points (three rates, three to eleven scored B2B ROPs each) and a cost above zero.
+- The artefact must record that the checks ran: `checks.chosen_fit_checked` true, `checks.n_lost_points_in_grid` 0, and the six B4
+  eigenvalues, ascending and non-negative; the number of eigenvalues below 1e-3 of the largest (all six if the largest is not
+  above zero) must equal the number of flagged parameters (B4.3). `unidentifiable: []` is therefore accepted only if the stored
+  eigenvalues support it. This records that `check_chosen_fit` and the B4 check ran; it does not prove it (it is a record).
+- A repository with `.git/info/grafts` is refused (`nanf_freeze` now does what the known-limits text says of the tool).
+  Replace refs are not honoured (`--no-replace-objects`), and a test makes a replace ref that would otherwise create an ancestor.
+- Stated limits, unchanged: a record rebuilt after a rewrite of history is unprovable; the record file itself being committed is
+  a process rule (G4), and an untracked record is accepted by the code; order, dates and tampering by the owner of the repository
+  remain unprovable without an external timestamp. Deleting the record makes a vector unscorable for scoring, as in G-C.
+
+### G-E. Further closures (findings 5 to 10)
+
+1. H3 for points above -5 dBm: a lost point above the cap, or a NANF point outside the C3 ROP set, no longer fails C3 and no
+   longer raises; every scored SSMF point and the NANF points of the ROP set are needed. `b2b_gate` takes the ROP axis and drops
+   points above -5 dBm; a validity mask without the axis is refused.
+2. `run_point` refuses a changed trace cap (`NotScorableError`); it is a refusal, not a lost-lock run. A published curve has no
+   lost points, and `valid` with `published=True` is refused.
+3. Mutants: the eight survivors of the second review are killed by tests (each with its own mutant in the list), none declared
+   equivalent. A single cap action is an invalid run.
+4. The wall-clock assertion of the full-size point test is replaced by a check that every stage was timed and that the stage
+   times are consistent with the wall clock; timing is not a correctness property.
+5. Standing exception (finding 9): three tests of `tests/test_nanf_benchmark.py` do a default read of the real workbook, which
+   parses all 69 series in process and returns 21: `test_the_simulated_zero_chirp_nulls_meet_the_predeclared_tolerance_of_a1_3`,
+   `test_the_report_numbers_are_current_with_the_recomputation` and
+   `test_the_default_read_for_the_benchmarks_never_returns_a_holdout_series`. No assertion or print touches a holdout value, and
+   they skip when the data is absent. They are kept as a named standing exception, of the same kind as the event of G7 in that
+   the holdout is parsed before a freeze, and narrower in exposure; the owner decision of G-A covers them.
+6. Code identity limits (finding 10): the identity follows imports found by parsing; it does not follow `importlib`,
+   `__import__`, `importlib.util.spec_from_file_location` or `exec` and `eval` of source, none of which occurs in the reachable
+   files today. It now also binds `configs/fibers/*.yaml`, so a fibre profile edit relocks.
+7. The handoff cites the commits on the branch (`d4a50d6`, `869effc`, `dafa062`), not the commits of the scratch clone.
+
+### G-F. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the
+6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
+Amendment 7, C6 pre-registered as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped,
+relaxed or added after a number is seen except by a dated amendment with a new pin.

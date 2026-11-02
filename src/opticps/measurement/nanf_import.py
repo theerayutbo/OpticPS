@@ -58,6 +58,11 @@ MAX_MEMBERS = 64
 SOURCE_MISSING = "SOURCE_MISSING"
 NOT_COMPARABLE = "NOT_COMPARABLE"
 FORMAT_UNKNOWN = "FORMAT_UNKNOWN"
+EXCLUDED_FROM_SCORING = "EXCLUDED_FROM_SCORING"
+# Plan Amendment 8 G-A: every Fig.11 series is excluded from scoring. The importer still
+# validates the sheet but never returns its series, with or without a freeze; asking for one is
+# refused.
+SCORING_EXCLUDED_SHEETS: frozenset[str] = frozenset({"Fig.11"})
 
 _NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 _REL_NS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
@@ -160,6 +165,10 @@ class NanfWorkbook:
         object.__setattr__(self, "series", MappingProxyType(dict(self.series)))
 
     def __getitem__(self, key: str) -> NanfSeries:
+        if key.split("/", 1)[0] in SCORING_EXCLUDED_SHEETS:
+            raise NanfImportError(
+                EXCLUDED_FROM_SCORING, "this sheet is excluded from scoring (plan Amendment 8)"
+            )
         return self.series[key]
 
 
@@ -677,6 +686,8 @@ def read_nanf_workbook(
     Amendment 4 D6 and Amendment 5 F8; see `nanf_freeze`); a bare True, a wrong hash, no record, a
     changed plan or changed code raises `NanfImportError` with code `HOLDOUT_LOCKED` before the
     file is opened.
+    Every Fig.11 series is excluded from scoring (Amendment 8) and is never returned, with or
+    without a freeze: it is validated, listed in `withheld_holdout`, and refused by `wb[key]`.
     """
     if include_holdout:
         try:
@@ -751,7 +762,10 @@ def read_nanf_workbook(
             cells = _check_sheet(layout, root, shared)
             all_series.update(_build_series(layout, cells))
     kept = {
-        k: s for k, s in all_series.items() if include_holdout or s.role is not DataRole.HOLDOUT
+        k: s
+        for k, s in all_series.items()
+        if (include_holdout or s.role is not DataRole.HOLDOUT)
+        and s.sheet not in SCORING_EXCLUDED_SHEETS
     }
     withheld = tuple(k for k in all_series if k not in kept)
     return NanfWorkbook(digest, kept, withheld)

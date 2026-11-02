@@ -91,7 +91,13 @@ def test_default_read_withholds_the_holdout_and_keeps_the_rest(fixture_file):
     assert roles == {DataRole.CROSS_CHECK, DataRole.CALIBRATION, DataRole.CALIBRATION_INPUT}
     assert len(wb.series) == 21 and len(wb.withheld_holdout) == 48
     full = read(path, digest, include_holdout=True)
-    assert len(full.series) == 69 and full.withheld_holdout == ()
+    # the two Fig.11 series are excluded from scoring (Amendment 8): validated, never returned
+    assert len(full.series) == 67 and len(full.withheld_holdout) == 2
+    assert all(k.startswith("Fig.11/") for k in full.withheld_holdout)
+    assert not any(s.sheet == "Fig.11" for s in full.series.values())
+    with pytest.raises(NanfImportError) as err:
+        full[series_key("Fig.11", "table", "240sub-SMF-DMT")]
+    assert err.value.code == "EXCLUDED_FROM_SCORING"
     assert wb.sha256 == digest
 
 
@@ -161,7 +167,9 @@ def test_provenance_units_and_counts_per_series(fixture_file):
     assert wb[series_key("Fig.7", "table", "NANF-BER")].unit == "1"
 
 
-def test_inf_formula_cells_and_censored_ber_are_never_numbers(fixture_file):
+def test_inf_formula_cells_and_censored_ber_are_never_numbers(fixture_file, monkeypatch):
+    # the parse of the excluded sheet is still checked: lift the exclusion for this test only
+    monkeypatch.setattr(nanf_import, "SCORING_EXCLUDED_SHEETS", frozenset())
     path, digest = fixture_file
     wb = read(path, digest, include_holdout=True)
     smf = wb[series_key("Fig.11", "table", "240sub-SMF-DMT")]
@@ -665,7 +673,7 @@ def test_rich_text_runs_are_joined_and_phonetic_text_is_ignored(tmp_path):
         read(path, digest, include_holdout=True)
 
 
-def test_a_shared_formula_needs_its_master_and_a_child_resolves_to_it(tmp_path):
+def test_a_shared_formula_needs_its_master_and_a_child_resolves_to_it(tmp_path, monkeypatch):
     def orphan(parts):
         sheet = parts["xl/worksheets/sheet9.xml"].decode()
         assert '<f t="shared" si="0"/>' in sheet
@@ -681,6 +689,7 @@ def test_a_shared_formula_needs_its_master_and_a_child_resolves_to_it(tmp_path):
     # the unmodified fixture uses a master and children, and is accepted
     path2 = tmp_path / "ok.xlsx"
     digest2 = make_workbook(path2)
+    monkeypatch.setattr(nanf_import, "SCORING_EXCLUDED_SHEETS", frozenset())  # parse check only
     wb = read(path2, digest2, include_holdout=True)
     assert wb[series_key("Fig.11", "table", "240sub-SMF-DMT")].n_non_finite == 24
 

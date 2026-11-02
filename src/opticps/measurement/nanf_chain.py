@@ -478,6 +478,13 @@ class NotScorableError(ValueError):
     """A point that is not a run of the declared chain was offered for scoring."""
 
 
+# Plan Amendment 8 G-C: after a freeze the fibre and the noise index are not free. Only a link in
+# this table and a point index in this set can give a scorable result; part b declares both, in this
+# file (it is part of the code identity). Until then no run after a freeze is scorable.
+DECLARED_LINKS: dict[str, LinkSpec] = {}
+DECLARED_POINT_INDICES: frozenset[int] = frozenset()
+
+
 class FrozenOverrideError(ValueError):
     """After a freeze, parameters, chain configuration or equaliser may not be overridden."""
 
@@ -501,6 +508,7 @@ class PointResult:
     seconds: dict[str, float]
     dfe: DfeResult = field(repr=False)
     unscorable_reasons: tuple[str, ...] = ()
+    frozen_record_hash: str | None = None  # the verified record the run used, None before a freeze
 
     @property
     def ber(self) -> float:
@@ -511,12 +519,19 @@ class PointResult:
         return not self.unscorable_reasons
 
 
-def require_scorable(points: Iterable[PointResult]) -> None:
-    """Raise `NotScorableError` unless every point is a scorable run of the declared chain."""
+def require_scorable(points: Iterable[PointResult], *, frozen: bool = False) -> None:
+    """Raise `NotScorableError` unless every point is a scorable run of the declared chain.
+
+    With `frozen=True` (what scoring against the holdout needs) every point must also have used a
+    verified freeze record: a run made without one, for example after the record was deleted, is
+    refused (Amendment 8).
+    """
     for k, point in enumerate(points):
         if not isinstance(point, PointResult) or not point.scorable:
             why = ", ".join(point.unscorable_reasons) if isinstance(point, PointResult) else "type"
             raise NotScorableError(f"point {k} cannot be scored: {why}")
+        if frozen and point.frozen_record_hash is None:
+            raise NotScorableError(f"point {k} was not run under a verified freeze record")
 
 
 def ceiling_noise_std(scope_signal: FloatArray, ceiling_db: float) -> float:
@@ -575,6 +590,7 @@ def simulate_point(
     if eq.samples_per_symbol != 2 or eq.training_symbols != cfg.training_symbols:
         raise ValueError("the chain feeds a T/2 equaliser with the declared training length")
     reasons: list[str] = []
+    frozen_hash: str | None = None
     if diagnostic:
         reasons.append("diagnostic run")
     if cfg != ChainConfig():
@@ -593,6 +609,11 @@ def simulate_point(
         if params is not None and params != record.parameters:
             raise FrozenOverrideError("after a freeze the parameters are those of the record")
         params = record.parameters
+        frozen_hash = record.freeze_hash
+        if spec != LinkSpec() and spec not in DECLARED_LINKS.values():
+            reasons.append("link not in the declared table (plan Amendment 8)")
+        if point_index not in DECLARED_POINT_INDICES:
+            reasons.append("point_index not declared (plan Amendment 8)")
     if params is None:
         raise ValueError("params is required until a freeze record exists")
     seconds: dict[str, float] = {}
@@ -677,6 +698,7 @@ def simulate_point(
         seconds=seconds,
         dfe=result,
         unscorable_reasons=tuple(reasons),
+        frozen_record_hash=frozen_hash,
     )
 
 
@@ -697,6 +719,12 @@ class PointOutcome:
     result: PointResult | None
     reason: str = ""
 
+    def __post_init__(self) -> None:
+        if self.result is not None and (
+            not isinstance(self.result, PointResult) or not self.result.scorable
+        ):
+            raise NotScorableError("an outcome may only hold a scorable result (Amendment 8)")
+
     @property
     def lost(self) -> bool:
         return self.result is None
@@ -715,6 +743,9 @@ def run_point(
     refused override or a bad grid, still raises. A result that is not scorable is refused here too
     (`NotScorableError`), so an outcome with a result is always a scorable run.
     """
+    override = kwargs.get("equalizer")
+    if override is not None and override.p_trace_cap != PINNED_P_TRACE_CAP:
+        raise NotScorableError("the trace cap cannot be changed in a scoring run (Amendment 8)")
     try:
         result = simulate_point(params, rate_gbps, rop_dbm, **kwargs)
     except TraceCapActedError as err:
@@ -741,8 +772,15 @@ class CurveArrays:
     n_lost: int
 
 
-def curve_arrays(outcomes: Sequence[PointOutcome]) -> CurveArrays:
-    """Arrays for the scoring functions; a lost point keeps its place and is marked invalid."""
+def curve_arrays(outcomes: Sequence[PointOutcome], *, calibration: bool = False) -> CurveArrays:
+    """Arrays for the scoring functions; a lost point keeps its place and is marked invalid.
+
+    Every non-lost result must be scorable (`require_scorable`), so a changed cap, configuration,
+    noise-off or diagnostic result cannot reach a score (Amendment 8). Unless `calibration=True`
+    (the B2B points of the fit before a freeze) every result must also have used a verified freeze
+    record, so deleting the record does not make a vector scorable.
+    """
+    require_scorable([o.result for o in outcomes if o.result is not None], frozen=not calibration)
     rop = np.array([o.rop_dbm for o in outcomes], dtype=float)
     ber = np.array([math.nan if o.result is None else o.result.ber for o in outcomes])
     snr = np.array([math.nan if o.result is None else o.result.snr_db for o in outcomes])

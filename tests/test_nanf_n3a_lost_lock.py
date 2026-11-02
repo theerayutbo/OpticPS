@@ -72,7 +72,7 @@ def test_a_good_outcome_carries_a_scorable_result_and_lost_ones_stay_in_the_arra
     ok = nc.run_point("p", MID, 80, -5.0)
     assert not ok.lost and ok.result is good and nc.lost_report([ok]) == []
     lost = nc.PointOutcome("q", -12.0, None, "RlsInstabilityError: x")
-    arrays = nc.curve_arrays([lost, ok])
+    arrays = nc.curve_arrays([lost, ok], calibration=True)
     assert list(arrays.valid) == [False, True] and arrays.n_lost == 1
     assert math.isnan(arrays.ber[0]) and math.isnan(arrays.snr_db[0])  # not zero, not censored
     assert arrays.rop_dbm.tolist() == [-12.0, -5.0]  # the lost point keeps its place
@@ -167,7 +167,7 @@ def test_c2_c3_c4_c5_and_the_b2b_gate_fail_when_a_needed_point_is_lost():
     point = sc.Crossing("point", -9.0, -9.0)
     snr2 = [10.0, 11.0]
     assert sc.b2b_gate(snr2, snr2, point, point).passed
-    gate = sc.b2b_gate(snr2, snr2, point, point, simulated_valid=[True, False])
+    gate = sc.b2b_gate(snr2, snr2, point, point, rop=[-9.0, -8.0], simulated_valid=[True, False])
     assert gate.passed is False and gate.label == "B2B CALIBRATION POOR"
 
 
