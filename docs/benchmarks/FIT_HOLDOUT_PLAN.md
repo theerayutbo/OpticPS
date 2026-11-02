@@ -1015,3 +1015,74 @@ shared-sequence check, and does not compute any BER, SER or proxy. E2b, after in
 this part, runs the 2 km stage (selection among the nine scenarios, no VALIDATED), then writes
 `selected_scenario.yaml`, commits it, and only then the single 10 km evaluation. A change after a
 result is seen burns the file (section 2). The generic readers stay ungated (known limits).
+
+## Revision 11 (2026-11-02): the freeze is bound to its inputs; the first freeze is superseded
+
+Previous version: SHA-256 `1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e` (Revision 10, commit 1b496d2; Revision 9 is `9e7b51ad...`). New
+version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. Reason: an automated security review of Gate E2 part a found that the freeze of Revision
+10 was not bound to its inputs.
+
+### R11.1 The finding, verified
+
+`require_frozen_criterion` proves that the criterion, the plan and the named inputs are committed and
+equal to `HEAD`. It does not prove they are what existed at the freeze commit. After the freeze, a
+model, its pre-registration (which is not a guard input), the code-identity table inside the model
+and the listed code files could be replaced together, each commit consistent with the others, and the
+scorer would accept them: its checks compared the model with the guard's hash of the same current
+bytes, the registration with the current model, and the code with the table inside the current model.
+Reproduced by tests added in this revision (model and registration replaced together; code, table and
+registration replaced together). The `selected_scenario` file, which is added after the freeze by
+design, had no rule at all. Both parts apply.
+
+### R11.2 The fix
+
+`e2_score.bind_to_freeze` reads each of these files at `frozen.commit` and requires its bytes to equal
+the committed bytes at `HEAD`: `b2b_model.yaml`, `scenario_list.yaml`,
+`preregistered_predictions.yaml`, `scripts/score_teriphic_e2.py` and every file of
+`CODE_IDENTITY_FILES`. A file that did not exist at the freeze commit is refused, and the freeze commit
+must be an ancestor of `HEAD`. It runs straight after `require_frozen_criterion`, before any hash or
+read. `e2_score.read_selected_scenario` requires `selected_scenario.yaml` to be absent at the freeze
+commit, to be touched by exactly one commit in the full history (so it is added once and never
+changed, deleted or re-added), that commit to descend from the freeze commit, and the committed
+bytes to equal that commit's bytes. Negative tests cover each case (model plus registration, scenario
+list, registration, code plus table plus registration, code alone, evaluation script, a file missing at
+the freeze, selected scenario changed, deleted and re-added, present at the freeze, added on a side
+branch, wrong type); `scripts/mutate_e2.py` has mutants for each branch. The bytes compared are in the
+local Git history: this inherits the promise of R3.1 and does not widen it (history rewriting,
+backdating and the other routes of the known limits are unchanged).
+
+### R11.3 The first freeze is superseded
+
+The criterion committed at `docs/benchmarks/TERIPHIC_CRITERION.yaml` in commit d520ff7 froze Revision
+10 and a scorer without R11.2. Git history cannot be rewritten here, and the guard refuses any change of
+a criterion at its path (R3.2). `holdout.CRITERION_PATH` is therefore changed to
+`docs/benchmarks/TERIPHIC_CRITERION_R11.yaml` (the one edit to `holdout.py`; R3.2 allows a new path only
+by a plan revision, and this is it). The file at the old path stays in the repository as a record, is
+ignored by the guard (a file at any other path is not a criterion), and must not be used. Revision 10
+stands for everything else: metrics, windows, seeds, scenarios, thresholds, comparator, outcome rules and
+the pre-registered values are unchanged (the limits are the same numbers; the model was refitted by
+the same deterministic procedure and gave the same values). Only the code-identity table and the data
+hashes of R10.4 are replaced by these. The criterion at the new path is committed in the commit after
+this revision; the commit that first holds it is the freeze. R10.1 says `holdout.py` is unchanged;
+that sentence is superseded by R11.3.
+
+Code identity (SHA-256 of the files as committed at the new freeze; the scorer refuses any difference,
+and R11.2 additionally compares them with the freeze commit):
+
+- `src/opticps/benchmarks/e2_metrics.py` `3089b5f844339b177f26bdb00b82396f2aca36f042e7dcdf66995ebb42719608`
+- `src/opticps/benchmarks/e2_model.py` `3280f591800437de21a546c471240a6d1e7fa3b503e4179a20a55cd732bbcdd0`
+- `src/opticps/benchmarks/e2_score.py` `ccd13e6279b1a67a3c606edee6a2cc832283f3482289685ab4d07547c4113f8d`
+- `src/opticps/benchmarks/holdout.py` `986a475b357af71648b22db89ad6873c4459677614608c3d325ad5ddd9860964`
+- `src/opticps/benchmarks/external_capture.py` `7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3`
+- `src/opticps/benchmarks/teriphic.py` `8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee`
+- `src/opticps/benchmarks/provenance.py` `65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d`
+
+Data files: `b2b_model.yaml` `ed142aacb59721b149bc24b884edd906974ff253068bf3d6db75e1814e5129ab`, `scenario_list.yaml`
+`bbacd37e100b7339c2ad6b43ee01b600ade9ab0d5d2164f967b903e8140ae986`, `preregistered_predictions.yaml` `31132e9c0d5cfcb50dcbe8a2685ae538e1183657ebd85cbada97594b6f2d4a3d`.
+
+### R11.4 Still true
+
+No 2 km or 10 km sample, header or hash was read or produced at any point of Gate E2 part a; the scorer
+has never run on a holdout. The tests of R11.2 use synthetic repositories only.

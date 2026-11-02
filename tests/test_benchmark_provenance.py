@@ -59,7 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 10 of the plan (2026-11-02, Gate E2 part a; Revision 9 is
+# Pinned for Revision 11 of the plan (2026-11-02, Gate E2 part a, freeze bound to its inputs;
+# Revision 10 is REVISION_10_PLAN_SHA256 at 1b496d2; Revision 9 is
 # REVISION_9_PLAN_SHA256 at 1e1e90a; Revision 8 is
 # REVISION_8_PLAN_SHA256 at 9778ce8; Revision 7 is
 # REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
@@ -73,7 +74,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e"  # Revision 10
+PLAN_SHA256 = "554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d"  # Revision 11
+REVISION_10_PLAN_SHA256 = (
+    "1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e"  # commit 1b496d2
+)
 REVISION_9_PLAN_SHA256 = (
     "9e7b51adade3a3ecdc4ca855f5f919747b1aab27ca8e2f857884fb1345feef24"  # commit 1e1e90a
 )
@@ -220,6 +224,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_10_PLAN_SHA256,
         REVISION_9_PLAN_SHA256,
         REVISION_8_PLAN_SHA256,
         REVISION_7_PLAN_SHA256,
@@ -240,6 +245,23 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 8 (2026-11-01)" in text
     assert "## Revision 9 (2026-11-02)" in text
     assert "## Revision 10 (2026-11-02)" in text
+    assert "## Revision 11 (2026-11-02)" in text
+    revision_11 = text[text.index("## Revision 11 (2026-11-02)") :]
+    for needle in (
+        REVISION_10_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "was not bound to its inputs",
+        "`e2_score.bind_to_freeze` reads each of these files at `frozen.commit`",
+        "exactly one commit in the full history",
+        "never changed, deleted or re-added",
+        "The first freeze is superseded",
+        "`holdout.CRITERION_PATH` is therefore changed to",
+        "TERIPHIC_CRITERION_R11.yaml",
+        "does not widen it",
+        "must not be used",
+        "No 2 km or 10 km sample, header or hash was read or produced at any point",
+    ):
+        assert needle in revision_11, needle
     revision_10 = text[text.index("## Revision 10 (2026-11-02)") :]
     for needle in (
         REVISION_9_PLAN_SHA256,

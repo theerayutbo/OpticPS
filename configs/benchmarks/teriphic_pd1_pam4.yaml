@@ -13,7 +13,7 @@ source:
   url: "https://zenodo.org/records/7886498"
   version: "record 7886498 (Zenodo revision counter 2; metadata.version and DataCite version are null)"
   retrieved: "2026-10-31"
-  plan_sha256: "1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e"
+  plan_sha256: "554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d"
   licenses:
     - scope: data
       status: RECORD_LEVEL
