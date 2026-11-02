@@ -1,0 +1,11 @@
+# Frozen criterion for TERIPHIC PD1 PAM4 (plan Revision 10). The commit that first holds
+# this file is the freeze. Limits are b2b_basis times multipliers, from B2B only.
+criterion_version: 3
+plan_sha256: 554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d
+limits: {M1_level_spacing: 0.026585695073005677, M2_wasserstein1_amplitude: 0.034559923951907795, M3_quantile_error: 0.08984606746513826,
+  M4_log_spectral_distance: 1.2292058677022963}
+b2b_basis: {M1_level_spacing: 0.013292847536502839, M2_wasserstein1_amplitude: 0.017279961975953897, M3_quantile_error: 0.04492303373256913,
+  M4_log_spectral_distance: 0.6146029338511482}
+multipliers: {M1_level_spacing: 2.0, M2_wasserstein1_amplitude: 2.0, M3_quantile_error: 2.0, M4_log_spectral_distance: 2.0}
+estimators: {M1_level_spacing: linf_gap_kmeans4_r2, M2_wasserstein1_amplitude: w1_quantile_mean_65536_r2,
+  M3_quantile_error: max_abs_quantile_7pts_r2, M4_log_spectral_distance: welch_hann4096_lsd_r2}
