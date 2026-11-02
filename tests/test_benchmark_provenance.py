@@ -59,7 +59,8 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 9 of the plan (2026-11-02, closing round of Gate E1; Revision 8 is
+# Pinned for Revision 10 of the plan (2026-11-02, Gate E2 part a; Revision 9 is
+# REVISION_9_PLAN_SHA256 at 1e1e90a; Revision 8 is
 # REVISION_8_PLAN_SHA256 at 9778ce8; Revision 7 is
 # REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
 # REVISION_6_PLAN_SHA256 at 536b3ec; Revision 5, before any sample was read, is REVISION_5_PLAN_SHA256 at 57643ca; Revision 4 is
@@ -72,7 +73,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "9e7b51adade3a3ecdc4ca855f5f919747b1aab27ca8e2f857884fb1345feef24"  # Revision 9
+PLAN_SHA256 = "1bd5bbad62efbc92f8a54e67e0e08de208a1d455247a512a592e196f7a8a4f3e"  # Revision 10
+REVISION_9_PLAN_SHA256 = (
+    "9e7b51adade3a3ecdc4ca855f5f919747b1aab27ca8e2f857884fb1345feef24"  # commit 1e1e90a
+)
 REVISION_8_PLAN_SHA256 = (
     "37487f3b59cd69ceed8344aeb605d3625322fdaaafbce850702e4f9bd96af058"  # commit 9778ce8
 )
@@ -216,6 +220,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_9_PLAN_SHA256,
         REVISION_8_PLAN_SHA256,
         REVISION_7_PLAN_SHA256,
         REVISION_6_PLAN_SHA256,
@@ -234,6 +239,31 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 7 (2026-11-01)" in text
     assert "## Revision 8 (2026-11-01)" in text
     assert "## Revision 9 (2026-11-02)" in text
+    assert "## Revision 10 (2026-11-02)" in text
+    revision_10 = text[text.index("## Revision 10 (2026-11-02)") :]
+    for needle in (
+        REVISION_9_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "R9.1 now has a caller",
+        "the only code in `src` that reads a sample of a holdout",
+        "`require_frozen_criterion`, with the inputs of `holdout.REQUIRED_INPUTS`",
+        "the holdout's MD5 (against the register) and SHA-256",
+        "The promise of R3.1 is unchanged and is not widened",
+        "`ASSUMED_G652D`, never ground truth",
+        "`MODEL GAP: CHIRP`",
+        "Declared UNKNOWN, never tuned on a holdout",
+        "BER and SER stay `REFERENCE_SEQUENCE_MISSING`",
+        "is not a BER",
+        "Comparator, the B2B copy",
+        "`PASS, NOT DISCRIMINATING`",
+        "`PASS, DISCRIMINATING`",
+        "R10.4 Code identity (narrow",
+        "not the Python interpreter, NumPy",
+        "its `results` key is null and no result column exists",
+        "E2a does not run the scorer on a holdout",
+        "No sample, header, size-based decode or statistic of the 2 km or 10 km file was read",
+    ):
+        assert needle in revision_10, needle
     revision_9 = text[text.index("## Revision 9 (2026-11-02)") :]
     for needle in (
         REVISION_8_PLAN_SHA256,

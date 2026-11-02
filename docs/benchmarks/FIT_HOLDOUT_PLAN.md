@@ -794,3 +794,224 @@ typed folder escapes, because the walk does not enter it. R8.1 under-claimed her
 
 The re-check after the loop (R8.2) is also tested on a record of one block, where the earlier test used
 several blocks.
+
+## Revision 10 (2026-11-02): Gate E2 part a, the scoring entry point, the model, the frozen criterion
+
+Previous version: SHA-256 `9e7b51adade3a3ecdc4ca855f5f919747b1aab27ca8e2f857884fb1345feef24` (Revision 9, commit 1e1e90a; earlier pins are listed in the
+tests). New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. Reason: Gate E2 part a builds everything needed to score the holdouts up to and
+including the frozen criterion. The criterion file `docs/benchmarks/TERIPHIC_CRITERION.yaml` is
+committed after this revision, in the next commit; the commit that first holds it is the freeze
+(R2.3, R3.2).
+
+### R10.0 State of knowledge
+
+No sample, header, size-based decode or statistic of the 2 km or 10 km file was read, hashed or
+produced in this gate: the Dev ran no code on either file. Everything below was computed from the
+B2B capture (`50G_PAM4_PD1_B2B_Subassembly1.bin`, characterisation role) and from code. The B2B
+windows used are named in R10.3. The scorer was written and tested on synthetic fixtures; it has
+never run on a holdout. That is E2b, after independent review of this part.
+
+### R10.1 The scoring entry point: R9.1 now has a caller
+
+`opticps.benchmarks.e2_score.score_holdout` is the scoring entry point. It is the only code in `src`
+that reads a sample of a holdout. In this order, refusing at the first failure (every refusal is a
+`BenchmarkError`):
+
+1. the registered name of the resolved path must be the 2 km or 10 km asset (nothing is opened);
+2. `require_frozen_criterion`, with the inputs of `holdout.REQUIRED_INPUTS` (2 km: `b2b_model`,
+   `scenario_list`; 10 km: `frozen_parameters`, `selected_scenario`, `evaluation_script`, and the 2 km
+   stage declared). This precedes every hash, header read and statistic;
+3. the committed model, scenario list and pre-registration are read from `HEAD` bytes, agree with the
+   hashes the guard computed and with each other, hold no filled result column, carry the frozen
+   limits, and the working code equals the code identity of R10.4;
+4. the holdout's MD5 (against the register) and SHA-256 (against `teriphic.HOLDOUT_SHA256`) are
+   verified at read time on the whole file; a mismatch refuses before the file is opened;
+5. only then the header and the fixed window are read, through `ExternalCapture`, with the B2B
+   comparator read through the existing gate (`gate_sample_read`, B2B by MD5).
+
+A source scan test keeps the claim: the readers (`open_keysight_bin`, `open_raw`, `read_bin`,
+`read_scope_file`) are called in `src` only by `e2_score.py`, `teriphic.py` (the B2B adapter and the
+gated inspection route), `uxr_import.py` and `uxr_ingest.py` (the CLI-gated UXR route); inside
+`score_holdout` the guard call precedes every reader, hash and gate call. `holdout.py` is unchanged.
+`FREEZE_GUARD_KNOWN_LIMITS.md` now says the guard has a caller and still says what that does not
+cover: code that calls the generic readers directly, statistics computed outside the entry point, and
+the routes it lists. The promise of R3.1 is unchanged and is not widened.
+
+### R10.2 The model, and what it predicts
+
+OpticPS predicts what the 2 km and 10 km captures should show from B2B-calibrated quantities and an
+IM/DD chain with fibre, using only metrics that need no transmitted bits (`e2_model.py`). It is a
+seeded surrogate: independent symbols drawn with stated level probabilities, a zero-phase lumped pulse
+whose magnitude is the square root of the B2B Welch spectrum, four level values and one noise standard
+deviation fitted on B2B, then (by scenario) the small-signal dispersion response
+`cos(pi * lambda^2 * D * L * f^2 / c)` of a chirp-free modulator, an amplitude ratio at the receiver,
+and noise either unscaled (receiver dominated) or scaled with the signal. It is never driven by a
+sequence recovered from B2B (R2.4): the drivers are the seeds and the level probabilities.
+
+Parameters, with provenance. Fitted on the B2B fit window only (`RAW_CAPTURE` statistics or `INFERRED`
+fits): the affine normalisation (`c0` = -0.00018433985085895875, `g0` = 0.006999456322514625 in file units), the
+spectrum shape (2049 bins), the four pulse levels [-1.680156, -0.480633, 0.593506, 1.679634] and the
+noise standard deviation 0.241526 (normalised units; the fit is a 5-parameter
+Nelder-Mead polish of M1 + M2 + M3 + 0.05 M4 against the fit window, seed 20261101).
+Fibre length is `PUBLISHED_MEASUREMENT` (the file names: 2 and 10 km). Declared, not fitted:
+level probabilities uniform and symbols independent (the record states neither).
+
+Declared UNKNOWN, never tuned on a holdout: wavelength (O-band only; 1310 nm enters only as lambda
+squared of the dispersion response), fibre type, dispersion, fibre loss and launch power, modulator
+chirp, modulation depth and optical offset, the phase of the lumped TX and RX response, the split of
+B2B noise into signal-borne and receiver noise. Dispersion enters as a finite list of scenarios
+bounded by the ITU-T G.652.D limit envelope for 1260 to 1360 nm (the largest |D| of
+`optical_channel.fiber.g652d_dispersion_limits` is 6.352 ps/(nm km), `SPECIFICATION_LIMIT`; the
+sign does not matter for zero chirp), each labelled `ASSUMED_G652D`, never ground truth. Loss enters
+as 0 dB/km (received amplitude equal to B2B, an assumption: launch power and any re-tuning between
+lengths are unknown) or the G.652 Table I.1 typical link value 0.5 dB/km (representative, not
+measured on this fibre). Chirp and launch power are not identifiable from B2B: chirp is set to zero in
+every scenario and recorded as `MODEL GAP: CHIRP` (a FAIL does not refute fibre dispersion, and a PASS
+does not validate the chirp-free assumption); launch power is carried only through the amplitude
+scenario. The surrogate is also small-signal (`MODEL GAP: LARGE_SIGNAL`), zero-phase (`PHASE`) and
+puts the noise origin in a scenario (`NOISE_ORIGIN`). No timing or jitter metric is chosen: timing
+operations on the holdouts are barred before the freeze (R.2, R.3) and B2B does not identify jitter
+separately from the lumped response. BER and SER stay `REFERENCE_SEQUENCE_MISSING`;
+`estimated_decision_error_proxy` is not computed here and is not a BER.
+
+### R10.3 The frozen criterion
+
+Metrics. The four metrics are those of R2.2, unchanged, now implemented in `e2_metrics.py`
+(estimator ids `holdout.ESTIMATORS`). Choices that R2.2 left open, fixed here: quantiles by one sort
+and linear interpolation `h = (n - 1) p` (Hyndman-Fan type 7); k-means by sorted partition with the
+R2.2 start and stop, an empty cluster refused; M4 by `scipy.signal.welch` with the R2.2 arguments,
+bins `f <= 50 GHz` (101 bins, DC bin included), frequency axis from the header time increment,
+`1 / 4.8828125e-13 s = 2.048 THz` (R6.1 item 5; a length whose header gives another increment is
+`BLOCKED`); a non-finite value, a window under 32768 samples, a non-positive spectral bin or a
+degenerate level estimate is refused, never scored.
+
+Why each can fail and why it separates the fibre model from a copy of B2B (measured against the
+pre-registered separations below, which are computed from B2B only):
+
+- M1, level spacing (L-infinity norm of the change of the three centroid gaps, in B2B gap units):
+  moves with the received amplitude (a loss scenario shrinks every gap) and, weakly, with
+  dispersion-induced level compression. A B2B copy has gap change zero by construction.
+- M2, amplitude Wasserstein-1: moves with amplitude scale and with ISI spread. A B2B copy keeps the B2B
+  distribution, so it fails when the true distribution moved.
+- M3, quantile error at 1, 5, 25, 50, 75, 95, 99 %: sensitive to tails, hence to scale and to
+  ISI-induced tail change; a copy cannot follow either.
+- M4, log-spectral distance up to the baud rate: the only metric that sees a dispersion notch or
+  low-pass (a null near 37 GHz at 10 km for the largest |D|); also moves with amplitude by a uniform dB
+  offset. A B2B copy has the B2B spectrum.
+
+Windows (indices into the stored stream of 40,959,993 samples, end exclusive, 2.048 THz stored rate,
+40.96 samples per symbol): fit [0, 8,388,608); spread [8,388,608, 12,582,912); evaluation
+[16,777,216, 20,971,520), 4,194,304 samples = 102,400 symbols. The measured holdout window and the
+B2B comparator window are the evaluation window. Seeds: fit 20261101, prediction symbols
+20261102, prediction noise 20261103 (the same for every scenario
+and length, so scenarios differ only by their channel).
+
+Normalisation: x_norm = (x - c0) / g0 with the values above, applied unchanged to every length. No
+length is rescaled on its own.
+
+Thresholds. For each metric, `b2b_basis` = the larger of (a) the metric between the real B2B evaluation
+window and the surrogate's no-fibre prediction of the same size (the model's misfit on B2B) and (b)
+the metric between the real B2B spread window and the real B2B evaluation window (B2B internal
+spread). Multiplier 2.0 for all four. Limit = basis times multiplier (checked by the guard to 1e-9).
+These numbers are in the criterion file and below:
+
+| Metric | (a) surrogate misfit | (b) B2B spread | basis | multiplier | limit |
+|---|---|---|---|---|---|
+| M1 | 0.0132928 | 0.00556163 | 0.0132928 | 2 | 0.0265857 |
+| M2 | 0.01728 | 0.00272728 | 0.01728 | 2 | 0.0345599 |
+| M3 | 0.044923 | 0.00841582 | 0.044923 | 2 | 0.0898461 |
+| M4 | 0.614603 | 0.0805081 | 0.614603 | 2 | 1.22921 |
+
+A window is within the criterion if and only if all four metrics are less than or equal to their
+limits (R2.2). psi = the largest ratio of a metric to its limit; within the criterion means psi <= 1.
+
+Scenarios (9, counted; `scenario_list.yaml`): |D| in {0, 3.176, 6.352} ps/(nm km) crossed with
+amplitude {matched (0 dB/km), 0.5 dB/km with receiver noise, 0.5 dB/km with signal-borne noise}. The
+scenario with D = 0 and matched amplitude is the no-fibre control. At 2 km the scorer scores all nine
+and chooses the one with the smallest psi (ties go to the earlier in the list); that choice is the
+2 km stage's selection and is written to `selected_scenario.yaml` by E2b, never by this gate. At 10 km
+only that scenario and the control are scored.
+
+Comparator, the B2B copy. The B2B evaluation window, normalised as above, scored against the holdout with
+the same four metrics and the same limits.
+
+Outcome, per length. FAIL if the chosen scenario is outside the criterion. Otherwise
+`PASS, NOT DISCRIMINATING` if the B2B copy is also within the criterion, or the chosen scenario is the
+control, or the control is also within the criterion; otherwise `PASS, DISCRIMINATING`. The result of
+a model that cannot beat the copy is therefore never a bare PASS. Verdicts (`holdout.Verdict`):
+FAIL gives FAILED; `PASS, NOT DISCRIMINATING` gives UNIDENTIFIABLE_PARAMETER when no scenario was
+separable from the copy for that length in advance (R10.5) and INCONCLUSIVE otherwise;
+`PASS, DISCRIMINATING` at 2 km gives no verdict ("within criterion at the selection stage", R.5) and at
+10 km gives VALIDATED only if `allowed_verdicts` offers it for the declared stage, shared-sequence
+check and file state, INCONCLUSIVE otherwise. A header sample rate that differs from the model's, or
+a record shorter than the window, gives BLOCKED.
+
+### R10.4 Code identity (narrow, as the guard's estimator ids are)
+
+The code identity of E2 is the SHA-256 of these files as committed at the freeze:
+
+- `src/opticps/benchmarks/e2_metrics.py` `3089b5f844339b177f26bdb00b82396f2aca36f042e7dcdf66995ebb42719608`
+- `src/opticps/benchmarks/e2_model.py` `3280f591800437de21a546c471240a6d1e7fa3b503e4179a20a55cd732bbcdd0`
+- `src/opticps/benchmarks/e2_score.py` `7f71324f5330a09cd5a7668bb27961b700ff5da4f8b162bdaba7aa795a94c720`
+- `src/opticps/benchmarks/holdout.py` `11afae5ab55787751947361f27dcd29fb8f52a0510d5a8c1adbb7abdc0c77542`
+- `src/opticps/benchmarks/external_capture.py` `7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3`
+- `src/opticps/benchmarks/teriphic.py` `8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee`
+- `src/opticps/benchmarks/provenance.py` `65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d`
+
+The scorer refuses when the working bytes of any of them differ from the table recorded in
+`b2b_model.yaml` (a file the guard hashes). That is all it covers: not the Python interpreter, NumPy,
+SciPy, the operating system or any module not listed, and not the tests or scripts. Estimator ids still
+label estimators and do not verify code (module docstring of `holdout.py`). The only guard against
+library or platform drift is the reproduction tolerance of R10.5. The data files of the freeze are
+`docs/benchmarks/teriphic_e2/b2b_model.yaml` `0ca7db7349c909f7566ae4d7534ffae0076722f41595790f17888d953cbf70bb`,
+`scenario_list.yaml` `bbacd37e100b7339c2ad6b43ee01b600ade9ab0d5d2164f967b903e8140ae986` and `preregistered_predictions.yaml`
+`1c8cd7f022974b9743e175def34f30841139e922bee2a017fb1826357bab04b7`. A change to any listed file after the freeze needs a
+new revision and a new criterion, which the guard refuses to accept as the same freeze.
+
+### R10.5 Pre-registered predictions
+
+`docs/benchmarks/teriphic_e2/preregistered_predictions.yaml` holds, for each length (2 and 10 km) and
+scenario, the predicted level centroids, gaps, shares, standard deviation, the seven quantiles of M3
+and the spectrum in ten 5 GHz bands relative to its peak, and the four metrics between that prediction
+and the B2B copy (the separation). It was committed before any holdout read, from B2B and code alone;
+its `results` key is null and no result column exists. The scorer recomputes every value and refuses
+when one drifts by more than a relative 1e-6 (absolute 1e-9). Separation, with psi against the limits
+above (separable means psi > 1 and not the control):
+
+| Length | Scenario | M1 | M2 | M3 | M4 (dB) | psi | separable | predicted gaps |
+|---|---|---|---|---|---|---|---|---|
+| 2 km | D0_MATCHED | 0.0133 | 0.0173 | 0.0449 | 0.615 | 0.500 | no | 1.051, 0.976, 0.986 |
+| 2 km | DHALF_MATCHED | 0.0116 | 0.0171 | 0.0448 | 0.613 | 0.499 | no | 1.049, 0.974, 0.985 |
+| 2 km | DMAX_MATCHED | 0.0084 | 0.0166 | 0.0446 | 0.733 | 0.596 | no | 1.044, 0.969, 0.980 |
+| 2 km | D0_LOSS_RX_NOISE | 0.1959 | 0.1805 | 0.3588 | 1.882 | 7.368 | yes | 0.842, 0.776, 0.798 |
+| 2 km | DHALF_LOSS_RX_NOISE | 0.1971 | 0.1808 | 0.3609 | 1.946 | 7.415 | yes | 0.840, 0.775, 0.796 |
+| 2 km | DMAX_LOSS_RX_NOISE | 0.2007 | 0.1817 | 0.3663 | 2.168 | 7.551 | yes | 0.837, 0.772, 0.793 |
+| 2 km | D0_LOSS_SIGNAL_NOISE | 0.2054 | 0.1882 | 0.4274 | 2.006 | 7.726 | yes | 0.835, 0.775, 0.783 |
+| 2 km | DHALF_LOSS_SIGNAL_NOISE | 0.2066 | 0.1885 | 0.4295 | 2.072 | 7.772 | yes | 0.833, 0.774, 0.782 |
+| 2 km | DMAX_LOSS_SIGNAL_NOISE | 0.2100 | 0.1894 | 0.4354 | 2.303 | 7.899 | yes | 0.830, 0.770, 0.779 |
+| 10 km | D0_MATCHED | 0.0133 | 0.0173 | 0.0449 | 0.615 | 0.500 | no | 1.051, 0.976, 0.986 |
+| 10 km | DHALF_MATCHED | 0.0294 | 0.0220 | 0.0474 | 3.600 | 2.928 | yes | 1.019, 0.943, 0.959 |
+| 10 km | DMAX_MATCHED | 0.0641 | 0.0456 | 0.0876 | 5.086 | 4.138 | yes | 0.978, 0.902, 0.934 |
+| 10 km | D0_LOSS_RX_NOISE | 0.6273 | 0.5786 | 1.1370 | 8.305 | 23.594 | yes | 0.410, 0.371, 0.403 |
+| 10 km | DHALF_LOSS_RX_NOISE | 0.6324 | 0.5817 | 1.1475 | 9.471 | 23.788 | yes | 0.405, 0.367, 0.398 |
+| 10 km | DMAX_LOSS_RX_NOISE | 0.6373 | 0.5899 | 1.1584 | 9.993 | 23.972 | yes | 0.400, 0.360, 0.393 |
+| 10 km | D0_LOSS_SIGNAL_NOISE | 0.7052 | 0.6263 | 1.3933 | 9.930 | 26.526 | yes | 0.332, 0.308, 0.312 |
+| 10 km | DHALF_LOSS_SIGNAL_NOISE | 0.7151 | 0.6296 | 1.4046 | 12.351 | 26.899 | yes | 0.322, 0.298, 0.303 |
+| 10 km | DMAX_LOSS_SIGNAL_NOISE | 0.7283 | 0.6400 | 1.3947 | 13.767 | 27.396 | yes | 0.309, 0.285, 0.296 |
+
+What this says before any data is seen. At 2 km no matched-amplitude scenario is separable from the B2B
+copy (psi 0.50 to 0.60), so a 2 km capture whose amplitude equals B2B reads `PASS, NOT DISCRIMINATING`
+whatever its dispersion, if it passes at all; only a received-amplitude change makes 2 km separable.
+At 10 km the matched-amplitude dispersion scenarios are separable through M4 (psi 2.93 for half the
+|D| bound, 4.14 for the bound). The criterion can therefore fail, and can pass without discriminating.
+It says nothing about the true fibre.
+
+### R10.6 What is not done here
+
+E2a does not run the scorer on a holdout, does not create `selected_scenario.yaml`, does not run the
+shared-sequence check, and does not compute any BER, SER or proxy. E2b, after independent review of
+this part, runs the 2 km stage (selection among the nine scenarios, no VALIDATED), then writes
+`selected_scenario.yaml`, commits it, and only then the single 10 km evaluation. A change after a
+result is seen burns the file (section 2). The generic readers stay ungated (known limits).
