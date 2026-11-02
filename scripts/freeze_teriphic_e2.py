@@ -7,7 +7,7 @@
 files under `docs/benchmarks/teriphic_e2/`: the fitted B2B model with its provenance and code
 identity, the scenario list, and the pre-registered predictions. It never opens, hashes or reads
 the 2 km or 10 km file and never imports the scoring entry point. `criterion` writes
-`docs/benchmarks/TERIPHIC_CRITERION.yaml` from the pre-registered limits and the SHA-256 of the
+`docs/benchmarks/TERIPHIC_CRITERION_R11.yaml` from the pre-registered limits and the SHA-256 of the
 committed plan; it must be run only after the plan revision is final, and its output is the freeze.
 """
 

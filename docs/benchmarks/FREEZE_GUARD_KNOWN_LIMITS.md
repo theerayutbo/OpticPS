@@ -68,7 +68,10 @@ a path that is not gated. Not gated, listed and not chased:
   keep that so (a scan of `src` for the readers, and the order of the calls inside `score_holdout`),
   and `scripts/mutate_e2.py` mutates it. This binds that entry point only: code that calls the generic
   readers below directly, statistics computed outside it, and the other routes listed here are
-  unchanged and fall under the promise. The code identity of E2 (R10.4) is a list of file hashes, not
+  unchanged and fall under the promise. Since plan R11 the scorer also compares the model, scenario list,
+  pre-registration, evaluation script and code files with their bytes at the freeze commit, and requires
+  `selected_scenario.yaml` to be added once after the freeze and never changed; this is bound to the
+  local history and inherits the promise. The code identity of E2 (R10.4, R11.3) is a list of file hashes, not
   a proof about the interpreter or libraries.
 - `ExternalCapture.open_keysight_bin`, `ExternalCapture.open_raw` and `opticps.measurement.uxr_import.read_bin`
   are generic readers. Called directly on a holdout path (by code, not through the CLI or the adapter) they

@@ -970,7 +970,7 @@ class Setup:
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", "inputs")
         if freeze:
-            self.freeze()
+            self.finish()
 
     def comparator(self) -> np.ndarray:
         """The B2B window as the scorer reads it: through the float32 file."""
@@ -1003,9 +1003,6 @@ class Setup:
             "results": None,
         }
         (self.root / e2_score.PREREGISTRATION_PATH).write_text(yaml.safe_dump(document))
-        (self.root / e2_score.SELECTED_PATH).write_text(
-            yaml.safe_dump({"scenario_id": "DMAX", "selected_at_stage": "2km"})
-        )
         (self.root / e2_score.EVALUATION_SCRIPT).parent.mkdir(exist_ok=True)
         (self.root / e2_score.EVALUATION_SCRIPT).write_text("# evaluation script fixture\n")
 
@@ -1020,6 +1017,18 @@ class Setup:
             "multipliers": dict.fromkeys(holdout.METRICS, MULTIPLIER),
             "estimators": dict(holdout.ESTIMATORS),
         }
+
+    def finish(self) -> None:
+        """Freeze, then add the 2 km stage's choice in its own later commit (as E2b will)."""
+        self.freeze()
+        self.select()
+
+    def select(self, scenario: str = "DMAX") -> None:
+        (self.root / e2_score.SELECTED_PATH).write_text(
+            yaml.safe_dump({"scenario_id": scenario, "selected_at_stage": "2km"})
+        )
+        git(self.root, "add", "-A")
+        git(self.root, "commit", "-q", "-m", "select")
 
     def freeze(self) -> None:
         path = self.root / holdout.CRITERION_PATH
@@ -1224,45 +1233,55 @@ def test_only_registered_2km_and_10km_files_can_be_scored(setup, monkeypatch):
     assert raised.value.code is ErrorCode.LEAKAGE_DETECTED
 
 
-def test_a_changed_code_file_is_refused_by_the_code_identity(setup, monkeypatch):
+def test_a_changed_code_file_is_refused(setup, monkeypatch):
     forbid_reads(monkeypatch)
     target = setup.root / e2_score.CODE_IDENTITY_FILES[0]
     target.write_text(target.read_text() + "\n# tweak\n")
-    with pytest.raises(BenchmarkError, match="code identity"):
+    with pytest.raises(BenchmarkError, match="modified since HEAD"):
         setup.score()
 
 
-def test_preregistration_must_be_tied_to_the_model_and_scenarios_and_hold_no_result(
-    setup, monkeypatch
-):
+def test_a_code_file_that_differs_from_the_identity_table_is_refused(world, tmp_path, monkeypatch):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    target = unfrozen.root / e2_score.CODE_IDENTITY_FILES[0]
+    target.write_text(target.read_text() + "\n# tweak before the freeze\n")
+    unfrozen.finish()
     forbid_reads(monkeypatch)
-    path = setup.root / e2_score.PREREGISTRATION_PATH
+    with pytest.raises(BenchmarkError, match="code identity"):
+        unfrozen.score()
+
+
+def pre_freeze_prereg(world, tmp_path, change):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    path = unfrozen.root / e2_score.PREREGISTRATION_PATH
     document = yaml.safe_load(path.read_text())
+    path.write_text(yaml.safe_dump(change(document)))
+    unfrozen.finish()
+    return unfrozen
 
-    def commit_with(change: dict, message: str):
-        path.write_text(yaml.safe_dump(document | change))
-        git(setup.root, "add", "-A")
-        git(setup.root, "commit", "-q", "-m", message)
 
-    commit_with({"results": {"2": {"M1": 0.1}}}, "result column filled")
-    with pytest.raises(BenchmarkError, match="result column is filled"):
-        setup.score()
-    commit_with({"results": None, "model_sha256": "0" * 64}, "untied")
-    with pytest.raises(BenchmarkError, match="not tied"):
-        setup.score()
-    commit_with({"model_sha256": document["model_sha256"], "scenario_list_sha256": "0" * 64}, "t2")
-    with pytest.raises(BenchmarkError, match="not tied"):
-        setup.score()
-    commit_with(
-        {"scenario_list_sha256": document["scenario_list_sha256"], "scenario_count": 9}, "count"
-    )
-    with pytest.raises(BenchmarkError, match="scenario count"):
-        setup.score()
-    commit_with(
-        {"scenario_count": 5, "limits": dict(document["limits"], M1_level_spacing=9.0)}, "lim"
-    )
-    with pytest.raises(BenchmarkError, match="differs from the frozen"):
-        setup.score()
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda d: d | {"results": {"2": {"M1": 0.1}}}, "result column is filled"),
+        (lambda d: d | {"model_sha256": "0" * 64}, "not tied"),
+        (lambda d: d | {"scenario_list_sha256": "0" * 64}, "not tied"),
+        (lambda d: d | {"preregistration_version": 2}, "not tied"),
+        (lambda d: d | {"scenario_count": 9}, "scenario count"),
+        (
+            lambda d: d | {"limits": dict(d["limits"], M1_level_spacing=9.0)},
+            "differs from the frozen",
+        ),
+        (lambda d: d | {"limits": {"M1_level_spacing": 1.0}}, "limits are missing"),
+    ],
+)
+def test_preregistration_must_be_tied_to_the_model_and_scenarios_and_hold_no_result(
+    world, tmp_path, monkeypatch, change, message
+):
+    unfrozen = pre_freeze_prereg(world, tmp_path, change)
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match=message):
+        unfrozen.score()
 
 
 @pytest.mark.parametrize("which", ["model", "scenarios"])
@@ -1277,21 +1296,173 @@ def test_the_committed_bytes_read_for_scoring_must_equal_the_bytes_the_guard_has
         return (data + b"\n", relative) if Path(path).name == target.name else (data, relative)
 
     monkeypatch.setattr(e2_score, "_committed_bytes", altered)
-    with pytest.raises(BenchmarkError, match="differ from the input the guard hashed"):
+    with pytest.raises(BenchmarkError, match="changed since the freeze|differ from the input"):
         setup.score()
 
 
-def test_a_drifted_preregistered_value_is_refused(setup, monkeypatch):
-    forbid_reads(monkeypatch)
+def test_a_drifted_preregistered_value_is_refused(world, tmp_path, monkeypatch):
+    def drift(d):
+        d["predictions"]["2"]["DMAX"]["summary"]["std"] *= 1.01
+        return d
+
+    unfrozen = pre_freeze_prereg(world, tmp_path, drift)
+    with pytest.raises(BenchmarkError, match="pre-registered predictions: .*std"):
+        unfrozen.score()
+
+
+def commit_all(setup, message):
+    git(setup.root, "add", "-A")
+    git(setup.root, "commit", "-q", "-m", message)
+
+
+def retie(setup):
+    """Re-tie the pre-registration to the current model and scenario list, as an attacker would."""
     path = setup.root / e2_score.PREREGISTRATION_PATH
     document = yaml.safe_load(path.read_text())
-    document["predictions"]["2"]["DMAX"]["summary"]["std"] *= 1.01
+    document["model_sha256"] = hashlib.sha256(
+        (setup.root / e2_score.MODEL_PATH).read_bytes()
+    ).hexdigest()
+    document["scenario_list_sha256"] = hashlib.sha256(
+        (setup.root / e2_score.SCENARIO_PATH).read_bytes()
+    ).hexdigest()
     path.write_text(yaml.safe_dump(document))
-    git(setup.root, "add", "-A")
-    git(setup.root, "commit", "-q", "-m", "drift")
-    monkeypatch.undo()
-    with pytest.raises(BenchmarkError, match="pre-registered predictions: .*std"):
+
+
+def test_a_model_replaced_together_with_its_registration_after_the_freeze_is_refused(
+    setup, monkeypatch
+):
+    model = setup.root / e2_score.MODEL_PATH
+    document = yaml.safe_load(model.read_text())
+    document["noise_sigma"] *= 1.5
+    model.write_text(yaml.safe_dump(document, sort_keys=False))
+    retie(setup)
+    commit_all(setup, "new model and registration")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="b2b_model.yaml: changed since the freeze commit"):
         setup.score()
+
+
+def test_a_scenario_list_replaced_after_the_freeze_is_refused(setup, monkeypatch):
+    path = setup.root / e2_score.SCENARIO_PATH
+    document = yaml.safe_load(path.read_text())
+    document["scenarios"][1]["dispersion_ps_nm_km"] = 1.0
+    path.write_text(yaml.safe_dump(document, sort_keys=False))
+    retie(setup)
+    commit_all(setup, "new scenarios")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="changed since the freeze commit"):
+        setup.score()
+
+
+def test_a_registration_replaced_after_the_freeze_is_refused(setup, monkeypatch):
+    path = setup.root / e2_score.PREREGISTRATION_PATH
+    document = yaml.safe_load(path.read_text())
+    document["predictions"]["2"]["DMAX"]["summary"]["std"] *= 2.0
+    path.write_text(yaml.safe_dump(document))
+    commit_all(setup, "new registration")
+    forbid_reads(monkeypatch)
+    with pytest.raises(
+        BenchmarkError, match="preregistered_predictions.yaml: changed since the freeze"
+    ):
+        setup.score()
+
+
+def test_code_and_identity_table_replaced_together_after_the_freeze_is_refused(setup, monkeypatch):
+    code = setup.root / e2_score.CODE_IDENTITY_FILES[0]
+    code.write_text(code.read_text() + "\n# a post-freeze change\n")
+    model = setup.root / e2_score.MODEL_PATH
+    document = yaml.safe_load(model.read_text())
+    document["code_identity"] = e2_score.code_identity(setup.root)
+    model.write_text(yaml.safe_dump(document, sort_keys=False))
+    retie(setup)
+    commit_all(setup, "new code, table and registration")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="changed since the freeze commit"):
+        setup.score()
+
+
+def test_a_code_file_changed_alone_after_the_freeze_is_refused(setup, monkeypatch):
+    code = setup.root / e2_score.CODE_IDENTITY_FILES[3]
+    code.write_text(code.read_text() + "\n# a post-freeze change\n")
+    commit_all(setup, "code only")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="holdout.py: changed since the freeze commit"):
+        setup.score()
+
+
+def test_the_evaluation_script_changed_after_the_freeze_is_refused(setup, monkeypatch):
+    script = setup.root / e2_score.EVALUATION_SCRIPT
+    script.write_text(script.read_text() + "# changed\n")
+    commit_all(setup, "script")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="score_teriphic_e2.py: changed since the freeze"):
+        setup.score(setup.holdout_10)
+
+
+def test_a_file_missing_at_the_freeze_commit_is_refused(world, tmp_path, monkeypatch):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    git(unfrozen.root, "rm", "-q", "-f", str(e2_score.EVALUATION_SCRIPT))
+    unfrozen.freeze()
+    (unfrozen.root / e2_score.EVALUATION_SCRIPT).parent.mkdir(exist_ok=True)
+    (unfrozen.root / e2_score.EVALUATION_SCRIPT).write_text("# added after the freeze\n")
+    commit_all(unfrozen, "late script")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="did not exist at the freeze commit"):
+        unfrozen.score()
+
+
+def test_the_selected_scenario_is_added_once_after_the_freeze_and_never_changed(
+    world, tmp_path, monkeypatch
+):
+    setup = Setup(world, tmp_path)
+    setup.score(setup.holdout_10)  # added once, unchanged: accepted
+    path = setup.root / e2_score.SELECTED_PATH
+    path.write_text(yaml.safe_dump({"scenario_id": "LOSS", "selected_at_stage": "2km"}))
+    commit_all(setup, "changed")
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="added once, never changed, found 2"):
+        setup.score(setup.holdout_10)
+    git(setup.root, "rm", "-q", str(e2_score.SELECTED_PATH))
+    commit_all(setup, "deleted")
+    path.write_text(yaml.safe_dump({"scenario_id": "DMAX", "selected_at_stage": "2km"}))
+    commit_all(setup, "re-added")
+    with pytest.raises(BenchmarkError, match="added once, never changed, found 4"):
+        setup.score(setup.holdout_10)
+
+
+def test_a_selected_scenario_present_at_the_freeze_is_refused(world, tmp_path, monkeypatch):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    unfrozen.select()  # before the freeze
+    unfrozen.freeze()
+    forbid_reads(monkeypatch)
+    with pytest.raises(BenchmarkError, match="already present at the freeze commit"):
+        unfrozen.score(unfrozen.holdout_10)
+
+
+def test_a_selected_scenario_not_descended_from_the_freeze_is_refused(world, tmp_path, monkeypatch):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    git(unfrozen.root, "branch", "side")
+    unfrozen.freeze()
+    git(unfrozen.root, "checkout", "-q", "side")
+    unfrozen.select()
+    git(unfrozen.root, "checkout", "-q", "-")
+    git(unfrozen.root, "merge", "-q", "--no-edit", "side")
+    forbid_reads(monkeypatch)
+    with pytest.raises(
+        BenchmarkError, match="not added after the freeze commit|added once, never changed"
+    ):
+        unfrozen.score(unfrozen.holdout_10)
+
+
+def test_a_selected_scenario_must_name_a_string_scenario(world, tmp_path):
+    unfrozen = Setup(world, tmp_path, freeze=False)
+    unfrozen.freeze()
+    (unfrozen.root / e2_score.SELECTED_PATH).write_text(
+        yaml.safe_dump({"scenario_id": 5, "selected_at_stage": "2km"})
+    )
+    commit_all(unfrozen, "bad")
+    with pytest.raises(BenchmarkError, match="must be a string"):
+        unfrozen.score(unfrozen.holdout_10)
 
 
 def test_a_header_with_another_sample_rate_or_a_short_record_is_blocked(setup):

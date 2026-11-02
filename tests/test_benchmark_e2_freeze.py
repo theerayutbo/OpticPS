@@ -50,6 +50,12 @@ def test_the_criterion_is_frozen_and_tied_to_the_committed_plan_and_inputs():
     assert frozen.inputs["scenario_list"] == hashlib.sha256(scenarios).hexdigest()
 
 
+def test_the_superseded_first_criterion_is_not_a_criterion():
+    old = ROOT / "docs/benchmarks/TERIPHIC_CRITERION.yaml"
+    assert old.is_file() and old != ROOT / holdout.CRITERION_PATH  # kept as a record (plan R11.3)
+    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R11.yaml"
+
+
 def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
     """E2b creates `selected_scenario.yaml` after the 2 km stage; until then 10 km is refused."""
     assert not (ROOT / e2_score.SELECTED_PATH).exists()
@@ -69,5 +75,6 @@ def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
 def test_the_known_limits_say_the_guard_has_a_caller_and_the_plan_says_so_too():
     limits = " ".join((ROOT / "docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md").read_text().split())
     assert "which now has a caller" in limits and "plan R10.1" in limits
+    assert "requires\n" not in limits and "added once after the freeze and never changed" in limits
     plan = " ".join((ROOT / holdout.DEFAULT_PLAN).read_text().split())
     assert "R9.1 now has a caller" in plan

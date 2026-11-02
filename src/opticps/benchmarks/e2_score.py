@@ -58,7 +58,10 @@ from opticps.benchmarks.holdout import (
     SequenceCheck,
     ValidationStage,
     Verdict,
+    _blob,
     _committed_bytes,
+    _git,
+    _git_ok,
     allowed_verdicts,
     require_frozen_criterion,
 )
@@ -600,6 +603,54 @@ class E2Result:
         }
 
 
+def bind_to_freeze(root: Path, frozen: Any) -> None:
+    """Refuse unless every file the result depends on equals what the freeze commit held.
+
+    `require_frozen_criterion` proves the criterion and the named inputs are committed and
+    unchanged since `HEAD`; it does not prove they are what existed at the freeze, so a model, a
+    pre-registration and a code-identity table could be replaced together after it. This reads each
+    file at `frozen.commit` and compares it with the committed bytes at `HEAD`: model, scenario
+    list, pre-registration, evaluation script and every file of `CODE_IDENTITY_FILES`. The freeze
+    commit must be an ancestor of `HEAD`.
+    """
+    if _git(root, "merge-base", "--is-ancestor", frozen.commit, "HEAD").returncode != 0:
+        raise BenchmarkError("the freeze commit is not an ancestor of HEAD")
+    paths = (MODEL_PATH, SCENARIO_PATH, PREREGISTRATION_PATH, EVALUATION_SCRIPT)
+    for relative in (*paths, *map(Path, CODE_IDENTITY_FILES)):
+        now, _ = _committed_bytes(root, root / relative, "frozen file")
+        then = _blob(root, frozen.commit, relative.as_posix())
+        if then is None:
+            raise BenchmarkError(f"{relative.as_posix()}: did not exist at the freeze commit")
+        if then != now:
+            raise BenchmarkError(f"{relative.as_posix()}: changed since the freeze commit")
+
+
+def read_selected_scenario(root: Path, frozen: Any) -> str:
+    """The scenario chosen at the 2 km stage: added once after the freeze and never changed."""
+    relative = SELECTED_PATH.as_posix()
+    if _blob(root, frozen.commit, relative) is not None:
+        raise BenchmarkError("selected scenario: already present at the freeze commit")
+    log = _git_ok(root, "log", "--full-history", "--format=%H", "--", relative)
+    commits = log.decode("ascii").split()
+    if len(commits) != 1:
+        raise BenchmarkError(f"selected scenario: added once, never changed, found {len(commits)}")
+    added = commits[0]
+    if (
+        added == frozen.commit
+        or _git(root, "merge-base", "--is-ancestor", frozen.commit, added).returncode != 0
+    ):
+        raise BenchmarkError("selected scenario: not added after the freeze commit")
+    now, _ = _committed_bytes(root, root / SELECTED_PATH, "selected scenario")
+    if _blob(root, added, relative) != now:
+        raise BenchmarkError("selected scenario: changed since it was added")
+    chosen = _mapping(
+        _parse(now, "selected scenario"), "selected scenario", {"scenario_id", "selected_at_stage"}
+    )
+    if not isinstance(chosen["scenario_id"], str):
+        raise BenchmarkError("selected scenario: scenario_id must be a string")
+    return str(chosen["scenario_id"])
+
+
 def _holdout_asset(path: Path, source: SourceRecord) -> AssetRecord:
     name = teriphic.fold_name(Path(path).resolve().name)
     for asset in source.assets:
@@ -652,6 +703,7 @@ def score_holdout(
     )
     if frozen is None:
         raise BenchmarkError(f"{asset.filename}: no frozen criterion was issued")
+    bind_to_freeze(root, frozen)
     # (3) committed documents, agreeing with each other and with the guard's hashes.
     model_bytes, _ = _committed_bytes(root, root / MODEL_PATH, "b2b model")
     scenario_bytes, _ = _committed_bytes(root, root / SCENARIO_PATH, "scenario list")
@@ -682,15 +734,7 @@ def score_holdout(
     check_registered_limits(registration, scenarios, limits)
     selected: str | None = None
     if asset.split is Split.LOCKED_TEST:
-        chosen = _parse(
-            _committed_bytes(root, root / SELECTED_PATH, "selected scenario")[0],
-            "selected scenario",
-        )
-        selected = _mapping(chosen, "selected scenario", {"scenario_id", "selected_at_stage"})[
-            "scenario_id"
-        ]
-        if not isinstance(selected, str):
-            raise BenchmarkError("selected scenario: scenario_id must be a string")
+        selected = read_selected_scenario(root, frozen)
     # (4) hashes at read time.
     table = teriphic.HOLDOUT_SHA256 if holdout_sha256 is None else holdout_sha256
     expected_sha = table.get(asset.filename)

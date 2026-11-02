@@ -454,8 +454,8 @@ assumptions: [level probabilities uniform and symbols independent (the record st
     signal about the B2B level centre']
 code_identity: {src/opticps/benchmarks/e2_metrics.py: 3089b5f844339b177f26bdb00b82396f2aca36f042e7dcdf66995ebb42719608,
   src/opticps/benchmarks/e2_model.py: 3280f591800437de21a546c471240a6d1e7fa3b503e4179a20a55cd732bbcdd0,
-  src/opticps/benchmarks/e2_score.py: 7f71324f5330a09cd5a7668bb27961b700ff5da4f8b162bdaba7aa795a94c720,
-  src/opticps/benchmarks/holdout.py: 11afae5ab55787751947361f27dcd29fb8f52a0510d5a8c1adbb7abdc0c77542,
+  src/opticps/benchmarks/e2_score.py: ccd13e6279b1a67a3c606edee6a2cc832283f3482289685ab4d07547c4113f8d,
+  src/opticps/benchmarks/holdout.py: 986a475b357af71648b22db89ad6873c4459677614608c3d325ad5ddd9860964,
   src/opticps/benchmarks/external_capture.py: 7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3,
   src/opticps/benchmarks/teriphic.py: 8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee,
   src/opticps/benchmarks/provenance.py: 65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d}
