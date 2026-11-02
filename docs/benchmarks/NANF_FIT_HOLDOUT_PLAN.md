@@ -931,3 +931,64 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, C6 pre-registered as an expected FAIL at 2.0
 GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added after a number is seen except by a dated
 amendment with a new pin.
+
+## Amendment 7 (2026-11-02, Gate N3 part a, lost-lock runs: the owner's ruling on G1.4)
+
+Previous SHA-256 of this file, pinned until now (Amendment 6, commit 263926a):
+`2127d883702715a3432cb8d25ed2f5a970a8910b46368ad2ed50cb8905f60905`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration and before any holdout scoring: no fit
+has run, no freeze record or calibration artefact exists, and no workbook ROP axis, Fig.4, Fig.6 or Fig.8 value or holdout
+value was read for it. The synthetic evidence is the sweep of G1.4 in Amendment 6. The trace cap stays pinned at 1e10 and
+is not moved. No tolerance or threshold is changed; the label **`LITERATURE BENCHMARK / CALIBRATION ONLY`** stays.
+
+### H1. A lost-lock run is invalid, reported, and never silently skipped
+
+A lost-lock run is a run in which the trace cap acted, or `RlsInstabilityError` was raised, or both (G1.4). It is invalid.
+It is never scored and never skipped silently: it stays in the sweep as an outcome with its point (rate, link, ROP) and its
+reason, and a report lists every such point. In code `run_point` returns it as a lost `PointOutcome` (no result); any other
+error still raises; `curve_arrays` keeps it in place, flagged invalid, with NaN as its value (never zero, never a censored
+BER); and the scoring functions take that flag as `valid` and ignore the stored value.
+
+### H2. The crossing of C1 from a locked bracket only
+
+With a lost-lock point on the curve, the simulated crossing (C1-R) is computed only from the highest contiguous run of locked
+points, and only if that run brackets the threshold 3.8e-3 as a point. Lost points below that run, on the noise-limited side,
+do not affect the crossing; the number lost is reported with it. Nothing is interpolated across a lost point. If a lost point
+lies above the run, if no locked point exists, or if the locked run has no bracket (it is all above or all below the threshold,
+or the bracket would lie across a lost point), the simulated crossing is invalid and the criterion FAILs under the no-crossing
+rule of G2. The reason and the count of lost points are carried by the crossing and by the score.
+
+### H3. Criteria that need a specific point
+
+A criterion that needs the value at a specific point FAILs if that point is lost: C2 (SNR errors at scored ROPs),
+C3 (the penalty set and the SSMF BER of (b)), C4 (any scored point of the pooled series), C5 (any of the 17 wavelengths), and
+the B2B gate on the calibration points. There is no substitution and no interpolation across the lost point, and no partial
+credit from the remaining points. The failure carries the number of invalid points. A lost point above -5 dBm is not a scored
+point (A3, A4) and does not fail a criterion. The discriminating measure d is undefined for an invalid crossing (`d_c1` gives none) and `d_snr` refuses a lost point.
+
+### H4. Calibration
+
+An objective evaluation that has a lost-lock point at a point the objective needs gets the worst-case objective (+infinity),
+is counted and is logged line by line (`EvaluationLog`); it can never be selected (`select_best` skips it, and raises if no
+clean evaluation exists). A fit whose chosen vector has lost-lock points in the Fig.4 B2B calibration grid is invalid
+(`check_chosen_fit`), so no calibration artefact may be written for it (G4). Identifiability (B4): a residual evaluation at the
+optimum or at any finite-difference step of the Jacobian that has a lost-lock point at a needed point makes the check
+undefined: no Jacobian is formed, no worst-case value enters J, no parameter is flagged, and the calibration is not frozen
+(`IdentifiabilityUndefinedError`, reported with the lost points). It is never repaired by a smaller step or a substitute value
+in this plan.
+
+### H5. What is not known
+
+Which published ROP points lie in a lost-lock region is not known and is not decided here: no ROP axis of a holdout series
+was read, and Amendment 7 decides nothing from one. It stays unknown until the scoring step, which will report every lost point
+by H1. If a criterion then fails only through H2 or H3, the report says so and the failure stands; it is not repaired by a
+change of the cap, the equaliser, the grid or any rule of this plan. Cost is as in G9.
+
+### H6. Unchanged
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the
+6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, C6 pre-registered
+as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added after a number is
+seen except by a dated amendment with a new pin.

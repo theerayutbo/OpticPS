@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import math
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
@@ -47,7 +47,13 @@ from opticps.optical_channel.link import (
     span_loss_db,
     watt_to_dbm,
 )
-from opticps.receiver.dfe import PINNED_P_TRACE_CAP, DfeResult, RlsDfeConfig, rls_equalize
+from opticps.receiver.dfe import (
+    PINNED_P_TRACE_CAP,
+    DfeResult,
+    RlsDfeConfig,
+    RlsInstabilityError,
+    rls_equalize,
+)
 from opticps.transmitter.pulse import rrc_frequency_response
 
 if TYPE_CHECKING:  # nanf_freeze imports this module, so it is imported lazily at run time
@@ -672,3 +678,73 @@ def simulate_point(
         dfe=result,
         unscorable_reasons=tuple(reasons),
     )
+
+
+# --- lost-lock runs (plan Amendment 7) -----------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class PointOutcome:
+    """One sweep point: a scorable result, or a lost-lock run with its point and reason.
+
+    A lost-lock run (the trace cap acted, `RlsInstabilityError`, or both) is invalid: it is never
+    scored and never silently skipped. It stays in the sweep with `result` None and `reason` set,
+    and `lost_report` lists it.
+    """
+
+    label: str  # for example "100G/NANF/-9.0"
+    rop_dbm: float
+    result: PointResult | None
+    reason: str = ""
+
+    @property
+    def lost(self) -> bool:
+        return self.result is None
+
+
+def run_point(
+    label: str,
+    params: TxRxParameters | None,
+    rate_gbps: int,
+    rop_dbm: float,
+    **kwargs: Any,
+) -> PointOutcome:
+    """`simulate_point`, with a lost-lock run returned as an invalid outcome instead of raised.
+
+    Only `TraceCapActedError` and `RlsInstabilityError` are caught; any other error, such as a
+    refused override or a bad grid, still raises. A result that is not scorable is refused here too
+    (`NotScorableError`), so an outcome with a result is always a scorable run.
+    """
+    try:
+        result = simulate_point(params, rate_gbps, rop_dbm, **kwargs)
+    except TraceCapActedError as err:
+        return PointOutcome(label, rop_dbm, None, f"trace cap acted: {err}")
+    except RlsInstabilityError as err:
+        return PointOutcome(label, rop_dbm, None, f"RlsInstabilityError: {err}")
+    require_scorable([result])
+    return PointOutcome(label, rop_dbm, result)
+
+
+def lost_report(outcomes: Iterable[PointOutcome]) -> list[str]:
+    """One line per lost-lock point, with its point and reason. Empty when none was lost."""
+    return [f"LOST LOCK {o.label} at {o.rop_dbm:g} dBm: {o.reason}" for o in outcomes if o.lost]
+
+
+@dataclass(frozen=True)
+class CurveArrays:
+    """The arrays of a swept curve for scoring. Lost points stay in, flagged by `valid`."""
+
+    rop_dbm: FloatArray
+    ber: FloatArray  # NaN where lost: the scoring functions ignore a value whose `valid` is False
+    snr_db: FloatArray
+    valid: NDArray[np.bool_]
+    n_lost: int
+
+
+def curve_arrays(outcomes: Sequence[PointOutcome]) -> CurveArrays:
+    """Arrays for the scoring functions; a lost point keeps its place and is marked invalid."""
+    rop = np.array([o.rop_dbm for o in outcomes], dtype=float)
+    ber = np.array([math.nan if o.result is None else o.result.ber for o in outcomes])
+    snr = np.array([math.nan if o.result is None else o.result.snr_db for o in outcomes])
+    valid = np.array([not o.lost for o in outcomes], dtype=bool)
+    return CurveArrays(rop, ber, snr, valid, int(np.count_nonzero(~valid)))

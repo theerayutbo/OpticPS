@@ -14,7 +14,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -54,7 +54,20 @@ def _arr(values: Sequence[float] | FloatArray, name: str) -> FloatArray:
     return a
 
 
-def _scored(rop: FloatArray, *columns: FloatArray) -> tuple[FloatArray, ...]:
+def _as_valid(valid: Sequence[bool] | NDArray[np.bool_] | None, n: int) -> NDArray[np.bool_]:
+    """The mask of locked points of a simulated curve (Amendment 7). None: every point is locked.
+
+    A mask must be a real boolean array of the right length: a truthy string or a number is refused.
+    """
+    if valid is None:
+        return np.ones(n, dtype=bool)
+    mask = np.asarray(valid)
+    if mask.dtype != np.bool_ or mask.shape != (n,):
+        raise ValueError("a validity mask must be a boolean array with one entry per point")
+    return mask
+
+
+def _scored(rop: FloatArray, *columns: NDArray[Any]) -> tuple[NDArray[Any], ...]:
     """Drop ROP above the -5 dBm cap (plan A4) and require a strictly rising finite axis."""
     if rop.size == 0 or not np.all(np.isfinite(rop)):
         raise ValueError("the ROP axis must be non-empty and finite")
@@ -104,10 +117,16 @@ class Crossing:
     kind: Kind
     lo: float
     hi: float
+    n_lost: int = 0  # lost-lock points among the scored ROPs of the curve (Amendment 7), reported
+    reason: str = ""
 
     def __post_init__(self) -> None:
         if self.kind not in _KINDS:
             raise ValueError(f"unknown crossing kind {self.kind!r}")
+        if isinstance(self.n_lost, bool) or not isinstance(self.n_lost, int) or self.n_lost < 0:
+            raise ValueError("n_lost must be a non-negative integer")
+        if not isinstance(self.reason, str):
+            raise ValueError("reason must be a string")
         for v in (self.lo, self.hi):
             if isinstance(v, bool) or not isinstance(v, int | float):
                 raise ValueError("crossing fields must be numbers")
@@ -140,6 +159,7 @@ def c1_crossing(
     threshold: float = BER_THRESHOLD,
     *,
     published: bool = False,
+    valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> Crossing:
     """The ROP at which BER crosses `threshold`, by rule C1-R (Amendment 3), at most -5 dBm.
 
@@ -153,10 +173,36 @@ def c1_crossing(
 
     Invalid data (Amendment 6 G3) gives `Crossing("invalid")`, which fails: see `is_censored`.
     `published=True` is for a published series, where NaN is a flagged censored cell.
+
+    `valid` marks the locked points of a simulated curve (Amendment 7). A lost-lock point is never
+    scored and never skipped silently. The crossing is computed only from the highest contiguous
+    run of locked points, which must bracket the threshold by C1-R as a point. Lost points below
+    that run (the noise-limited side) do not affect it and are counted in `n_lost`. A lost point
+    above the run, no locked point, or no bracket among the locked points gives
+    `Crossing("invalid")`, which fails (the no-crossing rule). Nothing is interpolated across a
+    lost point.
     """
-    r, b = _scored(_arr(rop, "rop"), _arr(ber, "ber"))
+    rop_a, ber_a = _arr(rop, "rop"), _arr(ber, "ber")
+    mask = _as_valid(valid, rop_a.size) if rop_a.size == ber_a.size else None
+    if mask is None:
+        raise ValueError("series must have one value per ROP point")
+    r, b, locked = _scored(rop_a, ber_a, mask)
     if r.size == 0:
         raise ValueError("no scored point (every ROP is above the cap)")
+    n_lost = int(np.count_nonzero(~locked))
+    if n_lost:
+        if not locked.any():
+            return Crossing("invalid", math.nan, math.nan, n_lost, "every point lost lock")
+        if not locked[-1]:
+            return Crossing(
+                "invalid", math.nan, math.nan, n_lost, "a lost-lock point lies above the locked run"
+            )
+        first = int(np.flatnonzero(~locked)[-1]) + 1
+        inner = c1_crossing(r[first:], b[first:], threshold, published=published)
+        if inner.kind != "point":
+            why = "invalid data" if inner.kind == "invalid" else "no bracket among locked points"
+            return Crossing("invalid", math.nan, math.nan, n_lost, why)
+        return Crossing("point", inner.lo, inner.hi, n_lost, "locked run brackets the threshold")
     try:
         censored = is_censored(b, published=published)
     except InvalidDataError:
@@ -191,6 +237,7 @@ class C1Score:
     passed: bool
     reason: str
     both_points: bool  # a discriminating verdict needs a point crossing on both sides
+    n_lost: int = 0  # lost-lock points of the simulated curve, reported (Amendment 7)
 
 
 def score_c1(published: Crossing, simulated: Crossing, tol: float = C1_TOL_DB) -> C1Score:
@@ -204,13 +251,17 @@ def score_c1(published: Crossing, simulated: Crossing, tol: float = C1_TOL_DB) -
     interval is read at its ROP. A crossing from invalid data fails on either side.
     """
     if published.kind == "invalid" or simulated.kind == "invalid":
-        return C1Score(False, "invalid data", False)
+        why = simulated.reason or published.reason
+        return C1Score(False, "invalid data" + (f": {why}" if why else ""), False, simulated.n_lost)
     lo, hi = _widened(published, tol)
     both = published.kind == "point" and simulated.kind == "point"
     if simulated.kind == "point":
         ok = lo <= simulated.lo <= hi
         return C1Score(
-            ok, "crossing inside the accepted region" if ok else "crossing outside", both
+            ok,
+            "crossing inside the accepted region" if ok else "crossing outside",
+            both,
+            simulated.n_lost,
         )
     if simulated.kind == "interval":
         ok = simulated.lo <= hi and simulated.hi >= lo
@@ -231,17 +282,36 @@ class SnrScore:
     max_abs_db: float
     n_points: int
     passed: bool
+    n_invalid: int = 0  # lost-lock points at scored ROPs: any one fails the criterion (Amendment 7)
+    reason: str = ""
 
 
 def score_c2(
     rop: Sequence[float] | FloatArray,
     simulated_snr: Sequence[float] | FloatArray,
     published_snr: Sequence[float] | FloatArray,
+    *,
+    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> SnrScore:
-    """C2: mean |error| at most 1.5 dB and no single |error| above 3.0 dB, on ROP at most -5 dBm."""
-    r, s, p = _scored(_arr(rop, "rop"), _arr(simulated_snr, "sim"), _arr(published_snr, "pub"))
+    """C2: mean |error| at most 1.5 dB and no single |error| above 3.0 dB, on ROP at most -5 dBm.
+
+    A lost-lock point at a scored ROP (`simulated_valid` False) fails the criterion: it is counted,
+    never substituted and never interpolated across (Amendment 7).
+    """
+    rop_a = _arr(rop, "rop")
+    r, s, p, ok_pts = _scored(
+        rop_a,
+        _arr(simulated_snr, "sim"),
+        _arr(published_snr, "pub"),
+        _as_valid(simulated_valid, rop_a.size),
+    )
     if r.size == 0:
         raise ValueError("no scored point")
+    if not ok_pts.all():
+        k = int(np.count_nonzero(~ok_pts))
+        return SnrScore(
+            math.nan, math.nan, int(r.size), False, k, "lost-lock point at a scored ROP"
+        )
     if not (np.all(np.isfinite(s)) and np.all(np.isfinite(p))):
         raise ValueError("SNR values must be finite (SNR cells are never censored)")
     err = np.abs(s - p)
@@ -274,6 +344,8 @@ class C5Score:
     n_points: int
     passed: bool
     excluded_nm: tuple[float, ...]
+    n_invalid: int = 0  # lost-lock wavelengths among the 17: any one fails (Amendment 7)
+    reason: str = ""
 
 
 def score_c5(
@@ -281,6 +353,8 @@ def score_c5(
     wavelength_nm: Sequence[float] | FloatArray,
     simulated_snr: Sequence[float] | FloatArray,
     published_snr: Sequence[float] | FloatArray,
+    *,
+    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> C5Score:
     """C5: mean |error| over the 17 wavelengths 1460 to 1620 nm (B2); 1630 and 1640 are apart.
 
@@ -292,6 +366,7 @@ def score_c5(
     wl, s, p = _arr(wavelength_nm, "wl"), _arr(simulated_snr, "sim"), _arr(published_snr, "pub")
     if not (wl.size == s.size == p.size):
         raise ValueError("series must have one value per wavelength")
+    locked = _as_valid(simulated_valid, wl.size)
     keep = wl <= 1620.0 + 1e-9
     kept = wl[keep]
     if not np.all(np.isfinite(wl)) or any(
@@ -300,6 +375,12 @@ def score_c5(
         raise ValueError("only 1630 and 1640 nm may lie outside the 17 wavelengths of plan B2")
     if kept.size != len(C5_WAVELENGTHS_NM) or not np.allclose(kept, C5_WAVELENGTHS_NM, atol=1e-6):
         raise ValueError("C5 needs exactly the 17 wavelengths 1460 to 1620 nm (plan B2)")
+    if not locked[keep].all():
+        k = int(np.count_nonzero(~locked[keep]))
+        return C5Score(
+            link, math.nan, math.nan, int(kept.size), False, tuple(float(w) for w in wl[~keep]),
+            k, "lost-lock wavelength among the 17",
+        )  # fmt: skip
     if not (np.all(np.isfinite(s[keep])) and np.all(np.isfinite(p[keep]))):
         raise ValueError("SNR values must be finite")
     err = np.abs(s[keep] - p[keep])
@@ -349,6 +430,9 @@ def score_c3(
     simulated_ssmf_ber: Sequence[float] | FloatArray,
     published_nanf_snr: Sequence[float] | FloatArray | None = None,
     published_ssmf_snr: Sequence[float] | FloatArray | None = None,
+    *,
+    nanf_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
+    ssmf_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> C3Score:
     """C3 exactly as Amendment 4 D3.3.
 
@@ -364,6 +448,11 @@ def score_c3(
     s_rop = _arr(ssmf_rop, "ssmf rop")
     n_snr, s_snr = _arr(simulated_nanf_snr, "nanf snr"), _arr(simulated_ssmf_snr, "ssmf snr")
     s_ber = _arr(simulated_ssmf_ber, "ssmf ber")
+    n_ok = _as_valid(nanf_valid, n_rop.size)
+    s_ok = _as_valid(ssmf_valid, s_rop.size)
+    if not (_scored(n_rop, n_ok)[1].all() and _scored(s_rop, s_ok)[1].all()):
+        # a needed point lost lock: no substitution, no interpolation across it (Amendment 7)
+        return C3Score(False, "lost-lock point at a scored ROP", math.nan, None, False, False, 0)
     _, ber_scored = _scored(s_rop, s_ber)
     if not (np.all(np.isfinite(n_snr)) and np.all(np.isfinite(s_snr))):
         raise ValueError("SNR values must be finite")
@@ -401,6 +490,8 @@ class C4Score:
     censored_published: int
     censored_published_ok: int  # published censored points where the simulated BER is below 1e-4
     passed: bool
+    n_invalid: int = 0  # lost-lock points at scored ROPs: any one fails (Amendment 7)
+    reason: str = ""
 
 
 def score_c4(
@@ -408,6 +499,8 @@ def score_c4(
     published_ber: Sequence[float] | FloatArray,
     simulated_ber: Sequence[float] | FloatArray,
     n_bits: int,
+    *,
+    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> C4Score:
     """C4 on pooled points (NANF and SSMF, concatenated by the caller; ROP is checked per point).
 
@@ -426,7 +519,11 @@ def score_c4(
     if not np.all(np.isfinite(r)):
         raise ValueError("the ROP axis must be finite (a NaN would silently drop a point)")
     keep = r <= ROP_CAP_DBM
+    locked = _as_valid(simulated_valid, r.size)[keep]
     p, s = p[keep], s[keep]
+    if not locked.all():
+        k = int(np.count_nonzero(~locked))
+        return C4Score(math.nan, 0, 0, 0, 0, False, k, "lost-lock point at a scored ROP")
     sim_censored = is_censored(s)  # invalid simulated data raises; NaN is invalid here
     cens = is_censored(p, published=True)
     within = 0
@@ -680,10 +777,15 @@ def b2b_gate(
     published_snr: Sequence[float] | FloatArray,
     simulated_crossing: Crossing,
     published_crossing: Crossing,
+    *,
+    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,
 ) -> B2bGate:
     """B3.2 on the calibration points: mean |error| at most 1.0 dB, none beyond 2.0 dB, and the
     B2B crossing within 0.5 dB by the C1 rule (a bound by B1.3 with 0.5 dB)."""
     s, p = _arr(simulated_snr, "sim"), _arr(published_snr, "pub")
+    locked = _as_valid(simulated_valid, s.size)
+    if not locked.all():  # a lost-lock point of the calibration grid: the gate fails (Amendment 7)
+        return B2bGate(False, math.nan, math.nan, False, "B2B CALIBRATION POOR")
     if s.size == 0 or s.size != p.size or not (np.all(np.isfinite(s)) and np.all(np.isfinite(p))):
         raise ValueError("series must be finite, non-empty and of equal length")
     err = np.abs(s - p)
@@ -772,6 +874,97 @@ def overall_verdict(scores: Mapping[int, RateScores]) -> Verdict:
     return Verdict("consistent with this one experiment", (), ())
 
 
+# --- calibration evaluations with lost-lock points (Amendment 7) ---------------------------------
+
+WORST_CASE_OBJECTIVE = math.inf
+
+
+class EvaluationLostLockError(ArithmeticError):
+    """An objective evaluation needed a point whose run lost lock. `lost` names the points."""
+
+    def __init__(self, lost: Sequence[str]) -> None:
+        self.lost = tuple(lost)
+        super().__init__("lost lock at " + ", ".join(self.lost))
+
+
+class NoValidFitError(ValueError):
+    """No evaluation without a lost-lock point exists, so no vector can be chosen."""
+
+
+class IdentifiabilityUndefinedError(ValueError):
+    """The B4 Jacobian needs an evaluation with a lost-lock point: no flags are derived."""
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    """One objective evaluation of one vector. Any lost-lock point at a needed point makes the
+    objective the worst case; the evaluation is counted and logged and can never be selected."""
+
+    vector: Mapping[str, float]
+    objective: float
+    lost: tuple[str, ...]
+
+    @property
+    def n_lost(self) -> int:
+        return len(self.lost)
+
+
+class EvaluationLog:
+    """Every evaluation of a calibration, so that the worst-case ones are counted and logged."""
+
+    def __init__(self) -> None:
+        self.evaluations: list[Evaluation] = []
+
+    def record(self, ev: Evaluation) -> Evaluation:
+        self.evaluations.append(ev)
+        return ev
+
+    @property
+    def n_worst_case(self) -> int:
+        return sum(1 for e in self.evaluations if e.lost)
+
+    def lines(self) -> list[str]:
+        return [
+            f"WORST-CASE OBJECTIVE evaluation {i}: lost lock at {', '.join(e.lost)}"
+            for i, e in enumerate(self.evaluations)
+            if e.lost
+        ]
+
+
+def evaluate(
+    log: EvaluationLog,
+    vector: Mapping[str, float],
+    objective: Callable[[Mapping[str, float]], float],
+) -> Evaluation:
+    """Evaluate `objective` at `vector`. If it raises `EvaluationLostLockError` the evaluation gets
+    `WORST_CASE_OBJECTIVE`; it is recorded either way. Any other non-finite objective is refused.
+    """
+    try:
+        value = float(objective(vector))
+        lost: tuple[str, ...] = ()
+    except EvaluationLostLockError as err:
+        value, lost = WORST_CASE_OBJECTIVE, err.lost
+    if not lost and not math.isfinite(value):
+        raise ValueError("an objective that is not finite and not a lost-lock run is refused")
+    return log.record(Evaluation(dict(vector), value, lost))
+
+
+def select_best(log: EvaluationLog) -> Evaluation:
+    """The lowest objective among evaluations with no lost-lock point; a worst-case one is never
+    selected. `NoValidFitError` if there is none."""
+    clean = [e for e in log.evaluations if not e.lost and math.isfinite(e.objective)]
+    if not clean:
+        raise NoValidFitError("every evaluation lost lock at a needed point")
+    return min(clean, key=lambda e: e.objective)
+
+
+def check_chosen_fit(chosen: Evaluation) -> Evaluation:
+    """A fit whose chosen vector has lost-lock points in the Fig.4 B2B grid is invalid."""
+    if chosen.lost or not math.isfinite(chosen.objective):
+        raise NoValidFitError("the chosen vector has lost-lock points in the B2B calibration grid")
+    return chosen
+
+
 # --- identifiability (A1.7, B4) ------------------------------------------------------------------
 
 
@@ -803,6 +996,12 @@ def identifiability_check(
     the largest absolute component in that eigenvector among those not yet flagged is flagged (ties:
     the lowest in the table). A singular matrix (largest eigenvalue not above zero) flags every
     parameter. A flagged parameter is set to its prior; nothing is refitted.
+
+    Lost-lock points (Amendment 7): a residual evaluation, at the optimum or at any
+    finite-difference
+    step, that raises `EvaluationLostLockError` makes the check undefined
+    (`IdentifiabilityUndefinedError`).
+    No worst-case value ever enters J, no flag is derived, and the calibration cannot be frozen.
     """
     names = [s.name for s in specs]
     if set(optimum) != set(names):
@@ -815,7 +1014,14 @@ def identifiability_check(
 
     def at(u: FloatArray) -> FloatArray:
         values = {s.name: float(s.low + u[i] * (s.high - s.low)) for i, s in enumerate(specs)}
-        out = np.asarray(residuals(values), dtype=float)
+        try:
+            out = np.asarray(residuals(values), dtype=float)
+        except EvaluationLostLockError as err:
+            raise IdentifiabilityUndefinedError(
+                "the B4 check needs an evaluation with a lost-lock point ("
+                + ", ".join(err.lost)
+                + "): no Jacobian, no flags, and the vector is not frozen"
+            ) from None
         if out.ndim != 1 or out.size == 0 or not np.all(np.isfinite(out)):
             raise ValueError("the residual vector must be finite, 1-D and non-empty")
         return out
