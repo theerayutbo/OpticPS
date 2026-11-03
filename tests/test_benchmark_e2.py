@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import sys
 import time
+import types
 from fractions import Fraction
 from pathlib import Path
 
@@ -622,6 +623,12 @@ def test_the_code_identity_is_the_import_closure_of_the_scoring_entry_point():
     assert loaded == set(e2_score.CODE_IDENTITY_FILES)
 
 
+def test_a_code_identity_module_that_is_not_loaded_is_refused(monkeypatch):
+    monkeypatch.delitem(sys.modules, "opticps.benchmarks.timing")
+    with pytest.raises(BenchmarkError, match="module opticps.benchmarks.timing is not loaded"):
+        e2_score.loaded_code_files()
+
+
 def test_the_loaded_modules_must_be_the_files_of_the_repository_being_checked(tmp_path):
     e2_score.verify_loaded_code(ROOT)
     other = copy_code(tmp_path)
@@ -919,6 +926,23 @@ def test_a_psi_of_exactly_one_is_within_the_criterion(world):
         limits=copy_line, length_km=10.0, split=Split.VALIDATION,
     )  # fmt: skip
     assert result.comparator["psi"] == 1.0 and result.comparator_within_criterion
+
+
+def test_a_control_with_a_psi_of_exactly_one_still_counts_as_within_the_limits(world):
+    model, scenarios = world["model"], world["scenarios"]
+    d6 = next(s for s in scenarios if s.scenario_id == "D6")
+    prediction = e2_score.predict(model, d6, 10.0, N)  # D6 explains it exactly
+    bad_copy = norm(world, channel(64, low_pass_hz=14e9))
+    first = score(world, prediction, bad_copy, length_km=10.0)
+    on_the_line = dict(first.scenarios["NULL"]["metrics"])
+    result = e2_score.score_windows(
+        prediction, bad_copy, model=model, scenarios=scenarios, limits=on_the_line,
+        length_km=10.0, split=Split.VALIDATION,
+    )  # fmt: skip
+    assert result.scenarios["NULL"]["psi"] == 1.0 and "D6" in result.survivors
+    assert not result.comparator_within_criterion
+    assert result.outcome == e2_score.OUTCOME_PASS_NOT_DISCRIMINATING
+    assert "no-fibre control scenario is also within every limit" in " ".join(result.notes)
 
 
 def test_a_fibre_scenario_that_the_control_explains_equally_well_is_not_discriminating(world):
@@ -1731,8 +1755,10 @@ def test_a_file_missing_at_the_freeze_commit_is_refused(world, tmp_path, monkeyp
 # ---- the freeze pin and the first-parent rule
 def test_the_freeze_commit_must_be_the_pinned_one(setup, monkeypatch):
     forbid_reads(monkeypatch)
-    for bad in ("0" * 40, "abc", "", setup.pin.upper(), setup.pin[:12]):
-        with pytest.raises(BenchmarkError, match="expected_freeze_commit|pinned"):
+    with pytest.raises(BenchmarkError, match="is not the pinned"):
+        setup.score(expected_freeze_commit="0" * 40)  # well formed, wrong commit
+    for bad in ("abc", "", setup.pin.upper(), setup.pin[:12], setup.pin + "0", 5):
+        with pytest.raises(BenchmarkError, match="must be a full lower-case 40-digit commit id"):
             setup.score(expected_freeze_commit=bad)
     with pytest.raises(TypeError):
         e2_score.score_holdout(setup.holdout_2, b2b_path=setup.b2b, repo_root=setup.root)
@@ -1784,6 +1810,54 @@ def test_a_pin_taken_from_the_attackers_own_commit_passes_the_pin_check_which_is
         s.score(expected_freeze_commit=side)
     except BenchmarkError as error:
         assert "pinned" not in str(error)  # it may stop later, never at the pin
+
+
+def git_at(root: Path, date: str, *args: str) -> str:
+    env = os.environ | GIT_ENV | {"GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date}
+    done = subprocess.run(
+        ["git", "-C", str(root), "-c", "commit.gpgsign=false", *args],
+        check=True, capture_output=True, text=True, env=env,
+    )  # fmt: skip
+    return done.stdout.strip()
+
+
+def test_first_parent_resolution_ignores_an_older_side_commit_and_takes_the_oldest_main_commit(
+    tmp_path,
+):
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    root = tmp_path / "r"
+    root.mkdir()
+    git_at(root, "2020-01-01T00:00:00", "init", "-q")
+    (root / "base").write_text("b")
+    git_at(root, "2020-01-01T00:00:00", "add", "-A")
+    git_at(root, "2020-01-01T00:00:00", "commit", "-q", "-m", "base")
+    git_at(root, "2020-01-02T00:00:00", "checkout", "-q", "-b", "side")
+    path = root / holdout.CRITERION_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("limits: 1\n")
+    git_at(root, "2020-01-02T00:00:00", "add", "-A")
+    git_at(root, "2020-01-02T00:00:00", "commit", "-q", "-m", "side criterion (older date)")
+    git_at(root, "2021-01-01T00:00:00", "checkout", "-q", "-b", "main2", "HEAD~1")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("limits: 1\n")
+    git_at(root, "2021-01-01T00:00:00", "add", "-A")
+    git_at(root, "2021-01-01T00:00:00", "commit", "-q", "-m", "main criterion (newer date)")
+    first_on_main = git_at(root, "2021-01-01T00:00:00", "rev-parse", "HEAD")
+    git_at(root, "2021-01-02T00:00:00", "merge", "-q", "--no-edit", "-X", "ours", "side")
+    path.write_text("limits: 2\n")
+    git_at(root, "2021-01-03T00:00:00", "add", "-A")
+    git_at(root, "2021-01-03T00:00:00", "commit", "-q", "-m", "later change")
+    # the side commit is older and reachable, the later change is newest: only the oldest commit
+    # on the first-parent line counts
+    assert e2_score.first_parent_freeze(root) == first_on_main
+    older = git_at(root, "2020-01-02T00:00:00", "rev-parse", "side")
+    assert older != first_on_main
+    # a pin equal to the commit the guard might find, but not first on the first-parent line
+    found = types.SimpleNamespace(commit=older)
+    with pytest.raises(BenchmarkError, match="not the first on the first-parent history"):
+        e2_score.require_freeze_pin(root, found, older)
+    e2_score.require_freeze_pin(root, types.SimpleNamespace(commit=first_on_main), first_on_main)
 
 
 def test_first_parent_resolution_names_the_first_commit_on_the_main_line(setup):
