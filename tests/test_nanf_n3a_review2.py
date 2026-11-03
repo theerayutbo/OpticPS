@@ -633,3 +633,22 @@ def test_a_negative_eigenvalue_in_a_hand_written_artefact_is_still_refused():
     }
     with locked(match="six ascending non-negative"):
         nf._check_checks(bad, ("bias_fraction",))
+
+
+def test_a_declared_calibration_point_still_needs_a_scorable_run_without_a_record(monkeypatch):
+    """Two gaps found by the mutant run: the checks of the calibration path are each needed."""
+    monkeypatch.setattr(nc, "DECLARED_CALIBRATION_POINTS", frozenset({(100, -6.0, 0)}))
+    unscorable = nc.simulate_point(
+        MID, 100, -6.0, config=SMALL
+    )  # config overridden, point declared
+    assert (unscorable.rate_gbps, unscorable.rop_dbm, unscorable.point_index) == (100, -6.0, 0)
+    forged = object.__new__(nc.PointOutcome)  # the outcome guard bypassed
+    for name, value in (("label", "u"), ("rop_dbm", -6.0), ("result", unscorable), ("reason", "")):
+        object.__setattr__(forged, name, value)
+    with pytest.raises(nc.NotScorableError, match="cannot be scored"):
+        nc.curve_arrays([forged], calibration=True)
+    stamped = dataclasses.replace(scorable_result(), frozen_record_hash="a" * 64)
+    with pytest.raises(nc.NotScorableError, match="without a record"):
+        nc.curve_arrays([nc.PointOutcome("s", -6.0, stamped)], calibration=True)
+    clean = nc.PointOutcome("c", -6.0, scorable_result())
+    assert nc.curve_arrays([clean], calibration=True).valid.tolist() == [True]
