@@ -15,3 +15,8 @@ Rule kept: no 2 km or 10 km sample, header or hash read by any code run here; sc
 ## Open for the owner
 - Record the R12 freeze commit id outside the repository before E2b; the single 10 km run stays unspent until then. Intermediate commits are not all green.
 ## Not done: E2b. BER and SER stay REFERENCE_SEQUENCE_MISSING.
+
+## Round: first_parent_dropped mutant (post history rewrite; freeze 04360ec6a44bb6aaa2222cc605ab3979718be50a)
+- The mutant (drop `--first-parent` in `first_parent_freeze`) survived because the existing tests built history where the merge was TREESAME to the first parent, so git's default simplification pruned the side commit anyway and both log forms agreed.
+- Added `test_first_parent_resolution_takes_the_merge_not_the_merged_in_side_commit` in tests/test_benchmark_e2.py (real git in tmp_path): the criterion reaches main only by merging a side branch. Without `--first-parent` the log names the side commit; `first_parent_freeze` must name the merge; `require_freeze_pin` refuses a pin naming the side commit.
+- Tests only. No freeze-bound file and no source file changed. Results are in the Dev report.

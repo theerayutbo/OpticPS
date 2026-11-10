@@ -1860,6 +1860,44 @@ def test_first_parent_resolution_ignores_an_older_side_commit_and_takes_the_olde
     e2_score.require_freeze_pin(root, types.SimpleNamespace(commit=first_on_main), first_on_main)
 
 
+def test_first_parent_resolution_takes_the_merge_not_the_merged_in_side_commit(tmp_path):
+    """The criterion first reaches main by a merge. Git's default history simplification follows
+    only the side parent (the merge is identical to it), so a log without `--first-parent` names
+    the side commit; the first-parent line names the merge. Removing `--first-parent` lets a
+    merged side commit become the freeze."""
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    root = tmp_path / "r"
+    root.mkdir()
+    git_at(root, "2020-01-01T00:00:00", "init", "-q")
+    (root / "base").write_text("b")
+    git_at(root, "2020-01-01T00:00:00", "add", "-A")
+    git_at(root, "2020-01-01T00:00:00", "commit", "-q", "-m", "base")
+    main = git_at(root, "2020-01-01T00:00:00", "rev-parse", "--abbrev-ref", "HEAD")
+    git_at(root, "2020-01-02T00:00:00", "checkout", "-q", "-b", "side")
+    path = root / holdout.CRITERION_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("limits: 1\n")
+    git_at(root, "2020-01-02T00:00:00", "add", "-A")
+    git_at(root, "2020-01-02T00:00:00", "commit", "-q", "-m", "side criterion")
+    side = git_at(root, "2020-01-02T00:00:00", "rev-parse", "HEAD")
+    git_at(root, "2020-01-03T00:00:00", "checkout", "-q", main)
+    (root / "other").write_text("o")
+    git_at(root, "2020-01-03T00:00:00", "add", "-A")
+    git_at(root, "2020-01-03T00:00:00", "commit", "-q", "-m", "main work without the criterion")
+    git_at(root, "2020-01-04T00:00:00", "merge", "-q", "--no-ff", "--no-edit", "side")
+    merge = git_at(root, "2020-01-04T00:00:00", "rev-parse", "HEAD")
+    assert merge != side
+    criterion = holdout.CRITERION_PATH.as_posix()
+    plain = git_at(root, "2020-01-04T00:00:00", "log", "--reverse", "--format=%H", "--", criterion)
+    assert plain.split()[0] == side  # without --first-parent the side commit would be the freeze
+    assert e2_score.first_parent_freeze(root) == merge
+    # the pin names the side commit and the loader found it: the first-parent check refuses it
+    with pytest.raises(BenchmarkError, match="not the first on the first-parent history"):
+        e2_score.require_freeze_pin(root, types.SimpleNamespace(commit=side), side)
+    e2_score.require_freeze_pin(root, types.SimpleNamespace(commit=merge), merge)
+
+
 def test_first_parent_resolution_names_the_first_commit_on_the_main_line(setup):
     assert e2_score.first_parent_freeze(setup.root) == setup.pin
     other = setup.root.parent / "empty"
