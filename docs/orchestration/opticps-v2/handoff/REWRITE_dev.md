@@ -4,7 +4,7 @@ Date 2026-11-10. Full account and the old -> new id map: `docs/orchestration/opt
 No offending text is written here; commits, paths and lines only.
 
 ## Result
-- Rewritten tip before the one documentation commit (HISTORY_REWRITE.md and this handoff): `030e6aeb7f607efcb2dc4f8b6a656eb6a657df33` (after the content rewrite and a second `--mailmap` step that mapped the 7 local-hostname author/committer emails to the noreply address; 0 hostname emails remain); old tip `138569239e656e3a10d8fb7378dff36d84ba1b13` (kept as `refs/backup/pre-rewrite-v1.3-mpam`, local only).
+- Rewritten tip before the one documentation commit (HISTORY_REWRITE.md and this handoff): `d76b730bb5cae5b6d4a470f02a6d37bfa98127a9` (after the content rewrite and a second `--mailmap` step that mapped the 7 local-hostname author/committer emails to the noreply address; 0 hostname emails remain). A third pass removed two short quoted article fragments; a later commit adds `docs/benchmarks/teriphic_e2/NOTICE.md` and updates the id map; old tip `138569239e656e3a10d8fb7378dff36d84ba1b13` (kept as `refs/backup/pre-rewrite-v1.3-mpam`, local only).
 - `main` `a2eb969` unchanged. 82 commits above main; 65 have new ids (21 changed in content, 44 only by ancestry); the first 17 are identical.
 - Tip tree identical to the old tip tree (`git diff` empty).
 
@@ -39,7 +39,7 @@ Residual by design: bibliographic strings, cited numeric facts and phrases short
 - Failures caused by changed ids: none. Nothing in `src`, `tests` or `scripts` holds a commit id of the branch; the pinned SHA-256 values hash file contents, not commits, and the affected files are not among the pinned ones.
 
 ## E2 freeze
-The R12 freeze commit `8a81907` is now `79467d8e289c9e6f91c94f2a503a5c92a834e78a` (R10 `d520ff7` -> `939bab77436b3b5555e836e924e1051cc523d162`, R11 `007b8b2` -> `86f3b365b3d50ad407f83ba5189e840da61efa2d`). Checked at the new tip with the real guard code: `first_parent_freeze` returns `79467d8`, `require_frozen_criterion` issues the criterion with that commit, `bind_to_freeze` passes, `require_freeze_pin` accepts the new id and refuses the old one. No re-freeze is needed (content and first-parent position are unchanged), but the pin that the owner holds outside the repository must be replaced by the new id before E2b. Ids written inside plans, handoffs and `CHECKPOINT.md` are old ids by design; read them through the map.
+The R12 freeze commit `8a81907` is now `04360ec6a44bb6aaa2222cc605ab3979718be50a` (R10 `d520ff7` -> `dbd549f2c74f58edd862e60334c6ba33f33e8c97`, R11 `007b8b2` -> `ec1ac97cbf4fe3785a5e968450db3989a2bcd9eb`). Checked at the new tip with the real guard code: `first_parent_freeze` returns `79467d8`, `require_frozen_criterion` issues the criterion with that commit, `bind_to_freeze` passes, `require_freeze_pin` accepts the new id and refuses the old one. No re-freeze is needed (content and first-parent position are unchanged), but the pin that the owner holds outside the repository must be replaced by the new id before E2b. Ids written inside plans, handoffs and `CHECKPOINT.md` are old ids by design; read them through the map.
 
 ## Notes for the push (Aria)
 - The clone's `origin` URL is the local checkout path; set it to the GitHub URL before pushing. `origin/v1.3-mpam` was deleted from the clone so the old tip is reachable only through `refs/backup/pre-rewrite-v1.3-mpam`.
