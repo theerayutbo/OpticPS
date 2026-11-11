@@ -2635,6 +2635,8 @@ def test_only_the_scorer_and_the_b2b_adapter_open_captures_in_src():
     allowed = {
         "src/opticps/benchmarks/e2_score.py",  # the one holdout reader
         "src/opticps/benchmarks/teriphic.py",  # B2B adapter and the gated inspect route
+        # E2c: the declared 2 km calibration route (2 km only, after the R13 FAIL record; D15 a)
+        "src/opticps/benchmarks/e2c_calibration.py",
         "src/opticps/benchmarks/external_capture.py",  # the generic reader itself (memmap)
         "src/opticps/measurement/uxr_import.py",  # generic reader, listed in the known limits
         "src/opticps/measurement/uxr_ingest.py",  # `ingest-uxr`, CLI-gated, listed in the limits

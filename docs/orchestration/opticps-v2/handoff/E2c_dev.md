@@ -44,4 +44,8 @@ Closing text: "H1 refuted at 2 km (R13, FAILED); H2 formed post hoc; the power s
 that discriminates; claim PARTIAL; 10 km unspent."
 
 ## Tests and gates
-tests/test_benchmark_e2c.py 26 passed; mutate_e2c.py 6 of 6 killed. Clone gates: see the final report.
+tests/test_benchmark_e2c.py 26 passed; mutate_e2c.py 6 of 6 killed. Clone gates at 1abfb35 (B2B and 2 km linked only):
+ruff, format, mypy (66 files), license audit (34, 0 flagged), anchor 15 passed; pytest 2192 passed, 5 skipped,
+2 failed: (1) the E2 source scan needed e2c_calibration.py on its reader allowlist (fixed in the next commit,
+re-run passed); (2) test_benchmark_e2_freeze::test_the_10km_stage_is_not_frozen_yet... already fails at b48dc1a
+(stale since E2b committed two_km_result.json); not touched, needs an owner decision.
