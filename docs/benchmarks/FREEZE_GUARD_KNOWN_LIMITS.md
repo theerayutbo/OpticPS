@@ -128,3 +128,14 @@ were set on the B2B file only, so a lab capture with a very different but legiti
 file that is overwritten or grows while the pass runs is reported after the pass (the file is checked
 again at the end). A file that shrinks while the pass runs ends the process with a bus error (SIGBUS)
 and no message: it fails closed, because no result is printed, but it is not reported (plan R9.2).
+
+E2c power study (2026-11-11, `docs/benchmarks/teriphic_e2c/`): the 2 km file is calibration data from E2c on
+(design D15 a) and is read through `e2c_calibration.open_two_km` only, after the committed R13 record says FAIL;
+its VALIDATION role in `ROLE_BY_NAME` and the register is unchanged until R14 rebinds it. The study closed at
+`CLOSE_PARTIAL`, stop S2: the pre-registered model of record (the polynomial law, plan I6) failed R6 at 2 km
+(psi 1.49, M1 0.027). This stop is not clean evidence against H2: the polynomial fit ended at a and b near zero,
+with an objective (0.1930) above both nested profiles (0.1911, 0.1908), so the optimiser stopped in a local
+minimum near its start; the tanh profile of the same hypothesis passed R6 (psi 0.79 and 0.53) but was
+report-only. Step 0 also found the B2B fit window on a regular code grid (step 1.732e-6) and the 2 km fit window
+not (largest off-grid 0.107), which the pre-registered rule records as "not observable" and which D6 (iii)
+caps anyway. The 10 km file was not read, hashed, opened or linked; its access time is unchanged.
