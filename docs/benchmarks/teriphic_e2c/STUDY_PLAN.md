@@ -243,3 +243,81 @@ a -0.0404, b -0.0399, objective 0.0013). I5 is amended for the optimiser only: a
 each from the best point so far with a fresh initial simplex of the same steps and maxfev 600, stopping when a run
 improves the objective by less than 1e-4. Every run's objective is recorded. Nothing else changes: not the objective,
 parameters, profiles, starts, windows, seeds, limits, truths, thresholds or the decision rule.
+
+---
+
+# Amendment A2 (2026-11-11), committed before any A2 fit; optimiser and acceptance only
+
+Disclosure. A2 was written after v1's result was seen; 10 km untouched. It follows the owner's decision to re-run
+under the protocol of `docs/orchestration/opticps-v2/questions/E2c_advice_fable.md`, section 3 (Fable,
+2026-11-11). The only fact taken from the v1 review is: the v1 optimiser stopped in a local minimum; the objective
+landscape has several basins; nothing checked nested profiles. No parameter value from v1, from the review or from
+the tanh fit is used for any start, step, tolerance or threshold below; the start grid is set from the D4 scale
+only (a 0.03 gap-unit pattern shift needs |b| of about 0.04).
+
+The v1 verdict of record, `CLOSE_PARTIAL`, stop S2 (R6), stays on record; `law_model.yaml` and
+`power_study_e2c.yaml` are not changed. A2 writes new files: `law_model_v2.yaml`, `power_study_e2c_v2.yaml`
+(and its own cache, `build/e2c_cache_v2`). `law_model_v2.yaml` records `amendments: [A1, A2]` and
+`prior: v1 CLOSE_PARTIAL S2, optimiser stall`.
+
+## What A2 changes (plan I5 and A1, the optimiser only)
+
+A2.1 Profiles fitted: `identity` (the identity-law base: q1, q2, sigma_rx, sigma_opt only, f(v) = v), `poly_b0`,
+     `poly_a0`, `tanh`, then `poly`. Objective, parameters, windows, fit seed 20261111, fit_samples 1048576 and
+     amplitudes (1, 0.832) are those of I5.
+A2.2 Starts, a deterministic grid. In every start q1, q2, sigma_rx and sigma_opt are the I5 start values (q from
+     R13, sigma = R13 noise_sigma / sqrt(2)).
+     - identity: one start.
+     - poly_b0: a in {-0.03, 0, 0.03} (3 starts).
+     - poly_a0: b in {-0.05, 0, 0.05} (3 starts).
+     - tanh: o in {-0.4, 0, 0.4} at k = 0.1 (3 starts).
+     - poly: a in {-0.03, 0, 0.03} x b in {-0.05, 0, 0.05} (9 starts), plus the two nested optima of THIS A2 run:
+       the A2 `poly_b0` optimum (all its parameters, b = 0) and the A2 `poly_a0` optimum (all its parameters,
+       a = 0); 11 starts. `poly` is therefore fitted after `poly_b0` and `poly_a0` are complete.
+A2.3 Initial simplex steps: a 0.02, b 0.03; the others as I5 (q 0.02, k 0.1, o 0.05, sigma 0.03).
+A2.4 Screening: one Nelder-Mead run of at most 200 evaluations from each start (xatol 1e-4, fatol 1e-6 as I5).
+     The two starts with the lowest screened objective in each profile (ties broken by the start's position in the
+     lists above; a profile with one start keeps one) get the full A1 sequence, begun at their screened point: one
+     run of maxfev 600, then up to 3 restarts, each from the best point so far with a fresh simplex of the A2.3
+     steps and maxfev 600, stopping when a run improves by less than 1e-4.
+A2.5 Reported optimum of a profile: the point with the lowest objective over every screen, every full run and every
+     restart of that profile (and, for `poly`, the A2.6 stationarity run).
+A2.6 Stationarity run (`poly`, the model of record): one more fresh-simplex run (A2.3 steps, maxfev 600) from the
+     reported optimum; its gain is the reported-optimum objective before the run minus the run's objective.
+
+## Acceptance checks, all result-blind, fixed here before any A2 fit
+
+Any failure: the fit is INVALID, "S2 not evaluable". An INVALID fit gives no verdict (neither `CLOSE_PARTIAL` by R6
+nor `WORTH_SPENDING_10KM`): `law_model_v2.yaml` records the failed checks with their numbers, R6 is not evaluated,
+`predict` refuses, `power_study_e2c_v2.yaml` records `decision: null` and `a2_status: FIT_INVALID, S2 not
+evaluable`, and the v1 verdict of record stands. A2 then stops: no third optimiser.
+
+AC1 Nested inequality, including the identity-law base, tolerance 1e-6 (objective units):
+    obj(poly) <= min(obj(poly_b0), obj(poly_a0)) + 1e-6; min(obj(poly_b0), obj(poly_a0)) <= obj(identity) + 1e-6;
+    obj(tanh) <= obj(identity) + 1e-6. A permanent invariant in the `fit` step also refuses (no R6, no record of a
+    valid fit) any full-model `poly` result whose objective exceeds a nested profile's by more than 1e-6.
+AC2 Best of all starts: each profile's reported objective equals the minimum over every start and restart of that
+    profile (A2.5), exactly.
+AC3 Stationarity (`poly`): the A2.6 run improves the objective by less than 1e-4.
+AC4 Two-basin agreement (`poly`): at least two distinct starts of the A2.2 `poly` list end within 1e-3 of the
+    reported optimum's objective. A start's end is the lowest objective among its own screen and full runs (the
+    stationarity run counts for the start that holds the optimum). The advice gives the number 1e-3 but not its
+    unit; it is fixed here as the objective, the unit of the other two tolerances of the advice's item (4) (1e-6,
+    1e-4): ten times the stationarity tolerance, and below the scale at which the R13 metrics are judged (the
+    smallest R13 limit, M1, is 0.018). The (a, b) end points of the agreeing starts are reported, not gated.
+
+## What A2 does not change
+
+The model of record stays the polynomial (`poly`, a and b free); tanh stays report-only (R6 psi reported, never
+gating; D11 and S3 as I13). No "lowest verified objective" rule and no model switch. Unchanged: the objective, the
+parameters, the profiles' meaning, R1 (each T1 gating configuration >= 4 of 5), R2 (<= 1 of 5 per configuration,
+<= 4 of 40 pooled), S3, R6 (psi <= 1 on both evaluation windows under the frozen R13 limits, I6), D11's 0.5, D12
+(and the coordinator's D12 note), seeds (fit 20261111, prediction 20261112 and 20261113, pseudo-capture 20261114 +
+k, model-spread 20261115), windows, R13 limits, truth families T1 to T7, the D and A grids, verdict names, D15 and
+D19. Step 0 (`step0_diagnostics.yaml`) is not re-run; the study re-runs from the fit step onward exactly as v1.
+
+## Order and stops under A2
+
+fit (A2) -> acceptance (INVALID stops, no verdict) -> R6 on the corrected `poly` -> if R6 fails: `CLOSE_PARTIAL`,
+stop S2 (A2), final; no third optimiser, no model switch, tanh stays report-only -> if R6 holds: predict (S3
+stops), power, decide (R1, R2 applied mechanically, as D14 and D19).
