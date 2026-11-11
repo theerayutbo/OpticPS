@@ -222,6 +222,176 @@ def test_truths_come_from_study_windows_only_and_those_overlap_nothing_else():
         e2c_study.read_windows(capture, ("holdout",), 0.0, 1.0)
 
 
+# ---------------------------------------------------------------------------- amendment A2
+COMMON = {"q1": -0.5, "q2": 0.5, "sigma_rx": 0.07, "sigma_opt": 0.07}
+
+
+def test_a2_starts_are_the_declared_deterministic_grid():
+    starts = {p: e2c_model.a2_starts(p, COMMON) for p in ("identity", "poly_b0", "poly_a0", "tanh")}
+    assert [len(starts[p]) for p in starts] == [1, 3, 3, 3]
+    assert starts["identity"] == [COMMON]
+    assert [s["a"] for s in starts["poly_b0"]] == [-0.03, 0.0, 0.03]
+    assert [s["b"] for s in starts["poly_a0"]] == [-0.05, 0.0, 0.05]
+    assert [(s["k"], s["o"]) for s in starts["tanh"]] == [(0.1, -0.4), (0.1, 0.0), (0.1, 0.4)]
+    with pytest.raises(BenchmarkError, match="optima of poly_b0 and poly_a0"):
+        e2c_model.a2_starts("poly", COMMON)
+    nested = {"poly_b0": {**COMMON, "a": 0.011}, "poly_a0": {**COMMON, "b": -0.022, "q1": -0.4}}
+    poly = e2c_model.a2_starts("poly", COMMON, nested)
+    assert len(poly) == 11
+    assert [(s["a"], s["b"]) for s in poly[:9]] == [
+        (a, b) for a in (-0.03, 0.0, 0.03) for b in (-0.05, 0.0, 0.05)
+    ]
+    assert poly[9] == {**COMMON, "a": 0.011, "b": 0.0}
+    assert poly[10] == {**COMMON, "q1": -0.4, "a": 0.0, "b": -0.022}
+    assert all(s[k] == COMMON[k] for s in poly[:9] for k in COMMON)
+    assert e2c_model.A2_STEPS["a"] == 0.02 and e2c_model.A2_STEPS["b"] == 0.03
+    assert e2c_model.A2_STEPS["q1"] == 0.02 and e2c_model.A2_STEPS["k"] == 0.1
+    assert e2c_model.A2_SCREEN_MAXFEV == 200 and e2c_model.A2_FULL_MAXFEV == 600
+    assert e2c_model.A2_KEEP == 2
+
+
+def run_record(kind: str, start: int, objective: float, a: float = 0.0, b: float = 0.0):
+    x = {"q1": -0.5, "q2": 0.5, "a": a, "b": b, "sigma_rx": 0.07, "sigma_opt": 0.07}
+    return {"kind": kind, "start": start, "objective": objective, "x": x, "evaluations": 10}
+
+
+def test_a2_selection_and_the_optimum_are_the_best_of_every_run():
+    screens = [run_record("screen", i, v) for i, v in enumerate([0.30, 0.20, 0.25, 0.20])]
+    assert e2c_model.a2_select(screens) == [1, 3]  # ties by start position
+    runs = [*screens, run_record("full", 1, 0.19), run_record("restart", 1, 0.185),
+            run_record("full", 3, 0.17, a=0.02), run_record("restart", 3, 0.18)]  # fmt: skip
+    best = e2c_model.a2_optimum(runs)
+    assert best["objective"] == 0.17 and best["start"] == 3
+    document = e2c_model.a2_profile_document(
+        "poly", BASE, [], [{}] * 4, runs, fit_seed=1, fit_samples=N
+    )
+    assert document["objective"] == 0.17 and document["law"]["a"] == 0.02
+    assert document["a2"]["selected_for_full"] == [1, 3]
+
+
+def accepted_profiles(**objectives: float) -> dict[str, dict]:
+    """Profile records that pass every A2 check; keyword arguments override objectives."""
+    obj = {"identity": 0.30, "poly_b0": 0.20, "poly_a0": 0.21, "tanh": 0.18, "poly": 0.15}
+    obj |= objectives
+    profiles = {}
+    for p, v in obj.items():
+        runs = [run_record("screen", 0, v + 0.01), run_record("full", 0, v)]
+        profiles[p] = {"objective": v, "a2": {"runs": runs}}
+    poly = obj["poly"]
+    profiles["poly"]["a2"] = {
+        "runs": [
+            run_record("screen", 0, poly + 0.02),
+            run_record("full", 0, poly),
+            run_record("screen", 4, poly + 0.03),
+            run_record("full", 4, poly + 0.0005),
+            run_record("screen", 7, poly + 0.004),
+            run_record("stationarity", 0, poly),
+        ],
+        "stationarity": {"gain": 0.0},
+    }
+    return profiles
+
+
+def test_a2_acceptance_passes_a_consistent_fit():
+    verdict = e2c_model.a2_acceptance(accepted_profiles())
+    assert verdict["valid"] and verdict["failed"] == [] and verdict["status"] == "VALID"
+    assert verdict["checks"]["AC4_two_basin_agreement"]["agreeing_starts"] == [0, 4]
+
+
+def test_a2_ac1_poly_above_a_nested_profile_is_invalid():
+    assert e2c_model.a2_acceptance(accepted_profiles(poly=0.2000005))["valid"]  # within 1e-6
+    profiles = accepted_profiles(poly=0.2000020)
+    verdict = e2c_model.a2_acceptance(profiles)
+    assert not verdict["valid"] and "AC1_nested" in verdict["failed"]
+    assert verdict["status"] == "FIT_INVALID, S2 not evaluable"
+
+
+def test_a2_ac1_includes_the_identity_base():
+    verdict = e2c_model.a2_acceptance(accepted_profiles(identity=0.19, tanh=0.18, poly=0.15))
+    assert verdict["failed"] == ["AC1_nested"]  # min(nested) 0.20 above the identity 0.19
+    lines = verdict["checks"]["AC1_nested"]["lines"]
+    assert lines == {
+        "poly <= min(poly_b0, poly_a0)": True,
+        "min(poly_b0, poly_a0) <= identity": False,
+        "tanh <= identity": True,
+    }
+    verdict = e2c_model.a2_acceptance(accepted_profiles(tanh=0.31))
+    assert verdict["failed"] == ["AC1_nested"]
+    assert not verdict["checks"]["AC1_nested"]["lines"]["tanh <= identity"]
+
+
+def test_a2_ac2_a_reported_optimum_that_is_not_the_lowest_run_is_invalid():
+    profiles = accepted_profiles()
+    profiles["poly_a0"]["a2"]["runs"].append(run_record("restart", 0, 0.2099))
+    verdict = e2c_model.a2_acceptance(profiles)
+    assert verdict["failed"] == ["AC2_best_of_all_starts"]
+
+
+def test_a2_ac3_a_stationarity_run_that_still_improves_is_invalid():
+    profiles = accepted_profiles()
+    profiles["poly"]["a2"]["stationarity"]["gain"] = 0.99e-4
+    assert e2c_model.a2_acceptance(profiles)["valid"]
+    profiles["poly"]["a2"]["stationarity"]["gain"] = 2e-4
+    assert e2c_model.a2_acceptance(profiles)["failed"] == ["AC3_stationarity"]
+    del profiles["poly"]["a2"]["stationarity"]
+    assert e2c_model.a2_acceptance(profiles)["failed"] == ["AC3_stationarity"]
+
+
+def test_a2_ac4_one_basin_alone_is_invalid():
+    profiles = accepted_profiles()
+    runs = profiles["poly"]["a2"]["runs"]
+    runs[3] = run_record("full", 4, 0.15 + 0.0011)  # just outside 1e-3
+    verdict = e2c_model.a2_acceptance(profiles)
+    assert verdict["failed"] == ["AC4_two_basin_agreement"]
+    assert verdict["checks"]["AC4_two_basin_agreement"]["agreeing_starts"] == [0]
+    runs[4] = run_record("screen", 7, 0.15 + 0.0009)  # a screen end counts for its start
+    assert e2c_model.a2_acceptance(profiles)["valid"]
+
+
+def test_the_nested_invariant_refuses_a_poly_result_above_a_nested_profile():
+    e2c_model.require_nested({"poly": 0.19, "poly_b0": 0.19, "poly_a0": 0.2})
+    with pytest.raises(BenchmarkError, match="nested poly_a0"):
+        e2c_model.require_nested({"poly": 0.1930, "poly_b0": 0.1931, "poly_a0": 0.1908})
+    with pytest.raises(BenchmarkError, match="nested poly_b0"):
+        e2c_model.require_nested({"poly": 0.1930, "poly_b0": 0.1911})
+
+
+def test_the_fit_step_refuses_r6_for_a_poly_result_above_a_nested_profile():
+    script = load_script()
+    fit = {"objective": 0.1930, "sigma_opt": 0.05, "sigma_rx": 0.05,
+           "tx_levels": [-1.5, -0.5, 0.5, 1.5], "law": {"kind": "poly", "a": 0.0, "b": 0.0}}  # fmt: skip
+    fits = {"poly": fit, "poly_b0": {**fit, "objective": 0.1911}, "tanh": fit}
+    with pytest.raises(BenchmarkError, match="not an optimum, refused"):
+        script.r6_rows(BASE, fits, {})
+
+
+def test_the_a2_optimiser_screens_every_start_and_refines_the_best_two(monkeypatch):
+    monkeypatch.setattr(e2c_model, "A2_SCREEN_MAXFEV", 12)
+    monkeypatch.setattr(e2c_model, "A2_FULL_MAXFEV", 16)
+    g = e2c_model.g_ref_of(BASE["pulse_levels"])
+    law = e2c_model.Law("poly", 0.0, -0.04)
+    levels = tuple(e2c_model.tx_levels(-0.5, 0.5, g))
+    targets = []
+    for amplitude in (1.0, 0.8):
+        spec = e2c_model.Synthesis(levels, law, 0.06, 0.08, amplitude)
+        y = e2c_model.synthesize(BASE, spec, n_samples=N, symbol_seed=5, noise_seed=5)
+        targets.append(e2c_model.FitTarget(e2_score.window_summary(y, FS, BAUD), amplitude, "t"))
+    starts = {"poly_a0": e2c_model.a2_starts("poly_a0", COMMON)}
+    fits = e2c_model.fit_profiles_a2(
+        BASE, targets, starts, fit_seed=5, fit_samples=N, stationarity_for=("poly_a0",)
+    )
+    record = fits["poly_a0"]
+    runs = record["a2"]["runs"]
+    assert sorted(r["start"] for r in runs if r["kind"] == "screen") == [0, 1, 2]
+    screens = [r for r in runs if r["kind"] == "screen"]
+    assert record["a2"]["selected_for_full"] == e2c_model.a2_select(screens)
+    assert len(record["a2"]["selected_for_full"]) == 2
+    assert [r["kind"] for r in runs].count("stationarity") == 1
+    assert all(r["evaluations"] <= 16 + 2 for r in runs)
+    assert record["objective"] == min(r["objective"] for r in runs)
+    assert "stationarity" in record["a2"]
+
+
 # ---------------------------------------------------------------------------- calibration route
 OPEN_EVENTS = ("open", "os.open", "subprocess.Popen", "os.posix_spawn", "os.exec", "os.system")
 _AUDIT: dict[str, list[tuple[str, str]] | None] = {"events": None}

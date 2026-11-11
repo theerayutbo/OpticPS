@@ -78,6 +78,78 @@ MUTANTS: list[Mutant] = [
             )
         ],
     ),
+    # amendment A2: one mutant per acceptance check, the nested invariant and the optimum choice
+    (
+        "a2_ac1_nested_check_dropped",
+        MODEL,
+        [('            "holds": all(ac1_lines.values()),', '            "holds": True,')],
+    ),
+    (
+        "a2_ac1_identity_base_dropped",
+        MODEL,
+        [
+            (
+                '"min(poly_b0, poly_a0) <= identity": nested_min <= obj["identity"] + A2_NESTED_TOL,',
+                '"min(poly_b0, poly_a0) <= identity": True,',
+            )
+        ],
+    ),
+    (
+        "a2_ac1_tanh_identity_dropped",
+        MODEL,
+        [
+            (
+                '"tanh <= identity": obj["tanh"] <= obj["identity"] + A2_NESTED_TOL,',
+                '"tanh <= identity": True,',
+            )
+        ],
+    ),
+    ("a2_ac2_best_of_all_check_dropped", MODEL, [('"holds": obj[p] == lowest}', '"holds": True}')]),
+    (
+        "a2_optimum_not_the_best_run",
+        MODEL,
+        [('        if float(record["objective"]) < float(best["objective"]):', "        if True:")],
+    ),
+    (
+        "a2_ac3_stationarity_relaxed",
+        MODEL,
+        [("A2_STATIONARY_GAIN = 1e-4  # AC3", "A2_STATIONARY_GAIN = 1e-3  # AC3")],
+    ),
+    (
+        "a2_ac4_one_basin_enough",
+        MODEL,
+        [("A2_BASIN_MIN_STARTS = 2  # AC4", "A2_BASIN_MIN_STARTS = 1  # AC4")],
+    ),
+    (
+        "a2_nested_invariant_dropped",
+        MODEL,
+        [
+            (
+                "        if name in objectives and poly > float(objectives[name]) + tol:",
+                "        if False:",
+            )
+        ],
+    ),
+    (
+        "a2_r6_without_invariant",
+        SCRIPT,
+        [
+            (
+                '    e2c_model.require_nested({p: float(f["objective"]) for p, f in fits.items()})\n',
+                "",
+            )
+        ],
+    ),
+    (
+        "a2_screen_not_selected_by_objective",
+        MODEL,
+        [
+            (
+                '    ranked = sorted(screens, key=lambda r: (float(r["objective"]), int(r["start"])))',
+                '    ranked = sorted(screens, key=lambda r: int(r["start"]))',
+            )
+        ],
+    ),
 ]
 
 

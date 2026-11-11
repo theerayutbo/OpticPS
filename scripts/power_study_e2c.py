@@ -1,16 +1,19 @@
 """E2c power study (design `E2c_power_study_fable.md`, plan `teriphic_e2c/STUDY_PLAN.md`).
 
     python scripts/power_study_e2c.py step0     # diagnostics and viability (S1)
-    python scripts/power_study_e2c.py fit       # joint fit on B2B and 2 km fit windows, R6 (S2)
+    python scripts/power_study_e2c.py fit       # A2 joint fit on B2B and 2 km fit windows, R6 (S2)
     python scripts/power_study_e2c.py predict   # 10 km scenarios, controls, limits, D11, S3
     python scripts/power_study_e2c.py power     # truth families T1 to T7 x 5 windows
-    python scripts/power_study_e2c.py decide    # the D14 rule, `power_study_e2c.yaml`
+    python scripts/power_study_e2c.py decide    # the D14 rule, `power_study_e2c_v2.yaml`
 
 Reads the B2B capture through `teriphic.open_b2b` and the 2 km capture through
 `e2c_calibration.open_two_km` only, at the plan's window offsets only. Never names, opens, hashes or
 stats the 10 km file. Each committed output is written once; a re-run that would change its bytes
-writes a new version suffix instead. Heavy intermediates (prediction summaries, truth summaries) go
-to `--cache` (default `build/e2c_cache`, not committed). Exit codes: 0 done, 2 refused or a
+writes a new version suffix instead. Amendment A2 (plan): the fit step runs the A2 optimiser and its
+acceptance checks and writes `law_model_v2.yaml`; `decide` writes `power_study_e2c_v2.yaml`; the v1
+files `law_model.yaml` and `power_study_e2c.yaml` stay as the v1 record and are never rewritten.
+Heavy intermediates (prediction summaries, truth summaries) go to `--cache` (default
+`build/e2c_cache_v2`, not committed). Exit codes: 0 done, 2 refused or a
 prerequisite missing, 3 the study stopped at a pre-registered stop condition before this step.
 """
 
@@ -52,8 +55,13 @@ from opticps.benchmarks.e2c_study import AMPLITUDES, BOUNDS, DISPERSION_GRID, Ce
 OUT = ROOT / "docs/benchmarks/teriphic_e2c"
 PLAN_PATH = OUT / "STUDY_PLAN.md"
 STEP0_PATH = OUT / "step0_diagnostics.yaml"
-LAW_PATH = OUT / "law_model.yaml"
-RESULT_PATH = OUT / "power_study_e2c.yaml"
+LAW_PATH_V1 = OUT / "law_model.yaml"  # the v1 record (CLOSE_PARTIAL, S2), never rewritten
+RESULT_PATH_V1 = OUT / "power_study_e2c.yaml"
+LAW_PATH = OUT / "law_model_v2.yaml"  # amendment A2
+RESULT_PATH = OUT / "power_study_e2c_v2.yaml"
+AMENDMENTS = ["A1", "A2"]
+PRIOR = "v1 CLOSE_PARTIAL S2, optimiser stall"
+A2_STATUS_INVALID = "FIT_INVALID, S2 not evaluable"
 B2B_MODEL_PATH = ROOT / e2_score.MODEL_PATH
 TWO_KM_PATH = ROOT / teriphic.DEFAULT_ROOT / e2c_calibration.TWO_KM_NAME
 NEW_CODE = (
@@ -116,12 +124,17 @@ def provenance() -> dict[str, Any]:
     plan_commit = git(
         "log", "--diff-filter=A", "--format=%H", "--", PLAN_PATH.relative_to(ROOT).as_posix()
     )
+    amendment_commit = git("log", "-1", "--format=%H", "--", PLAN_PATH.relative_to(ROOT).as_posix())
     return {
         "study_plan": {
             "path": PLAN_PATH.relative_to(ROOT).as_posix(),
             "sha256": sha256_file(PLAN_PATH),
             "commit": plan_commit,
+            "amendment_a2_commit": amendment_commit,
         },
+        "amendments": AMENDMENTS,
+        "prior": PRIOR,
+        "a2_disclosure": "A2 was written after v1's result was seen; 10 km untouched.",
         "head_commit": git("rev-parse", "HEAD"),
         "code_identity": {p: sha256_file(ROOT / p) for p in NEW_CODE},
         "declarations": DECLARATIONS,
@@ -291,16 +304,6 @@ def step0(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------- fit
-def _fit_profile(job: tuple[str, dict[str, Any], list[Any], dict[str, float]]) -> dict[str, Any]:
-    profile, base, targets, start = job
-    t = time.time()
-    result = e2c_model.fit_law(
-        base, targets, profile=profile, start=start, fit_seed=e2c_study.SEEDS["fit"]
-    )
-    result["compute_seconds"] = round(time.time() - t, 1)
-    return result
-
-
 def law_spec(
     fit: Mapping[str, Any],
     *,
@@ -349,6 +352,28 @@ def fit_targets(
     ]
 
 
+def r6_rows(
+    model: Mapping[str, Any],
+    fits: Mapping[str, Mapping[str, Any]],
+    summaries: Mapping[str, Mapping[str, Any]],
+) -> dict[str, Any]:
+    """R6 (plan I6) of poly, tanh reported; refused for a poly result above a nested profile."""
+    e2c_model.require_nested({p: float(f["objective"]) for p, f in fits.items()})
+    fs, baud = float(model["sample_rate_hz"]), float(model["baud_bd"])
+    a2 = e2c_study.SOURCE_AMPLITUDE["2km"]
+    r6: dict[str, Any] = {}
+    for profile in ("poly", "tanh"):
+        rows = {}
+        for label, amplitude in (("b2b", 1.0), ("2km", a2)):
+            y = predict_window(model, law_spec(fits[profile], amplitude=amplitude, bound="RX"))
+            m = e2_metrics.metrics_between(
+                summaries[label]["evaluation"], e2_score.window_summary(y, fs, baud)
+            )
+            rows[label] = {"metrics": metrics_doc(m), "psi_r13": e2_score.exceedance(m, R13_LIMITS)}
+        r6[profile] = rows
+    return r6
+
+
 def fit(args: argparse.Namespace) -> int:
     step0_doc = load_yaml(STEP0_PATH)
     if not step0_doc["viability"]["viable"]:
@@ -364,56 +389,61 @@ def fit(args: argparse.Namespace) -> int:
             data[label] = e2c_study.read_windows(capture, ("fit", "spread", "evaluation"), c0, g0)
         finally:
             capture.close()
-    a2 = e2c_study.SOURCE_AMPLITUDE["2km"]
     targets = fit_targets(data, fs, baud)
     g_ref = e2c_model.g_ref_of(model["pulse_levels"])
     q1, q2 = e2c_model.q_of(model["pulse_levels"])
     sigma0 = float(model["noise_sigma"]) / math.sqrt(2.0)
-    common = {"q1": q1, "q2": q2, "sigma_rx": sigma0, "sigma_opt": sigma0}
-    starts = {
-        "poly_b0": {**common, "a": 0.0},
-        "poly_a0": {**common, "b": 0.0},
-        "poly": {**common, "a": 0.0, "b": 0.0},
-        "tanh": {**common, "k": 0.05, "o": 0.0},
-    }
-    jobs = [(p, model, targets, starts[p]) for p in e2c_model.PROFILES]
+    common = {"q1": q1, "q2": q2, "sigma_rx": sigma0, "sigma_opt": sigma0}  # plan I5
+    seed = e2c_study.SEEDS["fit"]
     with ProcessPoolExecutor(max_workers=args.workers) as pool:
-        fits = {r["profile"]: r for r in pool.map(_fit_profile, jobs)}
-    print("fit: profiles done", {p: round(f["objective"], 5) for p, f in fits.items()}, flush=True)
+        # A2.2: identity, the nested profiles and tanh first; poly needs the nested optima
+        first = {
+            p: e2c_model.a2_starts(p, common) for p in ("identity", "poly_b0", "poly_a0", "tanh")
+        }
+        fits = e2c_model.fit_profiles_a2(model, targets, first, fit_seed=seed, map_fn=pool.map)
+        print("fit A2: first profiles", {p: round(f["objective"], 6) for p, f in fits.items()},
+              f"{time.time() - started:.0f} s", flush=True)  # fmt: skip
+        nested = {p: e2c_model.a2_optimum(fits[p]["a2"]["runs"])["x"] for p in e2c_model.NESTED}
+        poly_starts = {"poly": e2c_model.a2_starts("poly", common, nested)}
+        fits |= e2c_model.fit_profiles_a2(
+            model, targets, poly_starts, fit_seed=seed, stationarity_for=("poly",), map_fn=pool.map
+        )
+    fits = {p: fits[p] for p in e2c_model.PROFILES_A2}
+    print("fit A2: profiles", {p: round(f["objective"], 6) for p, f in fits.items()},
+          f"{time.time() - started:.0f} s", flush=True)  # fmt: skip
+    acceptance = e2c_model.a2_acceptance(fits)
     # C-2KM: the frozen R13 fitting procedure re-run on the 2 km fit window (plan I7)
     c2 = e2_model.fit_b2b_model(
         data["2km"]["fit"], sample_rate_hz=fs, baud_bd=baud, fit_seed=e2c_study.SEEDS["fit"]
     )
     c2_amplitude = float(e2_metrics.renormalise(data["2km"]["fit"])[2])
-    # R6 and the misfits (plan I6, I9), and the two window spreads
     summaries = {
         k: {w: e2_score.window_summary(v, fs, baud) for w, v in d.items() if w != "fit"}
         for k, d in data.items()
     }
-    r6: dict[str, Any] = {}
-    for profile in ("poly", "tanh"):
-        rows = {}
-        for label, amplitude in (("b2b", 1.0), ("2km", a2)):
-            y = predict_window(model, law_spec(fits[profile], amplitude=amplitude, bound="RX"))
-            m = e2_metrics.metrics_between(
-                summaries[label]["evaluation"], e2_score.window_summary(y, fs, baud)
-            )
-            rows[label] = {"metrics": metrics_doc(m), "psi_r13": e2_score.exceedance(m, R13_LIMITS)}
-        r6[profile] = rows
-    r6_holds = all(r6["poly"][k]["psi_r13"] <= 1.0 for k in ("b2b", "2km"))
+    r6: dict[str, Any] | None = None
+    r6_holds: bool | None = None
+    if acceptance["valid"]:
+        r6 = r6_rows(model, fits, summaries)  # refuses a poly result above a nested profile
+        r6_holds = all(r6["poly"][k]["psi_r13"] <= 1.0 for k in ("b2b", "2km"))
     spreads = {
         label: metrics_doc(
             e2_metrics.metrics_between(summaries[label]["evaluation"], summaries[label]["spread"])
         )
         for label in ("b2b", "2km")
     }
+    poly = fits["poly"]
     document = {
-        "law_model_version": 1,
-        "declared": "Joint calibration of the E2c law model (design D9, plan I1 to I7) on the B2B"
-        " fit window (A 1) and the 2 km fit window (A 0.832). The evaluation windows give misfit"
-        " (R6), the spread windows"
-        " spread; the 10 km file was not read.",
+        "law_model_version": 2,
+        "declared": "Joint calibration of the E2c law model (design D9, plan I1 to I7, amendments"
+        " A1 and A2) on the B2B fit window (A 1) and the 2 km fit window (A 0.832). The evaluation"
+        " windows give misfit (R6), the spread windows spread; the 10 km file was not read.",
         **provenance(),
+        "v1_record": {
+            "law_model.yaml": sha256_file(LAW_PATH_V1),
+            "power_study_e2c.yaml": sha256_file(RESULT_PATH_V1),
+            "decision_of_record": "CLOSE_PARTIAL, S2 (R6), unchanged by A2",
+        },
         "step0_sha256": sha256_file(STEP0_PATH),
         "base_model": {
             "path": e2_score.MODEL_PATH.as_posix(),
@@ -423,11 +453,28 @@ def fit(args: argparse.Namespace) -> int:
         "windows": {k: {"start": v[0], "samples": v[1]} for k, v in e2c_study.WINDOWS.items()},
         "seeds": e2c_study.SEEDS,
         "source_amplitude": e2c_study.SOURCE_AMPLITUDE,
+        "optimiser_a2": {
+            "steps": {**e2c_model.A2_STEPS, "sigma": e2c_model.SIGMA_STEP},
+            "screen_maxfev": e2c_model.A2_SCREEN_MAXFEV,
+            "full_maxfev": e2c_model.A2_FULL_MAXFEV,
+            "full_per_profile": e2c_model.A2_KEEP,
+            "restarts": e2c_model.FIT_RESTARTS,
+            "restart_gain": e2c_model.FIT_RESTART_GAIN,
+            "grid": {
+                "a": list(e2c_model.A2_GRID_A),
+                "b": list(e2c_model.A2_GRID_B),
+                "o": list(e2c_model.A2_GRID_O),
+                "tanh_k": e2c_model.A2_TANH_K,
+            },
+            "fit_samples": e2c_model.FIT_SAMPLES,
+            "workers": args.workers,
+        },
+        "acceptance": acceptance,
         "profiles": fits,
         "model_of_record": "poly",
+        "tanh_role": "report-only (R6 psi reported, never gating)",
         "noise_optical_fraction_phi": float(
-            fits["poly"]["sigma_opt"] ** 2
-            / (fits["poly"]["sigma_opt"] ** 2 + fits["poly"]["sigma_rx"] ** 2)
+            poly["sigma_opt"] ** 2 / (poly["sigma_opt"] ** 2 + poly["sigma_rx"] ** 2)
         ),
         "control_c2km": {
             "procedure": (
@@ -451,10 +498,15 @@ def fit(args: argparse.Namespace) -> int:
     }
     path = write_once(
         LAW_PATH,
-        dump_yaml(document, "# E2c law model (design D9). B2B and 2 km fit windows only.\n"),
+        dump_yaml(
+            document, "# E2c law model, amendment A2 (design D9). B2B and 2 km fit windows only.\n"
+        ),
     )
-    print(json.dumps({"r6_holds": r6_holds, "r6_poly": r6["poly"]}, indent=1), flush=True)
+    print(json.dumps({"acceptance": acceptance["status"], "failed": acceptance["failed"],
+                      "r6_holds": r6_holds, "r6": r6}, indent=1), flush=True)  # fmt: skip
     print(f"wrote {path.relative_to(ROOT)}", flush=True)
+    if not acceptance["valid"]:
+        raise Stopped(f"A2 acceptance failed {acceptance['failed']}: {A2_STATUS_INVALID}")
     return 0
 
 
@@ -519,6 +571,9 @@ def _predict_job(
 
 def predict(args: argparse.Namespace) -> int:
     law_doc = load_yaml(LAW_PATH)
+    if not law_doc["acceptance"]["valid"]:
+        raise Stopped(f"A2: {A2_STATUS_INVALID}; the predictions are not made")
+    e2c_model.require_nested({p: float(f["objective"]) for p, f in law_doc["profiles"].items()})
     if not law_doc["r6_holds"]:
         raise Stopped("S2: R6 failed; the predictions are not made")
     model = b2b_model()
@@ -743,7 +798,8 @@ def decide(args: argparse.Namespace) -> int:
     step0_doc = load_yaml(STEP0_PATH)
     viable = bool(step0_doc["viability"]["viable"])
     law_doc = load_yaml(LAW_PATH) if LAW_PATH.is_file() else None
-    r6 = None if law_doc is None else bool(law_doc["r6_holds"])
+    invalid = law_doc is not None and not law_doc["acceptance"]["valid"]
+    r6 = None if law_doc is None or invalid else bool(law_doc["r6_holds"])
     predicted = (
         json.loads((cache / "predict.json").read_text())
         if (cache / "predict.json").is_file()
@@ -804,16 +860,29 @@ def decide(args: argparse.Namespace) -> int:
             "R3_reach_A_star": reach_value,
             "R3_preregistered_for_R14": "g_10 above A*: law NOT DISCRIMINATING by construction",
         }
-    verdict = e2c_study.decide(step0_viable=viable, r6=r6, s3=s3, r1=r1, r2=r2)
+    verdict: dict[str, Any] = e2c_study.decide(step0_viable=viable, r6=r6, s3=s3, r1=r1, r2=r2)
+    if invalid:  # amendment A2: an INVALID fit gives no verdict; v1's verdict of record stands
+        verdict = {
+            "decision": None,
+            "a2_status": A2_STATUS_INVALID,
+            "failed_checks": law_doc["acceptance"]["failed"] if law_doc else None,
+            "stop_condition": None,
+            "decision_of_record": "CLOSE_PARTIAL, S2 (v1, power_study_e2c.yaml)",
+        }
+    elif verdict["stop_condition"] == "S2":
+        verdict["a2_status"] = "R6 fails for the corrected poly: CLOSE_PARTIAL at S2 (A2), final"
+    else:
+        verdict["a2_status"] = "fit VALID"
     document = {
-        "power_study_e2c_version": 1,
+        "power_study_e2c_version": 2,
         "declared": "The E2c power study (design D14, D19; plan). B2B and 2 km only; the 10 km file"
         " was not read."
         " The rule was fixed in STUDY_PLAN.md before any fit and applied here mechanically.",
         **provenance(),
         "inputs": {
             "step0_diagnostics.yaml": sha256_file(STEP0_PATH),
-            "law_model.yaml": None if law_doc is None else sha256_file(LAW_PATH),
+            "law_model_v2.yaml": None if law_doc is None else sha256_file(LAW_PATH),
+            "v1 power_study_e2c.yaml": sha256_file(RESULT_PATH_V1),
         },
         "rule_lines": {
             "step0_viable": viable,
@@ -839,7 +908,10 @@ def decide(args: argparse.Namespace) -> int:
     }
     path = write_once(
         RESULT_PATH,
-        dump_yaml(document, "# E2c power study result (design D14). B2B and 2 km only.\n"),
+        dump_yaml(
+            document,
+            "# E2c power study result, amendment A2 (design D14). B2B and 2 km only.\n",
+        ),
     )
     print(
         json.dumps(
@@ -854,7 +926,7 @@ def decide(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("step", choices=("step0", "fit", "predict", "power", "decide"))
-    parser.add_argument("--cache", default=str(ROOT / "build/e2c_cache"))
+    parser.add_argument("--cache", default=str(ROOT / "build/e2c_cache_v2"))
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 2))
     args = parser.parse_args()
     steps = {"step0": step0, "fit": fit, "predict": predict, "power": power, "decide": decide}
