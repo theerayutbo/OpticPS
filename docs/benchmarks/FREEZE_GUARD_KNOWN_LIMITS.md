@@ -20,6 +20,23 @@ Not refused, deliberate or outside the tool:
 - Statistics computed outside the tool.
 - Stage declarations (`validation_stage`, `sequence_check`, `state`) and the existence of input
   files are the caller's word; the order in which inputs were committed is not checked.
+- The two-stage contract (plan Revision 13). The 10 km run is refused unless the stage is declared
+  NOT_FAILED, and refused whatever is declared when the committed 2 km record says FAIL or BLOCKED.
+  The carried set is bound to `docs/benchmarks/teriphic_e2/two_km_result.json`, the verbatim stdout of
+  the frozen script's 2 km run, committed with `selected_scenario.yaml` (which holds its SHA-256) in
+  one commit after the freeze, both new files, never changed; the record must name the 2 km file at
+  the pinned freeze, with verified hashes, the frozen limits and every scenario, its head commit
+  between the freeze and the selection commit with every bound file unchanged, and the carried ids
+  must equal its `carry_forward` and the carry rule recomputed from its psi table. The record is
+  bound by bytes and consistency, not by provenance: a record whose psi table was edited to match
+  hand-picked ids, with the hash re-tied, passes, and that is tampering under the promise above. The
+  2 km file is not re-read at 10 km time (one holdout per process).
+- The 2 km run can be executed twice (look, then commit). Code cannot prevent it; the output is
+  deterministic, so the record is unaffected. The plan says once; this stays procedural only, under
+  the promise above.
+- No date proof from the repository. GitHub holds server-side records of a push (not stored in git);
+  an events capture is evidence that a commit existed on GitHub by the server-set time, given
+  GitHub's records. It proves neither authorship nor "no earlier than".
 - `b2b_basis` cannot be recomputed by the tool; limit equals basis times multiplier holds
   arithmetically only. Estimator ids label estimators, they do not verify code.
 - `FrozenCriterion` can be forged in-process with `object.__new__`, and equally through `__dict__`

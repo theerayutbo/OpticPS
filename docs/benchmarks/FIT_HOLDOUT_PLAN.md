@@ -1274,3 +1274,224 @@ freeze commit outside the repository; the 2 km run produces the carried set; `se
 is added in one commit; the 10 km run is then the only one. The shared-sequence check is not
 implemented, so `not-shared` is a declaration by the operator, and nothing in this gate can return
 VALIDATED. BER and SER stay REFERENCE_SEQUENCE_MISSING.
+
+## Revision 13 (2026-11-11): R12 reviewed, failed and never scored; the 10 km run is tied to the committed 2 km result; new freeze
+
+Previous version: SHA-256 `7b02c1938823173cd94e27c29ee5ae3067cdc225b7589c873bdecfa212d8898b` (Revision 12, freeze commit 04360ec6a44bb6aaa2222cc605ab3979718be50a after the history rewrite of `docs/orchestration/opticps-v2/HISTORY_REWRITE.md`; Revision 11 is `554fd2b6...`).
+New version: the pin in `tests/test_benchmark_provenance.py` and in
+`configs/benchmarks/teriphic_pd1_pam4.yaml`. This is an addendum: 0 lines are removed or edited from
+earlier text. Where earlier text is wrong it is corrected here, by reference, and stays as written. The
+criterion file is committed in the commit after this revision, alone, at
+`docs/benchmarks/TERIPHIC_CRITERION_R13.yaml`; the commit that first holds it on the first-parent
+history of `v1.3-mpam` is the freeze. Basis: the design decision
+`docs/orchestration/opticps-v2/questions/E2a_design_fable.md` (items cited as D1 to D22) and the
+coordinator's reading of its item 16 (R13.4).
+
+### R13.0 What happened to R12
+
+The independent re-review of Revision 12 (`docs/orchestration/opticps-v2/handoff/E2a_qa2.md`, verified
+at 4a9222d, freeze 04360ec) returned **FAIL**: 1 MAJOR, 2 MINOR and 3 OBSERVATION; all 12 earlier
+findings were fixed. Revision 12 was reviewed, failed and **never scored**: no 2 km or 10 km sample,
+header or hash was read or produced by any code at any point, before or after that review, and none
+was read, hashed, header-parsed, plotted or linked to write this revision. Its criterion file
+(`TERIPHIC_CRITERION_R12.yaml`) stays in the repository as a record with `TERIPHIC_CRITERION.yaml` and
+`TERIPHIC_CRITERION_R11.yaml`, is ignored by the guard (another path is not a criterion) and must not
+be used. Since no holdout has been read, a new revision and a new freeze are legitimate. The findings
+and their fixes:
+
+| # | Finding (re-review) | Fix | Test |
+|---|---|---|---|
+| 1 | MAJOR: the 10 km run was not tied to the 2 km result; `--stage failed` was scored; the carried ids were checked for format only; the report held no declarations | R13.2: LOCKED_TEST needs `validation_stage` NOT_FAILED; the committed 2 km record is bound to the selection and checked; the report holds the declarations | `test_the_10km_file_is_refused_when_the_2km_stage_is_declared_failed_or_undeclared`, `test_the_10km_file_is_refused_when_the_committed_2km_record_says_fail`, `test_the_10km_file_is_refused_without_a_committed_2km_record`, `test_the_record_hash_in_the_selection_must_match_the_committed_record`, `test_the_carried_ids_must_equal_the_records_carry_forward_in_order`, `test_the_carried_ids_must_be_the_carry_rule_of_the_recorded_table`, `test_the_2km_record_must_name_the_2km_file_at_the_pinned_freeze`, `test_the_selection_and_the_record_are_added_as_new_files_in_one_commit`, `test_the_records_head_commit_lies_between_freeze_and_selection_with_bound_files_unchanged`, `test_the_report_records_declarations_record_window_and_summary`, `test_the_2km_report_written_by_the_script_is_a_valid_record_for_the_10km_stage` |
+| 2 | MINOR: `--sequence-check shared` never gave EXPLORATORY; three texts said it did; "not-shared" was only the operator's word | R13.2 item 8: SHARED gives {EXPLORATORY, BLOCKED} at both lengths; the script offers `not-run` and `shared` only; the declarations are in the report | `test_a_shared_sequence_forces_exploratory_at_both_lengths`, `test_a_burned_file_ends_exploratory_and_a_shared_sequence_does_too`, `test_the_frozen_script_cannot_declare_not_shared` |
+| 3 | MINOR: the mutant `judged = list(table)` survived (an uncarried control counted as a 10 km survivor) | `judged` was correct and stays; the test was missing | `test_an_uncarried_control_within_limits_is_not_a_10km_survivor`; mutant `judged_includes_uncarried_control` |
+| 4 | OBSERVATION (science): low-pass boundary, off-grid and large-signal reproductions; the 40 percent wording went beyond the study | R13.3: wording corrected, a new FAIL caveat, the claim renamed | `test_a_result_carries_one_caveat_per_nuisance_for_fail_and_for_pass` |
+| 5 | OBSERVATION: R12 limit values differ from R11 | R13.3, correction of the R12 sentence | `test_real_r13_limits_equal_r12_and_the_plan_hash_differs` |
+| 6 | OBSERVATION: "the first external timestamp" was not stored anywhere | R13.5 | none (procedure) |
+
+R12.0 row 7 says the declarations "only reach EXPLORATORY", that `not-shared` cannot be established by
+the script, and that the 10 km run "stays unspent until the owner decides". The first two are
+corrected by R13.2 item 8 (EXPLORATORY is now reached by `shared` too, and `not-shared` is no longer
+offered); the third is superseded by the stop rule of R13.1 item 4. The R12.3 parenthetical "(10 km is
+not run)" is now enforced in code (R13.2 item 5) instead of stated.
+
+### R13.1 What each outcome tells us, fixed before any read (D1 to D4)
+
+| Stage and outcome | What it says | Verdict | Next |
+|---|---|---|---|
+| 2 km FAIL | the surrogate does not transfer within 2x its own B2B misfit; the study excludes dispersion as the cause (D 0 to 9 all pass at 2 km), so a nuisance is present (receiver or export filter, SNR change beyond 2.2x, large-signal, sequence statistics) | FAILED | 10 km refused by code and kept unspent; high value, a clean negative |
+| 2 km PASS, NOT DISCRIMINATING (the study's outcome for every D) | transfer holds, about 80 scenarios carried | UNIDENTIFIABLE_PARAMETER | first external evidence of transfer; unlocks 10 km |
+| 10 km PASS, NOT DISCRIMINATING | consistent with \|D\| <= about 2 ps/(nm km) (O-band near zero dispersion) | INCONCLUSIVE | a consistency with G.652.D, no dispersion claim |
+| 10 km PASS, DISCRIMINATING | a set of D fits where the no-fibre control does not | INCONCLUSIVE, claim PARTIAL | confounded by a mild low-pass (the cap) |
+| 10 km FAIL | no scenario fits; not separable among a grid miss (20 to 60 percent of D above 3), large-signal, chirp, a filter | INCONCLUSIVE, claim `NO_SCENARIO_FITS` | low value, the price of spending 10 km |
+
+1. Why the 10 km file is not held for a better model (D2): a large-signal or chirp model cannot be
+   fitted from B2B (`e2_model` docstring) nor from 2 km (dispersion hardly acts there); its parameters
+   are identifiable only from 10 km, which spends it anyway, so holding it has little option value.
+   After E2b the burned 10 km file may be used, labelled EXPLORATORY, to fit such a model.
+2. The 10 km verdict is INCONCLUSIVE in every scored case by design (D3); the information is in
+   `outcome`, `claim` and the survivors' dispersions. The report carries a `summary` line, and every
+   publication states the ceiling PARTIAL.
+3. **Stop rule, pre-registered (D4): the 10 km run is made if and only if the committed 2 km record's
+   outcome is not FAIL. No other condition.** R12.0 row 7 ("until the owner decides") is superseded by
+   this rule.
+
+### R13.2 The two-stage contract (D5 to D8)
+
+5. **Refusal after a 2 km FAIL.** `require_frozen_criterion` accepts LOCKED_TEST only with
+   `validation_stage` NOT_FAILED; FAILED, NOT_DONE and None are refused (`holdout.StageRefused`) before
+   any input is hashed and before the holdout is hashed or opened ("the 2 km stage FAILED: nothing is
+   carried, the 10 km file stays unspent, plan R12.3"). Independently, `e2_score` refuses when the
+   committed 2 km record has `outcome` FAIL or BLOCKED or `verdict` FAILED or BLOCKED, whatever is
+   declared.
+6. **The carried set is bound to the recorded 2 km result.** `e2_score.TWO_KM_RESULT_PATH` is
+   `docs/benchmarks/teriphic_e2/two_km_result.json`: the verbatim stdout of the frozen script's 2 km
+   run. `selected_scenario.yaml` has exactly the keys `scenario_ids`, `rule`, `selected_at_stage` and
+   `two_km_result_sha256`. `REQUIRED_INPUTS[LOCKED_TEST]` gains `two_km_result`, so the guard requires
+   it committed, unchanged and not empty, and hashes it. `read_two_km_record(root, frozen, scenarios,
+   limits)` replaces `read_selected_scenarios` and refuses unless:
+   a. neither file existed at the freeze; each has exactly one commit in `--full-history`; it is the
+      same commit (the selection commit), a descendant of the freeze; both are new files (`A`, no
+      rename) in that commit; their bytes are unchanged since;
+   b. the SHA-256 of the record's committed bytes equals `two_km_result_sha256`;
+   c. the record is a report of version 2 with `filename` the registered 2 km name, `split`
+      VALIDATION, `length_km` 2.0, `criterion_commit` equal to `frozen.commit` (the pin),
+      `hashes_verified` true, and outcome and verdict as in item 5;
+   d. the record's `head_commit` is the freeze or a descendant of it and an ancestor of the selection
+      commit, and every `bind_to_freeze` path at `head_commit` equals its freeze bytes
+      (`bind_to_freeze` has a `revision` parameter for this);
+   e. `scenarios_scored` equals the scenario count, the record's `scenarios` keys are all the ids,
+      and its `limits` equal the frozen ones (1e-9 relative);
+   f. `carry_forward` equals `scenario_ids` in order; the carry rule recomputed from the recorded psi
+      table, taken in the order of the scenario list as the 2 km run scored it, equals the ids; `rule`
+      is `single` if and only if one id is carried; every carried id has psi <= 1 there.
+   The 2 km file is not re-read at 10 km time (one holdout per process; the read-order test stays).
+   The record is bound by bytes and consistency; a psi table edited to match hand-picked ids is
+   tampering under the promise of R3.1 (restated in the known limits). Recomputing the carry rule from
+   the recorded table makes the 10 km stage independent of float differences between machines. All
+   of these checks run before the B2B comparator is read and before the holdout is hashed or opened.
+7. **The JSON report, both stages**: `report_version: 2`; `declarations: {validation_stage,
+   sequence_check, state}` (strings or null) with `declarations_note` "operator declarations, not
+   established by this script; the shared-sequence check is not implemented, so NOT_SHARED cannot be
+   declared here"; `two_km_record: {path, sha256, commit}` at 10 km, null at 2 km; `window: {start,
+   samples, sample_rate_hz}` (the evaluation window read and the header's sample rate); `summary`: one
+   sentence from the outcome, the claim, the survivors' dispersions and the amplitude ratio, ending
+   "the verdict is capped at INCONCLUSIVE by design"; and a note, never a verdict rule, when the
+   amplitude ratio is outside 0.5 to 2.
+8. **Shared sequence.** `allowed_verdicts` with `sequence_check` SHARED (as with BURNED) returns
+   {EXPLORATORY, BLOCKED} for VALIDATION and for LOCKED_TEST, so the existing clamp forces EXPLORATORY
+   at either length (R2.4 read literally); a BLOCKED result stays BLOCKED. The script offers
+   `--sequence-check {not-run, shared}` only; `not-shared` is gone from the script (the enum member
+   stays). The script docstring is corrected in code; R12.0 row 7 and the R12.3 parenthetical are
+   corrected by this text. The script exits 3 for a refusal by the two-stage contract (the declared
+   stage or the record), 2 for any other refusal.
+
+### R13.3 Science: what changes in words, what does not change (D9 to D13)
+
+9. **Low-pass margin at 2 km: no strengthening.** The limit basis is the model's own B2B misfit (M4
+   0.609 against a spread of 0.081), so a low-pass whose effect on M1 to M4 is below that misfit lies
+   inside the model's own error and cannot be rejected on B2B evidence without failing B2B itself; the
+   cap already carries this. Recorded: a Butterworth-4 low-pass at 45 GHz FAILed 2 km at psi 1.019
+   (reviewer, B2B window 12582912, not part of the study); a milder one passes. This is the measured
+   boundary, not a limit change.
+10. **Unchanged:** limits, basis, multiplier 2.0, estimators, margin 0.25, carry rule, gain-invariant
+    map, model, scenario list, pre-registration, power study, windows, seeds, `ROLE_BY_NAME`,
+    `LENGTH_KM`. No scenario, metric or threshold is added. The claim constant is renamed from
+    `NO_GRID_SCENARIO_FITS` to `NO_SCENARIO_FITS` (the old name asserts a cause the study cannot
+    separate); its note lists the causes of R13.1.
+11. **The 40 percent, corrected.** The third FAIL caveat, R12.3 and R12.4 reading 4 stay as written and
+    are corrected here: the study brackets the fraction of true D above 3 ps/(nm km) that no grid
+    scenario fits between about 20 and 60 percent (a D within 0.05 of a grid point passed, one 0.10
+    away failed; the boundary between was not resolved), small-signal only.
+12. **Small-signal, a new FAIL caveat:** every pseudo-capture of the study has the model's own
+    small-signal cosine form; a large-signal (square-law, ER about 6 dB) pseudo-capture of real B2B
+    FAILed at 10 km even on-grid at D=4.5 (psi 1.26; reviewer reproduction, window 12582912, not part of
+    the pre-registered study). A 10 km FAIL does not separate a grid miss from large-signal operation,
+    chirp or a filter.
+13. **The R12 limit values, corrected.** The R12 limit values differ from R11 (M1 0.02659 to 0.01814,
+    M2 0.03456 to 0.06000, M3 0.08985 to 0.13066, M4 1.2292 to 1.2179) because the metric map became the
+    gain-invariant map (R12.2) and misfit and spread were recomputed under it; the formula basis x 2.0
+    and the multiplier are unchanged. "Limits were not changed" (R12.4 reading 7, the R12 handoff)
+    meant only: not moved after seeing the power study. R13 limits equal R12 to 1e-9 (test
+    `test_real_r13_limits_equal_r12_and_the_plan_hash_differs`).
+
+### R13.4 How "must not change" is read for the three E2 documents
+
+D16 says `b2b_model.yaml`, `preregistered_predictions.yaml` and `power_study.yaml` must not change.
+Taken byte for byte this cannot be done together with D15: the model holds the code identity of the
+import closure (R12.5), which changes when `holdout.py` and `e2_score.py` change, and the other two hold
+the model's SHA-256. The coordinator's decision, following the R12 precedent the reviewer accepted
+(`E2a_qa.md`, "First freeze": the model differed only in two identity hashes, the registration only in
+`model_sha256`): the **scientific content** of the three documents must not change, that is fitted
+values, limits, scenarios, predictions, power-study results, seeds and windows. Allowed and nothing
+else: the `code_identity` table of `b2b_model.yaml`, regenerated by `scripts/freeze_teriphic_e2.py
+prepare` (B2B only), and the resulting `model_sha256` line of the other two. `scenario_list.yaml` is
+byte-identical. Evidence: `test_real_r13_documents_equal_the_r12_freeze_except_the_regenerated_fields`
+compares each document with its bytes at the R12 freeze (`git show 04360ec`) after removing only that
+field, and `test_the_committed_e2_documents_hold_the_r12_science_and_are_tied_to_each_other` holds the
+digest of that content; the mutant `fitted_value_changed_with_hashes_consistent` (a fitted value
+changed, the model hash re-tied in both documents) is killed by it.
+
+### R13.5 External timestamp (D14, as decided by the coordinator)
+
+No release is made: the owner has not approved one. The timestamp procedure is push events plus the
+external pin. The coordinator holds outside the repository, in
+`~/.claude/orchestration/opticps-v2-evidence/github_events_2026-11-11.json` (SHA-256
+`2f10d05305182d0cd80161d20fe3cfb1f18f8f1522707efc8e9b91f1104b4ae6`, not committed), a capture of the
+GitHub events API with a PushEvent at 2026-11-10T13:01:16Z for `refs/heads/v1.3-mpam`, head
+`c93524109f451856b97bd893b178499cf9dd472d`, from which the R12 freeze 04360ec is reachable. It says only
+that the commit existed on GitHub by that time, given GitHub's records. GitHub holds server-side
+records of a push; they are not stored in git. A server-set time is third-party evidence of "no later
+than"; it proves neither authorship nor "no earlier than". For R13 the same applies: the coordinator
+records the freeze commit in the external pin file, pushes, and captures the PushEvent that contains
+the R13 freeze. The wording "GitHub push time is the first external timestamp" (CHECKPOINT) is
+corrected to: GitHub holds server-side records of the push (not stored in git); evidence is kept
+outside the repository as stated here.
+
+### R13.6 Missed by the reviewer, now stated (D20 to D22)
+
+- Nothing made the operator commit the 2 km report at all; `selected_scenario.yaml` could be typed
+  from memory. R13.2 item 6 binds it, and puts the record in `REQUIRED_INPUTS`, without which the guard
+  would neither require it committed nor hash it.
+- The report omitted which window was read and the sample-rate check; `window` makes a result
+  reproducible.
+- **The 2 km run can be executed twice** (look, then commit). Code cannot prevent it; the output is
+  deterministic, so the record is unaffected. The plan says once; this stays procedural only, under
+  the promise.
+
+### R13.7 The promise, restated and not widened
+
+The guard catches accidents and casual re-tuning by ordinary commits. It does not stop deliberate tampering by someone who controls the repository, and it gives no date proof. Only an external timestamp can.
+
+The two-stage binding of R13.2 is to bytes in the local history and inherits this promise; the new
+limits are listed in `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md`.
+
+### R13.8 Code identity (narrow) and data
+
+The code identity is the same import closure of 12 files (SHA-256 as committed at the freeze; the
+scorer refuses any difference, and R11.2 compares them with the freeze commit):
+
+- `src/opticps/__init__.py` `73b18c2f2f411e59a48662c13f0b61689edcd899f0b925ba4f6b7e344f1ddf82`
+- `src/opticps/benchmarks/__init__.py` `7930ad4cc12b9c9fd25aae774d7865c25ade13cb52650b6eec2d3ed85b944989`
+- `src/opticps/benchmarks/capture_stats.py` `9a2a9be15cceaf0c07fd9a8549e9a6824dbe212a96f5d556fd56696b8c476683`
+- `src/opticps/benchmarks/catalog.py` `069896ef92e6e2f9271192f423861808480e91c65dc118119d2e9cf5161ed194`
+- `src/opticps/benchmarks/e2_metrics.py` `64ba6abe5fcc0291149c759b28ca1fc9eb26b017dfad5c6dd35a569af0f44bde`
+- `src/opticps/benchmarks/e2_model.py` `f512d29b9ea096d26e6f8093c04607a246d6e483d0b3b345a1af0a8d87d0d853`
+- `src/opticps/benchmarks/e2_score.py` `e6e2ba920b109752295cd9f1dec2dc7d4aaad4d78a7fb2bd3c28f24e78bb2e5b`
+- `src/opticps/benchmarks/external_capture.py` `7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3`
+- `src/opticps/benchmarks/holdout.py` `1df38b3b025f1f1fc258cbd1e1c90de30ce67b6f7ed334b6f2d39cf823da6dea`
+- `src/opticps/benchmarks/provenance.py` `65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d`
+- `src/opticps/benchmarks/teriphic.py` `8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee`
+- `src/opticps/benchmarks/timing.py` `26ea7bcd3ee5416a2cfbf8a4b403217210219d31af1b8fa1d872689204db61be`
+
+Data files: `b2b_model.yaml` `6c57d4aa8e231639e866283cfdb5d7b0cfeed1cf08748a9502d5bbe27126ab55`, `scenario_list.yaml` `528600b5e695325835dd649e0a5a50027a24aceb31240ef138c5428282354c99`, `preregistered_predictions.yaml` `03210916fa4bc7558094b843996494bd126f38b0c2df0c16f93bbf43cddff6e5`, `power_study.yaml` `aeb48a5ac8882d6d2e926dcb0fd1b9176727f52663513b3ee45ae1e576990749`. Unchanged in value from R12 (R13.4).
+
+### R13.9 Not done
+
+Nothing was scored on a holdout, and no `two_km_result.json` or `selected_scenario.yaml` exists; they
+come only from the real 2 km run in E2b. `score_holdout` ran on fixtures only. Before E2b: the
+independent review of this revision; the coordinator records the R13 freeze outside the repository
+and captures its push event (R13.5); any wavelength or modulator statement of the Zenodo record or
+the TERIPHIC paper is recorded in the plan as a SOURCE, for interpretation only, with the scenarios
+unchanged. E2b: the 2 km run, its stdout committed as the record with the selection in one commit,
+then the 10 km run if and only if the record's outcome is not FAIL (R13.1). BER and SER stay
+REFERENCE_SEQUENCE_MISSING.

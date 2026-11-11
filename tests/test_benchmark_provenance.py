@@ -59,8 +59,9 @@ RAN = CONFIGS / "ran_2025_g652d.yaml"
 WIEGART = CONFIGS / "wiegart_2021_peak_pam4.yaml"
 PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 REGISTER = Path("docs/benchmarks/SOURCE_REGISTER.md")
-# Pinned for Revision 12 of the plan (2026-11-02, Gate E2 part a fix round after the failed review
-# of Revision 11; Revision 11 is REVISION_11_PLAN_SHA256 at 9976d3b; Revision 10 is REVISION_10_PLAN_SHA256 at 1b496d2; Revision 9 is
+# Pinned for Revision 13 of the plan (2026-11-11, Gate E2 part a round after the failed re-review
+# of Revision 12; Revision 12 is REVISION_12_PLAN_SHA256, frozen at 04360ec; Revision 11 is
+# REVISION_11_PLAN_SHA256 at 9976d3b; Revision 10 is REVISION_10_PLAN_SHA256 at 1b496d2; Revision 9 is
 # REVISION_9_PLAN_SHA256 at 1e1e90a; Revision 8 is
 # REVISION_8_PLAN_SHA256 at 9778ce8; Revision 7 is
 # REVISION_7_PLAN_SHA256 at 936337d; Revision 6 is
@@ -74,7 +75,10 @@ PROMISE = (
     " deliberate tampering by someone who controls the repository, and it gives no date proof."
     " Only an external timestamp can."
 )
-PLAN_SHA256 = "7b02c1938823173cd94e27c29ee5ae3067cdc225b7589c873bdecfa212d8898b"  # Revision 12
+PLAN_SHA256 = "73884278d316b48323685f98ab5c2dd5768aa565a308bd544195ba829161564f"  # Revision 13
+REVISION_12_PLAN_SHA256 = (
+    "7b02c1938823173cd94e27c29ee5ae3067cdc225b7589c873bdecfa212d8898b"  # freeze 04360ec
+)
 REVISION_11_PLAN_SHA256 = (
     "554fd2b624878eee7d0599d323ab8a4788e7bdf22d8cb6200fab5ea6df887d4d"  # commit 9976d3b
 )
@@ -227,6 +231,7 @@ def test_plan_hash_is_pinned_in_test_and_config():
 def test_plan_records_every_earlier_pin_and_headings():
     text = " ".join(PLAN.read_text().split())
     for earlier in (
+        REVISION_12_PLAN_SHA256,
         REVISION_11_PLAN_SHA256,
         REVISION_10_PLAN_SHA256,
         REVISION_9_PLAN_SHA256,
@@ -251,6 +256,31 @@ def test_plan_records_every_earlier_pin_and_headings():
     assert "## Revision 10 (2026-11-02)" in text
     assert "## Revision 11 (2026-11-02)" in text
     assert "## Revision 12 (2026-11-02)" in text
+    assert "## Revision 13 (2026-11-11)" in text
+    revision_13 = text[text.index("## Revision 13 (2026-11-11)") :]
+    for needle in (
+        REVISION_12_PLAN_SHA256,
+        "0 lines are removed or edited from earlier text",
+        "Revision 12 was reviewed, failed and **never scored**",
+        "no 2 km or 10 km sample, header or hash was read or produced",
+        "the 10 km run is made if and only if the committed 2 km record's outcome is not FAIL",
+        "between about 20 and 60 percent",
+        "small-signal only",
+        "A 10 km FAIL does not separate a grid miss from large-signal operation, chirp or a filter",
+        "M1 0.02659 to 0.01814, M2 0.03456 to 0.06000, M3 0.08985 to 0.13066, M4 1.2292 to 1.2179",
+        "R13 limits equal R12 to 1e-9",
+        "`NO_GRID_SCENARIO_FITS` to `NO_SCENARIO_FITS`",
+        "`two_km_result_sha256`",
+        "`carry_forward` equals `scenario_ids` in order",
+        "**The 2 km run can be executed twice**",
+        "No release is made",
+        'it proves neither authorship nor "no earlier than"',
+        "2f10d05305182d0cd80161d20fe3cfb1f18f8f1522707efc8e9b91f1104b4ae6",
+        "the **scientific content** of the three documents must not change",
+        PROMISE,
+        "Nothing was scored on a holdout",
+    ):
+        assert needle in revision_13, needle
     revision_12 = text[text.index("## Revision 12 (2026-11-02)") :]
     for needle in (
         REVISION_11_PLAN_SHA256,
@@ -1419,9 +1449,9 @@ def test_only_the_locked_test_can_be_validated_and_only_with_every_state_establi
         ("state", None),
     ):
         assert "VALIDATED" not in verdicts(Split.LOCKED_TEST, **(good | {name: bad})), (name, bad)
-    # a shared sequence may be labelled EXPLORATORY, a failure cannot be softened
+    # a shared sequence is labelled EXPLORATORY (or BLOCKED) only (plan Revision 13, R2.4)
     shared = verdicts(Split.LOCKED_TEST, **(good | {"sequence_check": SequenceCheck.SHARED}))
-    assert shared == OPEN | {"EXPLORATORY"}
+    assert shared == {"EXPLORATORY", "BLOCKED"}
     # a burned file can only be EXPLORATORY or BLOCKED, whatever else is true
     burned = verdicts(Split.LOCKED_TEST, **(good | {"state": HoldoutState.BURNED}))
     assert burned == {"EXPLORATORY", "BLOCKED"}
@@ -1442,9 +1472,9 @@ def test_other_roles_never_validate_whatever_state_is_given():
     }
     assert verdicts(Split.VALIDATION, **good) == OPEN
     assert verdicts(Split.VALIDATION) == OPEN
-    # R.2: a shared sequence marks "the affected holdout" EXPLORATORY, 2 km included
+    # R.2: a shared sequence marks "the affected holdout" EXPLORATORY, 2 km included (R13)
     shared = verdicts(Split.VALIDATION, **good | {"sequence_check": SequenceCheck.SHARED})
-    assert shared == OPEN | {"EXPLORATORY"}
+    assert shared == {"EXPLORATORY", "BLOCKED"}
     assert verdicts(Split.CHARACTERISATION, **good) == {"INCONCLUSIVE", "BLOCKED"}
     assert verdicts(Split.RESERVED, **good) == {"BLOCKED"}
     assert verdicts(Split.UNASSIGNED, **good) == {"BLOCKED"}
@@ -1469,7 +1499,12 @@ METRIC_NAMES = (
 )  # fmt: skip
 INPUT_FILES = {
     Split.VALIDATION: ("b2b_model", "scenario_list"),
-    Split.LOCKED_TEST: ("frozen_parameters", "selected_scenario", "evaluation_script"),
+    Split.LOCKED_TEST: (
+        "frozen_parameters",
+        "selected_scenario",
+        "two_km_result",
+        "evaluation_script",
+    ),
 }
 
 
@@ -1942,8 +1977,14 @@ def test_the_ten_km_file_needs_the_two_km_stage_done(repo):
     freeze(repo, criterion_document(repo / "plan.md"))
     for stage in (None, ValidationStage.NOT_DONE):
         refuse(repo, "before the 2 km stage is done", Split.LOCKED_TEST, validation_stage=stage)
-    for stage in (ValidationStage.FAILED, ValidationStage.NOT_FAILED):
-        assert call(repo, Split.LOCKED_TEST, validation_stage=stage) is not None
+    # plan Revision 13: after a 2 km FAIL nothing is carried and the 10 km file stays unspent
+    refuse(
+        repo, "the 2 km stage FAILED: nothing is carried", Split.LOCKED_TEST,
+        validation_stage=ValidationStage.FAILED,
+    )  # fmt: skip
+    with pytest.raises(holdout.StageRefused):
+        call(repo, Split.LOCKED_TEST, validation_stage=ValidationStage.FAILED)
+    assert call(repo, Split.LOCKED_TEST, validation_stage=ValidationStage.NOT_FAILED) is not None
     refuse(repo, "before the 2 km stage", Split.LOCKED_TEST, validation_stage="NOT_FAILED")
     # 2 km does not need a stage
     assert call(repo, Split.VALIDATION) is not None
