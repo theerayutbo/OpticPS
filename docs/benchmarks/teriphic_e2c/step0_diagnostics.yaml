@@ -1,0 +1,197 @@
+# E2c Step 0 diagnostics (design D7). B2B and 2 km only.
+step0_version: 1
+declared: Step 0 of the E2c power study (design D7, D6 ii; plan I10), before any fit. B2B and 2 km only; the 2 km
+  file is calibration data (D15 a). The 10 km file was not read.
+study_plan: {path: docs/benchmarks/teriphic_e2c/STUDY_PLAN.md, sha256: 570ce1a63d0ea7be723755402e2dab71a30fa94f8e6b984fa71c352f652b436f,
+  commit: 70fc5998f610a803b69a063bd99c205437374843}
+head_commit: f0f079db4d93e080669c6301814262dd021bff0e
+code_identity: {src/opticps/benchmarks/e2c_calibration.py: 93a5ba102396cabb1c36c8f1ddebdeb529c9f8e0c986e23c002e9c3775caecb4,
+  src/opticps/benchmarks/e2c_model.py: c145e9f1292ec3115d3faa784a8e6f642ce8307ff3363d7b607196f497f551d6, src/opticps/benchmarks/e2c_study.py: 46e608a7f2809834b58c83c47de3b231c1d5c4ecc06794b97e4e8ae6be7335b3,
+  scripts/power_study_e2c.py: 9bad649068923589c8a0da4b602096be1a0c99129b9b549ac9103e721b04fcc9}
+declarations: {a: The 2 km file was read under R13 (one window) and is read in full in E2c; it is calibration data
+    from now on and never again a holdout; its VALIDATION role in ROLE_BY_NAME and the config stays until R14 rebinds
+    it (this phase edits no bound file)., b: R13's 2 km FAIL stands as the result of the pre-registered test of
+    H1 (the B2B-calibrated small-signal surrogate transfers); H1 is refuted at 2 km and no 10 km result can rehabilitate
+    it., c: 'H2 (D1) is a different hypothesis, formed after seeing 2 km; tested at most once, on 10 km, under an
+    R14 freeze; if H2 fails, no third hypothesis gets a fresh holdout from this dataset.', d: 'Ceiling: VALIDATED
+    is never returned; a 10 km PASS, DISCRIMINATING is PARTIAL, INCONCLUSIVE, confounded by a coincident settings
+    change, a mild low-pass, chirp, wavelength, fibre type and the grid; the law''s seat stays unidentified.', e: BER
+    and SER stay REFERENCE_SEQUENCE_MISSING., f: 'Limits, scenarios and rule use B2B and 2 km only; the 10 km file
+    is not touched.', d12_spread_term: The per-scenario model-spread term of D12 is approved by Aria for this study
+    only; it is a structural change that needs explicit owner approval before any R14 freeze.}
+reference_sequence: REFERENCE_SEQUENCE_MISSING
+ten_km_file: not read, hashed, opened, stat'ed or linked
+windows:
+  fit: {start: 0, samples: 8388608}
+  spread: {start: 8388608, samples: 4194304}
+  evaluation: {start: 16777216, samples: 4194304}
+  study0: {start: 12582912, samples: 4194304}
+  study1: {start: 20971520, samples: 4194304}
+  study2: {start: 25165824, samples: 4194304}
+  study3: {start: 29360128, samples: 4194304}
+  study4: {start: 33554432, samples: 4194304}
+normalisation: {c0: -0.00018433985085895875, g0: 0.006999456322514625, source: teriphic_e2/b2b_model.yaml (R13)}
+b2b:
+  windows:
+    fit:
+      clip_screen: {max: 2.756097265192425, min: -2.8874328874647426, count_at_max: 1, count_at_min: 1, clip: false}
+    spread:
+      centroids_b2b_normalised: [-1.509586659271646, -0.47163986854506845, 0.49682428690085423, 1.4911548839522788]
+      signed_gap_pattern: [0.03769029332451446, -0.031775171406679625, -0.005915121917777211]
+      gaps_gain_invariant: [1.0376902933245145, 0.9682248285933204, 0.9940848780822228]
+      cluster_shares: [0.20672869682312012, 0.2761955261230469, 0.2962839603424072, 0.22079181671142578]
+      cluster_std_gap_units: [0.30505333677410323, 0.26814589869088606, 0.25486692577731906, 0.28999191641144195]
+      raw_gain_vs_b2b: 1.0002471810746416
+      window_std_gap_units: 1.0825070247670234
+      centre_b2b_normalised: 0.0016881607591046066
+      clip_screen: {max: 2.7617904831348628, min: -2.722334889390712, count_at_max: 1, count_at_min: 2, clip: false}
+    evaluation:
+      centroids_b2b_normalised: [-1.5064249431980923, -0.4689249194023805, 0.49750894783321103, 1.4862779126764252]
+      signed_gap_pattern: [0.040029772846020384, -0.031209665198962178, -0.00882010764619845]
+      gaps_gain_invariant: [1.0400297728460204, 0.9687903348010378, 0.9911798923538016]
+      cluster_shares: [0.20681333541870117, 0.27625083923339844, 0.29637908935546875, 0.22055673599243164]
+      cluster_std_gap_units: [0.3054886043111702, 0.2686235635810622, 0.25468406818556627, 0.289290997768623]
+      raw_gain_vs_b2b: 0.9975676186248391
+      window_std_gap_units: 1.0824562685509027
+      centre_b2b_normalised: 0.002109249477290853
+      clip_screen: {max: 2.6976817728386715, min: -2.7542655020716094, count_at_max: 1, count_at_min: 1, clip: false}
+    study0:
+      centroids_b2b_normalised: [-1.5087954008535456, -0.47040221914639146, 0.4969967558304844, 1.486614165990957]
+      signed_gap_pattern: [0.03998450816323462, -0.031118496430089015, -0.008866011733081214]
+      gaps_gain_invariant: [1.0399845081632346, 0.968881503569911, 0.9911339882669188]
+      cluster_shares: [0.20674777030944824, 0.2765767574310303, 0.2961006164550781, 0.22057485580444336]
+      cluster_std_gap_units: [0.3050627764109252, 0.2688231040403641, 0.2550000876717268, 0.28875893316064005]
+      raw_gain_vs_b2b: 0.9984698556148341
+      window_std_gap_units: 1.0824039237051006
+      centre_b2b_normalised: 0.001103325455376114
+      clip_screen: {max: 2.6877810448986708, min: -2.7359486896851504, count_at_max: 1, count_at_min: 1, clip: false}
+    study1:
+      centroids_b2b_normalised: [-1.5096245714932859, -0.47340876235130797, 0.4942359401702078, 1.4874448133357998]
+      signed_gap_pattern: [0.03722904887047607, -0.03140910842361766, -0.005819940446958105]
+      gaps_gain_invariant: [1.037229048870476, 0.9685908915763823, 0.9941800595530419]
+      cluster_shares: [0.2067255973815918, 0.2760889530181885, 0.29643750190734863, 0.2207479476928711]
+      cluster_std_gap_units: [0.3054578972220386, 0.2683181638768, 0.2549309062027126, 0.28940862419802327]
+      raw_gain_vs_b2b: 0.9990231282763619
+      window_std_gap_units: 1.0825152634535364
+      centre_b2b_normalised: -0.00033814508464652393
+      clip_screen: {max: 2.679860196433837, min: -2.8161463157325715, count_at_max: 1, count_at_min: 1, clip: false}
+    study2:
+      centroids_b2b_normalised: [-1.5086825498745011, -0.47291169130155747, 0.4946522187891984, 1.487128557881556]
+      signed_gap_pattern: [0.03721912495510904, -0.03108319387631253, -0.006135931079008117]
+      gaps_gain_invariant: [1.037219124955109, 0.9689168061236875, 0.9938640689209919]
+      cluster_shares: [0.20652198791503906, 0.2763950824737549, 0.2964351177215576, 0.22064781188964844]
+      cluster_std_gap_units: [0.30433778465240824, 0.2677134107977643, 0.25492855657113145, 0.2893852939757543]
+      raw_gain_vs_b2b: 0.9986037025853524
+      window_std_gap_units: 1.0821597466318937
+      centre_b2b_normalised: 4.663387367398464e-05
+      clip_screen: {max: 2.7026322698650884, min: -2.711938925469086, count_at_max: 1, count_at_min: 1, clip: false}
+    study3:
+      centroids_b2b_normalised: [-1.5088959481201747, -0.4718620202692355, 0.4955452121859579, 1.4882282938899054]
+      signed_gap_pattern: [0.0380289678844139, -0.0316645347275345, -0.00636443315656432]
+      gaps_gain_invariant: [1.038028967884414, 0.9683354652724655, 0.9936355668434357]
+      cluster_shares: [0.20604920387268066, 0.27660155296325684, 0.2965278625488281, 0.22082138061523438]
+      cluster_std_gap_units: [0.3054656176574881, 0.2680283219888191, 0.2549541089489739, 0.28998365577121155]
+      raw_gain_vs_b2b: 0.9990414140033601
+      window_std_gap_units: 1.0818871271952477
+      centre_b2b_normalised: 0.0007538844216132823
+      clip_screen: {max: 2.753374664801237, min: -2.7213449496531283, count_at_max: 1, count_at_min: 1, clip: false}
+    study4:
+      centroids_b2b_normalised: [-1.5075496069246384, -0.47018988320317473, 0.49654650045600157, 1.4860976137262347]
+      signed_gap_pattern: [0.03956109113224371, -0.031212117789613192, -0.008348973343085708]
+      gaps_gain_invariant: [1.0395610911322437, 0.9687878822103868, 0.9916510266569143]
+      cluster_shares: [0.206773042678833, 0.27637290954589844, 0.2962157726287842, 0.22063827514648438]
+      cluster_std_gap_units: [0.30553973994808864, 0.26855814201625, 0.25469497977935174, 0.2893128340754056]
+      raw_gain_vs_b2b: 0.9978824068836244
+      window_std_gap_units: 1.0824913904775575
+      centre_b2b_normalised: 0.0012261560136057614
+      clip_screen: {max: 2.8333245398014295, min: -2.8003048849157373, count_at_max: 1, count_at_min: 1, clip: false}
+  code_step_fit_window_raw: {distinct_values: 21161, smallest_step: 1.73225998878479e-06, largest_off_grid: 0.00860215053763369,
+    observable: true}
+two_km:
+  windows:
+    fit:
+      clip_screen: {max: 2.252496558898108, min: -2.341007707457951, count_at_max: 1, count_at_min: 1, clip: false}
+    spread:
+      centroids_b2b_normalised: [-1.2410957397801812, -0.3981171002440854, 0.4012143720930798, 1.2487990778229727]
+      signed_gap_pattern: [0.015679819375699733, -0.036909350524568674, 0.021229531148753145]
+      gaps_gain_invariant: [1.0156798193756997, 0.9630906494754313, 1.0212295311487531]
+      cluster_shares: [0.2081313133239746, 0.2761058807373047, 0.2929825782775879, 0.2227802276611328]
+      cluster_std_gap_units: [0.29709038624775697, 0.2649341273007948, 0.2569990651808971, 0.2862859303941136]
+      raw_gain_vs_b2b: 0.8299649392010512
+      window_std_gap_units: 1.0844448171960446
+      centre_b2b_normalised: 0.002700152472946471
+      clip_screen: {max: 2.187966991157028, min: -2.289383946819954, count_at_max: 1, count_at_min: 1, clip: false}
+    evaluation:
+      centroids_b2b_normalised: [-1.2469396390929133, -0.4015794797751862, 0.4003191389888607, 1.2501475973685574]
+      signed_gap_pattern: [0.015615490288581002, -0.0365991939867959, 0.020983703698045364]
+      gaps_gain_invariant: [1.015615490288581, 0.9634008060132041, 1.0209837036980454]
+      cluster_shares: [0.20806598663330078, 0.27680063247680664, 0.29335665702819824, 0.22177672386169434]
+      cluster_std_gap_units: [0.29762735927673684, 0.26495916025276445, 0.2574315360828533, 0.2859863207495289]
+      raw_gain_vs_b2b: 0.8323624121538234
+      window_std_gap_units: 1.083566985833608
+      centre_b2b_normalised: 0.0004869043723296773
+      clip_screen: {max: 2.2617152396479407, min: -2.3118436037856345, count_at_max: 1, count_at_min: 1, clip: false}
+    study0:
+      centroids_b2b_normalised: [-1.2442850211375152, -0.39976995360767703, 0.4011577567390787, 1.2522653950279286]
+      signed_gap_pattern: [0.014818361441439443, -0.03755873885791172, 0.02274037741644941]
+      gaps_gain_invariant: [1.0148183614414394, 0.9624412611420883, 1.0227403774164494]
+      cluster_shares: [0.20844745635986328, 0.27619504928588867, 0.2933073043823242, 0.22205018997192383]
+      cluster_std_gap_units: [0.2967610036521278, 0.2652753823695766, 0.2575146421600993, 0.2868068260931644]
+      raw_gain_vs_b2b: 0.8321834720551479
+      window_std_gap_units: 1.0840932264240568
+      centre_b2b_normalised: 0.002342044255453757
+      clip_screen: {max: 2.1859557103676037, min: -2.2954177891882264, count_at_max: 1, count_at_min: 1, clip: false}
+    study1:
+      centroids_b2b_normalised: [-1.2470600967547627, -0.40317700534512774, 0.3996130627680174, 1.2493683106544167]
+      signed_gap_pattern: [0.014108502656992927, -0.0352736745054113, 0.02116517184819755]
+      gaps_gain_invariant: [1.014108502656993, 0.9647263254945887, 1.0211651718481976]
+      cluster_shares: [0.20795750617980957, 0.2764766216278076, 0.2932734489440918, 0.22229242324829102]
+      cluster_std_gap_units: [0.2969900602235299, 0.2646922434787722, 0.2572473010413064, 0.2859719028514336]
+      raw_gain_vs_b2b: 0.8321428024697264
+      window_std_gap_units: 1.0840280158545128
+      centre_b2b_normalised: -0.00031393216936409507
+      clip_screen: {max: 2.210091345953527, min: -2.3968216807593876, count_at_max: 1, count_at_min: 1, clip: false}
+    study2:
+      centroids_b2b_normalised: [-1.244328586617377, -0.40145260259619864, 0.3991216352616255, 1.2459542271214923]
+      signed_gap_pattern: [0.015397905053655014, -0.03556226613152136, 0.020164361077720905]
+      gaps_gain_invariant: [1.015397905053655, 0.9644377338684786, 1.020164361077721]
+      cluster_shares: [0.2080838680267334, 0.27672457695007324, 0.2933826446533203, 0.22180891036987305]
+      cluster_std_gap_units: [0.29681271929080333, 0.2648005324575294, 0.25695870224802414, 0.28587587135151366]
+      raw_gain_vs_b2b: 0.8300942712462898
+      window_std_gap_units: 1.0836441353548232
+      centre_b2b_normalised: -0.00017633170761449657
+      clip_screen: {max: 2.166010154388703, min: -2.409057016580524, count_at_max: 1, count_at_min: 2, clip: false}
+    study3:
+      centroids_b2b_normalised: [-1.2449983887609206, -0.4004924937236995, 0.40087906180325494, 1.250241202685833]
+      signed_gap_pattern: [0.015340448185781064, -0.03651950905964485, 0.02117906087390331]
+      gaps_gain_invariant: [1.015340448185781, 0.9634804909403551, 1.0211790608739033]
+      cluster_shares: [0.2080240249633789, 0.276120662689209, 0.2933077812194824, 0.2225475311279297]
+      cluster_std_gap_units: [0.2971169502179433, 0.26516335622357945, 0.2575787559826512, 0.2854084255522621]
+      raw_gain_vs_b2b: 0.8317465304822512
+      window_std_gap_units: 1.0841826351482036
+      centre_b2b_normalised: 0.00140734550111693
+      clip_screen: {max: 2.3155176660471204, min: -2.354583985842981, count_at_max: 1, count_at_min: 1, clip: false}
+    study4:
+      centroids_b2b_normalised: [-1.24512973324629, -0.3997913221530886, 0.40222888581333965, 1.252836037085745]
+      signed_gap_pattern: [0.015232179479346408, -0.03679199592061033, 0.02155981644096716]
+      gaps_gain_invariant: [1.0152321794793464, 0.9632080040793897, 1.0215598164409672]
+      cluster_shares: [0.2080378532409668, 0.2765998840332031, 0.2935452461242676, 0.2218170166015625]
+      cluster_std_gap_units: [0.2969423097129604, 0.26486592216885746, 0.2576494143910846, 0.28636875968572256]
+      raw_gain_vs_b2b: 0.8326552567773451
+      window_std_gap_units: 1.0835420002036238
+      centre_b2b_normalised: 0.0025359668749264652
+      clip_screen: {max: 2.257022073730729, min: -2.316536769702846, count_at_max: 1, count_at_min: 1, clip: false}
+  code_step_fit_window_raw: {distinct_values: 25319, smallest_step: 1.171603798866272e-06, largest_off_grid: 0.1073131955484854,
+    observable: false}
+b2b_spread_metrics: {M1_level_spacing: 0.002904985728421239, M2_wasserstein1_amplitude: 0.0013194237736585783, M3_quantile_error: 0.004228849729457362,
+  M4_log_spectral_distance: 0.08064794634315586}
+two_km_spread_metrics: {M1_level_spacing: 0.00031015653777277663, M2_wasserstein1_amplitude: 0.0018436827065806734,
+  M3_quantile_error: 0.003487784480846523, M4_log_spectral_distance: 0.054550418303445765}
+viability:
+  gap_change_signed: [-0.024414282557439382, -0.0053895287878337195, 0.029803811344243814]
+  gap_change_max_abs: 0.029803811344243814
+  three_b2b_spreads: 0.008714957185263716
+  code_step_change: not observable
+  lines: {V1_change_exceeds_3_spreads: true, V2_top_gap_widens: true, V3_no_clip: true, V4_no_code_step_change: true}
+  viable: true
+compute_seconds: 21.2
