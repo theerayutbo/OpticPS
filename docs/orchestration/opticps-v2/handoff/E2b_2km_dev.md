@@ -34,7 +34,7 @@ Record commit: the commit that adds `two_km_result.json` (subject "Record the 2 
 - Lowest psi: `D6.352_N1.5_THRU` 1.501, then `D6.25_N1.5_THRU` 1.502, `D6.352_N1.5` 1.502, `D6.25_N1.5` 1.504, `D6_N1.5` 1.506. Highest psi 2.15.
 - No-fibre control (D0, noise 1) psi 2.143. B2B copy psi 1.643.
 - Amplitude ratio vs B2B 0.8324 (reported, not tested). Limits as frozen: M1 0.01814, M2 0.06000, M3 0.13066, M4 1.21792.
-- No scenario in the grid passes, and the best ones differ from the worst by about 0.65 in psi, so the misfit is not about dispersion.
+- No scenario in the grid passes. (Aria correction after review E2b_2km_qa.md finding 1: an earlier sentence here argued from the best-to-worst psi spread that the misfit is not about dispersion; that spread comes from the noise factor, not dispersion, and the argument was not pre-registered. The pre-registered R13.1 reading above is the only interpretation.)
 
 ## Carried scenarios
 None. The carry rule found no survivor, so the stage is `FAIL` and nothing is carried (plan R12.3).
