@@ -1,6 +1,7 @@
 """Mutation check of the Gate E2 part a code (estimators, surrogate, scorer entry point).
 
-Each mutant is one text replacement in `src/opticps/benchmarks/e2_*.py`, applied to a scratch copy
+Each mutant is one text replacement in `src/opticps/benchmarks/e2_*.py`, `holdout.py` or (one
+mutant) a committed E2 document, applied to a scratch copy
 of the repository files the E2 test file needs. The copy is a git repository (`git init`,
 `git add`), so freeze related tests do not give false kills. The tests whose names start with
 `test_real_` read the committed freeze or the B2B capture and are deselected: a changed code file
@@ -21,6 +22,7 @@ guards written by hand; it proves nothing about mutants that are not in it.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import os
 import shutil
 import subprocess
@@ -33,6 +35,15 @@ ROOT = Path(__file__).resolve().parents[1]
 EM = "src/opticps/benchmarks/e2_metrics.py"
 MO = "src/opticps/benchmarks/e2_model.py"
 SC = "src/opticps/benchmarks/e2_score.py"
+HO = "src/opticps/benchmarks/holdout.py"
+MODEL_DOC = "docs/benchmarks/teriphic_e2/b2b_model.yaml"
+# A mutant of the model document re-ties the model hash in these, as a consistent edit would.
+REHASH = {
+    MODEL_DOC: (
+        "docs/benchmarks/teriphic_e2/preregistered_predictions.yaml",
+        "docs/benchmarks/teriphic_e2/power_study.yaml",
+    )
+}
 # (label, file, old, new, reason a surviving mutant is harmless, or None); `old` occurs exactly once.
 Mutant = tuple[str, str, str, str, str | None]
 MUTANTS: list[Mutant] = [
@@ -732,7 +743,7 @@ MUTANTS: list[Mutant] = [
     (
         "bind_ancestor_unchecked",
         "src/opticps/benchmarks/e2_score.py",
-        '    if _git(root, "merge-base", "--is-ancestor", frozen.commit, "HEAD").returncode != 0:',
+        '    if _git(root, "merge-base", "--is-ancestor", frozen.commit, revision).returncode != 0:',
         "    if False:",
         "defensive: the guard already follows the history of the freeze commit from HEAD",
     ),
@@ -1089,14 +1100,14 @@ MUTANTS: list[Mutant] = [
     (
         "selected_ids_not_listed_allowed",
         "src/opticps/benchmarks/e2_score.py",
-        "    if not set(ids) <= listed:",
+        "    if not set(ids) <= set(order):",
         "    if False:",
         None,
     ),
     (
         "selected_single_with_many_allowed",
         "src/opticps/benchmarks/e2_score.py",
-        '    if chosen["rule"] == "single" and len(ids) != 1:',
+        '    if (chosen["rule"] == "single") != (len(ids) == 1):',
         "    if False:",
         None,
     ),
@@ -1131,8 +1142,8 @@ MUTANTS: list[Mutant] = [
     (
         "b2b_header_not_blocked",
         "src/opticps/benchmarks/e2_score.py",
-        '    comparator = _read_window(b2b_path, gate.checksum, model, "B2B")\n    if isinstance(comparator, str):\n        return _blocked(asset, frozen, model, comparator)\n',
-        '    comparator = _read_window(b2b_path, gate.checksum, model, "B2B")\n',
+        '    comparator, _ = _read_window(b2b_path, gate.checksum, model, "B2B")\n    if isinstance(comparator, str):\n',
+        '    comparator, _ = _read_window(b2b_path, gate.checksum, model, "B2B")\n    if False:\n',
         "defensive: a B2B header that differs from the model would fail the reproduction check",
     ),
     (
@@ -1201,15 +1212,176 @@ MUTANTS: list[Mutant] = [
     (
         "locked_fail_claim_missing",
         "src/opticps/benchmarks/e2_score.py",
-        "            claim = CLAIM_GRID_LIMITED\n",
+        "            claim = CLAIM_NO_SCENARIO_FITS\n",
         "            claim = None\n",
         None,
     ),
     (
         "locked_fail_split_test_dropped",
         "src/opticps/benchmarks/e2_score.py",
-        "        if split is Split.LOCKED_TEST:\n            claim = CLAIM_GRID_LIMITED",
-        "        if True:\n            claim = CLAIM_GRID_LIMITED",
+        "        if split is Split.LOCKED_TEST:\n            claim = CLAIM_NO_SCENARIO_FITS",
+        "        if True:\n            claim = CLAIM_NO_SCENARIO_FITS",
+        None,
+    ),
+    (
+        "judged_includes_uncarried_control",
+        SC,
+        "    judged = [i for i in table if split is Split.VALIDATION or i in set(carried or ())]",
+        "    judged = list(table)",
+        None,
+    ),
+    (
+        "stage_failed_accepted_at_10km",
+        HO,
+        "    if asset.split is Split.LOCKED_TEST and validation_stage is not ValidationStage.NOT_FAILED:",
+        "    if asset.split is Split.LOCKED_TEST and validation_stage not in (ValidationStage.NOT_FAILED, ValidationStage.FAILED):",
+        None,
+    ),
+    (
+        "stage_undeclared_accepted_at_10km",
+        HO,
+        "    if asset.split is Split.LOCKED_TEST and validation_stage is not ValidationStage.NOT_FAILED:",
+        "    if asset.split is Split.LOCKED_TEST and validation_stage is ValidationStage.FAILED:",
+        None,
+    ),
+    (
+        "shared_does_not_force_exploratory",
+        HO,
+        "        if state is HoldoutState.BURNED or sequence_check is SequenceCheck.SHARED:",
+        "        if state is HoldoutState.BURNED:",
+        None,
+    ),
+    (
+        "shared_does_not_force_exploratory_at_2km",
+        HO,
+        "        if sequence_check is SequenceCheck.SHARED:\n            return frozenset({Verdict.EXPLORATORY, Verdict.BLOCKED})\n        return open_verdicts",
+        "        return open_verdicts",
+        None,
+    ),
+    (
+        "record_hash_not_checked",
+        SC,
+        '    if chosen["two_km_result_sha256"] != digest:',
+        "    if False:",
+        None,
+    ),
+    (
+        "carry_forward_not_compared",
+        SC,
+        '    if record.get("carry_forward") != ids:',
+        "    if False:",
+        None,
+    ),
+    (
+        "carry_rule_not_recomputed_from_record",
+        SC,
+        "    if carry_rule(psi_table) != tuple(ids):",
+        "    if False:",
+        None,
+    ),
+    (
+        "record_outcome_fail_accepted",
+        SC,
+        '    if record.get("outcome") in (OUTCOME_FAIL, OUTCOME_BLOCKED) or record.get("verdict") in (',
+        '    if record.get("outcome") in () and record.get("verdict") in (',
+        None,
+    ),
+    (
+        "record_filename_not_checked",
+        SC,
+        '    if record.get("filename") != _two_km_name():',
+        "    if False:",
+        None,
+    ),
+    (
+        "selection_and_record_may_differ_in_commit",
+        SC,
+        "    if selected_at != record_at:",
+        "    if False:",
+        None,
+    ),
+    (
+        "declarations_not_reported",
+        SC,
+        '            "declarations": dict(self.declarations),',
+        '            "declarations": {},',
+        None,
+    ),
+    (
+        "record_split_or_length_not_checked",
+        SC,
+        '    if record.get("split") != Split.VALIDATION.value or record.get("length_km") != 2.0:',
+        "    if False:",
+        None,
+    ),
+    (
+        "record_criterion_commit_not_checked",
+        SC,
+        '    if record.get("criterion_commit") != frozen.commit:',
+        "    if False:",
+        None,
+    ),
+    (
+        "record_hashes_verified_not_checked",
+        SC,
+        '    if record.get("hashes_verified") is not True:',
+        "    if False:",
+        None,
+    ),
+    (
+        "record_limits_not_compared",
+        SC,
+        "            or not math.isclose(float(value), float(limits[name]), rel_tol=1e-9)",
+        "            or False",
+        None,
+    ),
+    (
+        "record_version_not_checked",
+        SC,
+        '    if not isinstance(record, dict) or record.get("report_version") != REPORT_VERSION:',
+        "    if not isinstance(record, dict):",
+        None,
+    ),
+    (
+        "record_head_not_between",
+        SC,
+        '        or _git(root, "merge-base", "--is-ancestor", head, selected_at).returncode != 0',
+        "        or False",
+        None,
+    ),
+    (
+        "record_head_bind_skipped",
+        SC,
+        "        bind_to_freeze(root, frozen, revision=head)",
+        "        pass",
+        None,
+    ),
+    (
+        "record_carried_psi_not_checked",
+        SC,
+        '    if any(psi_table[i]["psi"] > 1.0 for i in ids):',
+        "    if False:",
+        "redundant: the recomputed carry rule returns only survivors (psi <= 1), so a carried id above 1 fails the carry-rule check first",
+    ),
+    (
+        "summary_drops_the_cap",
+        SC,
+        '        " INCONCLUSIVE by design."',
+        '        " by design."',
+        None,
+    ),
+    (
+        "two_km_record_not_reported",
+        SC,
+        '            "two_km_record": None if self.two_km_record is None else dict(self.two_km_record),',
+        '            "two_km_record": None,',
+        None,
+    ),
+    (
+        "fitted_value_changed_with_hashes_consistent",
+        MODEL_DOC,
+        "\nnoise_sigma: 0.24",
+        "\nnoise_sigma: 0.25",
         None,
     ),
 ]
@@ -1235,7 +1407,15 @@ def run(mutant: Mutant | None) -> str:
             text = target.read_text()
             if text.count(old) != 1:
                 return f"INVALID ({text.count(old)} matches)"
+            before = hashlib.sha256(target.read_bytes()).hexdigest()
             target.write_text(text.replace(old, new))
+            after = hashlib.sha256(target.read_bytes()).hexdigest()
+            for tied in REHASH.get(name, ()):
+                document = work / tied
+                tied_text = document.read_text()
+                if tied_text.count(before) != 1:
+                    return "INVALID (model hash not found once in a tied document)"
+                document.write_text(tied_text.replace(before, after))
         git = ["git", "-C", str(work)]
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "add", "-A"], check=True, capture_output=True)

@@ -4,7 +4,7 @@ declared: Pseudo-captures made from B2B windows that are not the fit, spread or 
   this script's own filters, run through the frozen two-stage procedure. No 2 km or 10 km sample was read.
   A limit was not changed after seeing this table; where a case fails to separate, the verdict is capped
   instead.
-model_sha256: efbb4a3d7b95724af4adc03af2fd5a4ec3db47c4908630146e75c5714b2ef58c
+model_sha256: 6c57d4aa8e231639e866283cfdb5d7b0cfeed1cf08748a9502d5bbe27126ab55
 study_window_starts: [12582912, 20971520, 25165824, 29360128, 33554432]
 selection_margin_psi: 0.25
 cases:

@@ -52,10 +52,14 @@ def test_the_criterion_is_frozen_and_tied_to_the_committed_plan_and_inputs():
 
 def test_the_superseded_criteria_are_not_criteria():
     current = ROOT / holdout.CRITERION_PATH
-    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R12.yaml"
-    for old in ("TERIPHIC_CRITERION.yaml", "TERIPHIC_CRITERION_R11.yaml"):
+    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R13.yaml"
+    for old in (
+        "TERIPHIC_CRITERION.yaml",
+        "TERIPHIC_CRITERION_R11.yaml",
+        "TERIPHIC_CRITERION_R12.yaml",
+    ):
         path = ROOT / "docs/benchmarks" / old
-        assert path.is_file() and path != current  # kept as records (plan R11.3, R12.0)
+        assert path.is_file() and path != current  # kept as records (plan R11.3, R12.0, R13.0)
 
 
 def test_the_power_study_is_committed_and_covers_the_stated_cases():
@@ -77,8 +81,10 @@ def test_the_power_study_is_committed_and_covers_the_stated_cases():
 
 
 def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
-    """E2b creates `selected_scenario.yaml` after the 2 km stage; until then 10 km is refused."""
+    """E2b commits the 2 km record and `selected_scenario.yaml` after the 2 km stage; until then
+    10 km is refused."""
     assert not (ROOT / e2_score.SELECTED_PATH).exists()
+    assert not (ROOT / e2_score.TWO_KM_RESULT_PATH).exists()
     assert (ROOT / e2_score.EVALUATION_SCRIPT).is_file()
     registered = yaml.safe_load((ROOT / e2_score.PREREGISTRATION_PATH).read_bytes())
     assert registered["results"] is None
@@ -100,5 +106,7 @@ def test_the_known_limits_say_the_guard_has_a_caller_and_the_plan_says_so_too():
     )
     assert "resets (b) and (d), and only the external pin catches it" in limits
     assert "it is not date proof" in limits and "expected_freeze_commit" in limits
+    assert "The 2 km run can be executed twice" in limits and "procedural only" in limits
+    assert "two_km_result.json" in limits
     plan = " ".join((ROOT / holdout.DEFAULT_PLAN).read_text().split())
     assert "R9.1 now has a caller" in plan

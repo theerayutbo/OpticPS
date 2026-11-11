@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import json
 import math
 import os
 import re
@@ -826,7 +827,7 @@ def test_locked_test_scores_the_carried_scenarios_with_the_control_and_is_capped
     assert result.survivors and set(result.survivors) <= {"D3", "D6"}
 
 
-def test_a_burned_file_ends_exploratory_and_a_shared_sequence_may_too(world):
+def test_a_burned_file_ends_exploratory_and_a_shared_sequence_does_too(world):
     measured = norm(world, channel(27, dispersion=6.352, length_km=10.0))
     burned = locked(world, measured, ["D6"], state=holdout.HoldoutState.BURNED)
     assert burned.verdict is holdout.Verdict.EXPLORATORY
@@ -841,8 +842,13 @@ def test_a_burned_file_ends_exploratory_and_a_shared_sequence_may_too(world):
     # at 10 km a FAIL may be the grid (power study): INCONCLUSIVE with its own claim, never FAILED
     assert plain_fail.outcome == e2_score.OUTCOME_FAIL
     assert plain_fail.verdict is holdout.Verdict.INCONCLUSIVE
-    assert plain_fail.claim == "NO_GRID_SCENARIO_FITS" and "not FAILED" in " ".join(
-        plain_fail.notes
+    assert plain_fail.claim == "NO_SCENARIO_FITS" and "not FAILED" in " ".join(plain_fail.notes)
+    shared = holdout.SequenceCheck.SHARED
+    assert locked(world, measured, ["D6"], sequence_check=shared).verdict is (
+        holdout.Verdict.EXPLORATORY
+    )
+    assert locked(world, failing, ["D6"], sequence_check=shared).verdict is (
+        holdout.Verdict.EXPLORATORY
     )
 
 
@@ -1173,6 +1179,8 @@ class Setup:
         git(self.root, "add", "-A")
         git(self.root, "commit", "-q", "-m", "inputs")
         self.pin = ""
+        self.carried: list[str] = []
+        self.placeholder = False
         self.patch_loaded_code()
         if freeze:
             self.finish()
@@ -1246,18 +1254,48 @@ class Setup:
         }
 
     def finish(self) -> None:
-        """Freeze, then add the 2 km stage's choice in its own later commit (as E2b will)."""
-        self.freeze()
-        self.select()
+        """Freeze, then add the 2 km record and the selection in one later commit (as E2b will).
 
-    def select(self, ids=("D6",), rule: str = "single", stage: str = "2km") -> None:
-        (self.root / e2_score.SELECTED_PATH).write_text(
-            yaml.safe_dump({"scenario_ids": list(ids), "rule": rule, "selected_at_stage": stage})
-        )
+        A fixture built to be refused (a changed input, a wrong MD5, another role) cannot make a
+        2 km run; it gets a placeholder record that no 10 km run accepts, and `placeholder` says so.
+        """
+        self.freeze()
+        try:
+            record = self.two_km_record()
+        except BenchmarkError:
+            self.placeholder = True
+            self.select(ids=["D6"], record="{}\n")
+        else:
+            self.select(record=record)
+
+    def two_km_record(self, **extra) -> str:
+        """The 2 km run's report as the evaluation script prints it (stdout, with its newline)."""
+        return self.score(self.holdout_2, **extra).report_json() + "\n"
+
+    def select(
+        self, ids=None, rule=None, stage: str = "2km", record=None, sha=None, extra=None
+    ) -> None:
+        """Commit the 2 km record and `selected_scenario.yaml` together, in one commit.
+
+        By default the record is a real 2 km run on the fixture and the ids are its carry_forward.
+        """
+        text = self.two_km_record() if record is None else record
+        if ids is None:
+            ids = json.loads(text)["carry_forward"]
+        ids = list(ids)
+        selection = {
+            "scenario_ids": ids,
+            "rule": rule or ("single" if len(ids) == 1 else "all_survivors"),
+            "selected_at_stage": stage,
+            "two_km_result_sha256": sha or hashlib.sha256(text.encode()).hexdigest(),
+        } | (extra or {})
+        (self.root / e2_score.TWO_KM_RESULT_PATH).write_bytes(text.encode())
+        (self.root / e2_score.SELECTED_PATH).write_text(yaml.safe_dump(selection))
         git(self.root, "add", "-A")
         git(
             self.root, "commit", "-q", "-m", f"select {time.time_ns()}"
         )  # never the same commit twice
+        self.carried = ids
 
     def freeze(self) -> None:
         path = self.root / holdout.CRITERION_PATH
@@ -1334,6 +1372,7 @@ def watch_holdout(monkeypatch) -> list[str]:
 
 
 def test_the_scorer_runs_end_to_end_on_a_frozen_fixture_and_reports_no_error_rate(setup):
+    assert not setup.placeholder  # the honest fixture makes a real 2 km record
     result = setup.score()
     report = result.report()
     assert report["filename"] == HOLDOUT_2KM and report["length_km"] == 2.0
@@ -1354,7 +1393,7 @@ def test_the_scorer_runs_end_to_end_on_a_frozen_fixture_and_reports_no_error_rat
     assert not re.search(r"\b(ber|ser)\b|post_fec|serial", repr(report).lower())
     ten = setup.score(setup.holdout_10)
     assert ten.report()["split"] == "LOCKED_TEST" and ten.carry_forward == ()
-    assert set(ten.scenarios) == {"D6", "NULL"}
+    assert set(ten.scenarios) == set(setup.carried) | {"NULL"} and setup.carried
     assert ten.verdict != "VALIDATED"
 
 
@@ -1385,6 +1424,21 @@ def test_every_refusal_before_the_holdout_comes_before_any_hash_or_open_of_it(se
     monkeypatch.setattr(e2_score.teriphic, "gate_sample_read", spy_gate)
     setup.score()
     assert order == [f"gate {B2B_NAME}", "reproduction", f"hash {HOLDOUT_2KM}"]
+    # plan Revision 13: the stage refusal (item 5) and a record refusal (item 6) come before the
+    # B2B gate, the reproduction check and any hash or open of the 10 km file
+    order.clear()
+    events.clear()
+    with pytest.raises(holdout.StageRefused, match="2 km stage FAILED"):
+        setup.score(setup.holdout_10, validation_stage=holdout.ValidationStage.FAILED)
+    assert order == [] and events == []
+    selected = setup.root / e2_score.SELECTED_PATH
+    document = yaml.safe_load(selected.read_text())
+    document["two_km_result_sha256"] = "0" * 64
+    selected.write_text(yaml.safe_dump(document))
+    git(setup.root, "commit", "-q", "-am", "another hash")  # also a second commit of the file
+    with pytest.raises(holdout.StageRefused, match="selected scenario"):
+        setup.score(setup.holdout_10)
+    assert order == [] and events == []
 
 
 def test_a_carried_id_that_is_not_listed_and_a_drifted_prediction_are_refused_unread(
@@ -1936,17 +1990,16 @@ def test_the_selected_scenario_is_added_once_after_the_freeze_and_never_changed(
 ):
     s = Setup(world, tmp_path, monkeypatch)
     s.score(s.holdout_10)  # added once, unchanged: accepted
+    record = (s.root / e2_score.TWO_KM_RESULT_PATH).read_text()
     path = s.root / e2_score.SELECTED_PATH
-    path.write_text(
-        yaml.safe_dump({"scenario_ids": ["D3"], "rule": "single", "selected_at_stage": "2km"})
-    )
+    path.write_text(path.read_text() + "# changed\n")
     s.commit_all("changed")
     forbid_reads(monkeypatch)
     with pytest.raises(BenchmarkError, match="added once, never changed, found 2"):
         s.score(s.holdout_10)
     git(s.root, "rm", "-q", str(e2_score.SELECTED_PATH))
     s.commit_all("deleted")
-    s.select()
+    s.select(record=record)  # the same record bytes: only the selection is added again
     with pytest.raises(BenchmarkError, match="added once, never changed, found 4"):
         s.score(s.holdout_10)
 
@@ -1967,7 +2020,7 @@ def test_the_same_selected_bytes_on_two_branches_are_two_additions(world, tmp_pa
 
 def test_a_selected_scenario_present_at_the_freeze_is_refused(world, tmp_path, monkeypatch):
     unfrozen = Setup(world, tmp_path, monkeypatch, freeze=False)
-    unfrozen.select()  # before the freeze
+    unfrozen.select(ids=["D6"], record="{}\n")  # before the freeze: no 2 km run is possible
     unfrozen.freeze()
     forbid_reads(monkeypatch)
     with pytest.raises(BenchmarkError, match="already present at the freeze commit"):
@@ -1979,7 +2032,7 @@ def test_a_selected_scenario_not_descended_from_the_freeze_is_refused(world, tmp
     git(unfrozen.root, "branch", "side")
     unfrozen.freeze()
     git(unfrozen.root, "checkout", "-q", "side")
-    unfrozen.select()
+    unfrozen.select(ids=["D6"], record="{}\n")  # forked before the freeze: no 2 km run there
     git(unfrozen.root, "checkout", "-q", "-")
     git(unfrozen.root, "merge", "-q", "--no-edit", "side")
     forbid_reads(monkeypatch)
@@ -1992,13 +2045,23 @@ def test_a_selected_scenario_not_descended_from_the_freeze_is_refused(world, tmp
 def test_a_selected_scenario_renamed_in_from_a_draft_is_refused(world, tmp_path, monkeypatch):
     unfrozen = Setup(world, tmp_path, monkeypatch, freeze=False)
     unfrozen.freeze()
+    record = unfrozen.two_km_record()
     draft = unfrozen.root / "docs/benchmarks/teriphic_e2/draft_selection.yaml"
+    ids = json.loads(record)["carry_forward"]
     draft.write_text(
-        yaml.safe_dump({"scenario_ids": ["D6"], "rule": "single", "selected_at_stage": "2km"})
+        yaml.safe_dump(
+            {
+                "scenario_ids": ids,
+                "rule": "all_survivors",
+                "selected_at_stage": "2km",
+                "two_km_result_sha256": hashlib.sha256(record.encode()).hexdigest(),
+            }
+        )  # fmt: skip
     )
     unfrozen.commit_all("draft")
     git(unfrozen.root, "mv", str(draft.relative_to(unfrozen.root)), str(e2_score.SELECTED_PATH))
-    unfrozen.commit_all("rename in")
+    (unfrozen.root / e2_score.TWO_KM_RESULT_PATH).write_text(record)
+    unfrozen.commit_all("rename in, with the record")
     forbid_reads(monkeypatch)
     with pytest.raises(BenchmarkError, match="must be a new file in its commit"):
         unfrozen.score(unfrozen.holdout_10)
@@ -2033,6 +2096,9 @@ def test_a_selected_scenario_renamed_in_from_a_draft_is_refused(world, tmp_path,
 def test_a_malformed_selected_scenario_is_refused(world, tmp_path, monkeypatch, content, message):
     unfrozen = Setup(world, tmp_path, monkeypatch, freeze=False)
     unfrozen.freeze()
+    record = unfrozen.two_km_record()
+    content = content | {"two_km_result_sha256": hashlib.sha256(record.encode()).hexdigest()}
+    (unfrozen.root / e2_score.TWO_KM_RESULT_PATH).write_text(record)
     (unfrozen.root / e2_score.SELECTED_PATH).write_text(yaml.safe_dump(content))
     unfrozen.commit_all("selected")
     forbid_reads(monkeypatch)
@@ -2045,8 +2111,11 @@ def test_a_duplicate_key_in_the_selected_scenario_is_a_benchmark_error(
 ):
     unfrozen = Setup(world, tmp_path, monkeypatch, freeze=False)
     unfrozen.freeze()
+    record = unfrozen.two_km_record()
+    (unfrozen.root / e2_score.TWO_KM_RESULT_PATH).write_text(record)
     (unfrozen.root / e2_score.SELECTED_PATH).write_text(
         "scenario_ids: [D6]\nrule: single\nrule: single\nselected_at_stage: 2km\n"
+        f"two_km_result_sha256: {hashlib.sha256(record.encode()).hexdigest()}\n"
     )
     unfrozen.commit_all("duplicate key")
     forbid_reads(monkeypatch)
@@ -2057,9 +2126,349 @@ def test_a_duplicate_key_in_the_selected_scenario_is_a_benchmark_error(
 def test_all_survivors_may_carry_several_scenarios(world, tmp_path, monkeypatch):
     unfrozen = Setup(world, tmp_path, monkeypatch, freeze=False)
     unfrozen.freeze()
-    unfrozen.select(ids=("D3", "D6"), rule="all_survivors")
+    unfrozen.select()  # the fixture's 2 km run carries every survivor
+    assert len(unfrozen.carried) >= 2
     result = unfrozen.score(unfrozen.holdout_10)
-    assert set(result.scenarios) == {"NULL", "D3", "D6"}
+    assert set(result.scenarios) == set(unfrozen.carried) | {"NULL"}
+
+
+# ---- the two-stage contract (plan Revision 13): the 10 km run is tied to the committed 2 km record
+def edited_record(s, change) -> str:
+    """A real 2 km record of the fixture, changed by `change`, written the way the script writes."""
+    document = json.loads(s.two_km_record())
+    change(document)
+    return json.dumps(document, indent=2, sort_keys=True) + "\n"
+
+
+def refused_unread(s, monkeypatch, message, **extra):
+    """The 10 km run is refused by the two-stage contract with nothing of a holdout hashed or opened."""
+    events = watch_holdout(monkeypatch)
+    with pytest.raises(holdout.StageRefused, match=message):
+        s.score(s.holdout_10, **extra)
+    assert events == []
+
+
+def frozen_only(world, tmp_path, monkeypatch, **options):
+    s = Setup(world, tmp_path, monkeypatch, freeze=False, **options)
+    s.freeze()
+    return s
+
+
+@pytest.mark.parametrize(
+    ("stage", "message"),
+    [
+        (holdout.ValidationStage.FAILED, "the 2 km stage FAILED: nothing is carried"),
+        (holdout.ValidationStage.NOT_DONE, "before the 2 km stage is done"),
+        (None, "before the 2 km stage is done"),
+    ],
+)
+def test_the_10km_file_is_refused_when_the_2km_stage_is_declared_failed_or_undeclared(
+    setup, monkeypatch, stage, message
+):
+    refused_unread(setup, monkeypatch, message, validation_stage=stage)
+
+
+@pytest.mark.parametrize(
+    ("options", "says"),
+    [
+        ({"low_pass_hz": 16e9}, "FAIL"),  # a genuine 2 km FAIL
+        ({"two_km_xinc": 1.0 / 2e11}, "BLOCKED"),  # a genuine BLOCKED
+    ],
+)
+def test_the_10km_file_is_refused_when_the_committed_2km_record_says_fail(
+    world, tmp_path, monkeypatch, options, says
+):
+    # the fixture is built here, not at collection, so a mutant of the model code cannot break it
+    two_km = channel(41, low_pass_hz=options.get("low_pass_hz"))
+    s = frozen_only(
+        world, tmp_path, monkeypatch, two_km=two_km, two_km_xinc=options.get("two_km_xinc")
+    )
+    record = s.two_km_record()
+    assert json.loads(record)["outcome"] == says and json.loads(record)["carry_forward"] == []
+    s.select(ids=["D6"], record=record)  # declared NOT_FAILED by `score`, the record says otherwise
+    refused_unread(s, monkeypatch, f"the 2 km record says {says}")
+
+
+def test_the_10km_file_is_refused_without_a_committed_2km_record(world, tmp_path, monkeypatch):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    record = s.two_km_record()
+    selection = {
+        "scenario_ids": json.loads(record)["carry_forward"], "rule": "all_survivors",
+        "selected_at_stage": "2km",
+        "two_km_result_sha256": hashlib.sha256(record.encode()).hexdigest(),
+    }  # fmt: skip
+    (s.root / e2_score.SELECTED_PATH).write_text(yaml.safe_dump(selection))
+    s.commit_all("a selection typed from memory, no record")
+    events = watch_holdout(monkeypatch)
+    with pytest.raises(BenchmarkError, match="two_km_result.json: not committed"):
+        s.score(s.holdout_10)
+    (s.root / e2_score.TWO_KM_RESULT_PATH).write_text(record)  # present, not committed
+    with pytest.raises(BenchmarkError, match="two_km_result.json: not committed"):
+        s.score(s.holdout_10)
+    assert events == []
+    assert "two_km_result" in holdout.REQUIRED_INPUTS[Split.LOCKED_TEST]
+
+
+@pytest.mark.parametrize("which", ["zeros", "other_record"])
+def test_the_record_hash_in_the_selection_must_match_the_committed_record(
+    world, tmp_path, monkeypatch, which
+):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    record = s.two_km_record()
+    sha = "0" * 64 if which == "zeros" else hashlib.sha256((record + " ").encode()).hexdigest()
+    s.select(record=record, sha=sha)
+    refused_unread(s, monkeypatch, "two_km_result_sha256 is not the committed record's")
+
+
+@pytest.mark.parametrize("change", ["subset", "permutation"])
+def test_the_carried_ids_must_equal_the_records_carry_forward_in_order(
+    world, tmp_path, monkeypatch, change
+):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    record = s.two_km_record()
+    carried = json.loads(record)["carry_forward"]
+    assert len(carried) >= 3
+    ids = carried[:-1] if change == "subset" else carried[::-1]
+    s.select(ids=ids, record=record)
+    refused_unread(s, monkeypatch, "scenario_ids are not the record's carry_forward")
+
+
+def test_the_carried_ids_must_be_the_carry_rule_of_the_recorded_table(world, tmp_path, monkeypatch):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    # the ids and the record's carry_forward are edited together; the psi table is not
+    record = edited_record(s, lambda d: d.update(carry_forward=["D6"]))
+    assert json.loads(record)["scenarios"]["D6"]["psi"] <= 1.0  # D6 did survive at 2 km
+    s.select(ids=["D6"], record=record)
+    refused_unread(s, monkeypatch, "not the carry rule of the recorded psi table")
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        (lambda d: d.update(filename=HOLDOUT_10KM), "does not name the registered 2 km file"),
+        (lambda d: d.update(split="LOCKED_TEST"), "not a VALIDATION result at 2 km"),
+        (lambda d: d.update(length_km=10.0), "not a VALIDATION result at 2 km"),
+        (lambda d: d.update(criterion_commit="0" * 40), "not scored at the pinned freeze"),
+        (lambda d: d.update(hashes_verified=False), "hashes were not verified"),
+        (
+            lambda d: d["limits"].update(M1_level_spacing=d["limits"]["M1_level_spacing"] * 2),
+            "limit M1_level_spacing differs from the frozen",
+        ),
+        (lambda d: d.update(scenarios_scored=5), "does not score every listed scenario"),
+        (lambda d: d["scenarios"].pop("N2"), "does not score every listed scenario"),
+        (lambda d: d.update(report_version=1), "not a report of version 2"),
+        (lambda d: d["scenarios"]["N2"].update(psi="0.5"), "psi of N2 is not a finite number"),
+    ],
+)
+def test_the_2km_record_must_name_the_2km_file_at_the_pinned_freeze(
+    world, tmp_path, monkeypatch, change, message
+):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    s.select(record=edited_record(s, change))  # one field at a time; the hash is re-tied
+    refused_unread(s, monkeypatch, message)
+
+
+def test_a_record_that_is_not_strict_json_is_refused(world, tmp_path, monkeypatch):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    text = s.two_km_record()
+    duplicated = text.replace(
+        '{\n  "amplitude_ratio_vs_b2b"', '{\n  "split": "x",\n  "amplitude_ratio_vs_b2b"', 1
+    )
+    assert duplicated != text
+    s.select(ids=json.loads(text)["carry_forward"], record=duplicated)
+    refused_unread(s, monkeypatch, "cannot be read as strict JSON")
+
+
+def test_the_selection_and_the_record_are_added_as_new_files_in_one_commit(
+    world, tmp_path, monkeypatch
+):
+    # two commits: the record first, the selection later
+    s = frozen_only(world, tmp_path, monkeypatch)
+    record = s.two_km_record()
+    (s.root / e2_score.TWO_KM_RESULT_PATH).write_text(record)
+    s.commit_all("record alone")
+    ids = json.loads(record)["carry_forward"]
+    selection = {
+        "scenario_ids": ids, "rule": "all_survivors", "selected_at_stage": "2km",
+        "two_km_result_sha256": hashlib.sha256(record.encode()).hexdigest(),
+    }  # fmt: skip
+    (s.root / e2_score.SELECTED_PATH).write_text(yaml.safe_dump(selection))
+    s.commit_all("selection later")
+    refused_unread(s, monkeypatch, "must be added together in one commit")
+
+
+def test_a_record_renamed_in_or_edited_later_is_refused(world, tmp_path, monkeypatch):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    record = s.two_km_record()
+    draft = s.root / e2_score.E2_DIR / "draft_record.json"
+    draft.write_text(record)
+    s.commit_all("draft record")
+    git(s.root, "mv", str(draft.relative_to(s.root)), str(e2_score.TWO_KM_RESULT_PATH))
+    ids = json.loads(record)["carry_forward"]
+    (s.root / e2_score.SELECTED_PATH).write_text(
+        yaml.safe_dump(
+            {
+                "scenario_ids": ids,
+                "rule": "all_survivors",
+                "selected_at_stage": "2km",
+                "two_km_result_sha256": hashlib.sha256(record.encode()).hexdigest(),
+            }
+        )  # fmt: skip
+    )
+    s.commit_all("rename the record in, add the selection")
+    refused_unread(s, monkeypatch, "2 km record: must be a new file in its commit")
+
+
+@pytest.mark.parametrize("which", ["record", "selection"])
+def test_a_later_edit_of_the_record_or_the_selection_is_refused(
+    world, tmp_path, monkeypatch, which
+):
+    s = Setup(world, tmp_path, monkeypatch)
+    s.score(s.holdout_10)  # added together once: accepted
+    path = s.root / (e2_score.TWO_KM_RESULT_PATH if which == "record" else e2_score.SELECTED_PATH)
+    path.write_text(path.read_text() + "\n")
+    s.commit_all("a later edit")
+    name = "2 km record" if which == "record" else "selected scenario"
+    refused_unread(s, monkeypatch, f"{name}: added once, never changed, found 2")
+
+
+def test_the_records_head_commit_lies_between_freeze_and_selection_with_bound_files_unchanged(
+    world, tmp_path, monkeypatch
+):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    before_freeze = git(s.root, "rev-parse", "HEAD~1")
+    # a bound file changed after the freeze, the 2 km run made there, then the change undone
+    study = s.root / e2_score.POWER_STUDY_PATH
+    study.write_text("power_study_version: 1\n# changed after the freeze\n")
+    s.commit_all("bound file changed")
+    changed_at = git(s.root, "rev-parse", "HEAD")
+    study.write_text("power_study_version: 1\n")
+    s.commit_all("bound file restored")
+    git(s.root, "branch", "elsewhere", changed_at)
+    git(s.root, "checkout", "-q", "elsewhere")
+    (s.root / "unrelated.txt").write_text("x")
+    s.commit_all("off the main line")
+    off_line = git(s.root, "rev-parse", "HEAD")
+    git(s.root, "checkout", "-q", "-")
+    cases = [
+        (before_freeze, "not between the freeze and the selection commit"),
+        (off_line, "not between the freeze and the selection commit"),
+        (changed_at, "power_study.yaml: changed since the freeze commit .at the 2 km run's head"),
+        ("abc", "head_commit is not a full commit id"),
+    ]
+    for head, message in cases:
+        branch = f"case_{head[:6]}"
+        git(s.root, "checkout", "-q", "-b", branch)
+        s.select(record=edited_record(s, lambda d, h=head: d.update(head_commit=h)))
+        refused_unread(s, monkeypatch, message)
+        git(s.root, "checkout", "-q", "-")
+
+
+def test_a_shared_sequence_forces_exploratory_at_both_lengths(world, tmp_path, monkeypatch):
+    shared = holdout.SequenceCheck.SHARED
+    failing = score(world, norm(world, channel(28, low_pass_hz=16e9)), length_km=2.0)
+    assert failing.outcome == e2_score.OUTCOME_FAIL and failing.verdict is holdout.Verdict.FAILED
+    two_shared = score(
+        world, norm(world, channel(28, low_pass_hz=16e9)), length_km=2.0, sequence_check=shared
+    )
+    assert two_shared.outcome == e2_score.OUTCOME_FAIL
+    assert two_shared.verdict is holdout.Verdict.EXPLORATORY
+    measured = norm(world, channel(26, dispersion=6.352, length_km=10.0))
+    ten = locked(world, measured, ["D6", "D3"], validation_stage=holdout.ValidationStage.NOT_FAILED)
+    assert ten.outcome == e2_score.OUTCOME_PASS_DISCRIMINATING
+    ten_shared = locked(
+        world, measured, ["D6", "D3"], validation_stage=holdout.ValidationStage.NOT_FAILED,
+        sequence_check=shared,
+    )  # fmt: skip
+    assert ten_shared.verdict is holdout.Verdict.EXPLORATORY
+    for split in (Split.VALIDATION, Split.LOCKED_TEST):
+        assert holdout.allowed_verdicts(split, sequence_check=shared) == {
+            holdout.Verdict.EXPLORATORY,
+            holdout.Verdict.BLOCKED,
+        }
+    # a BLOCKED result stays BLOCKED
+    blocked = Setup(world, tmp_path, monkeypatch, two_km=channel(41), two_km_xinc=1.0 / 2e11)
+    result = blocked.score(sequence_check=shared)
+    assert result.outcome == e2_score.OUTCOME_BLOCKED and result.verdict == "BLOCKED"
+
+
+def test_an_uncarried_control_within_limits_is_not_a_10km_survivor(world):
+    model, scenarios = world["model"], world["scenarios"]
+    control = e2_score.predict(model, scenarios[0], 10.0, N)  # exactly the control's prediction
+    result = locked(world, control, ["D6"])
+    assert result.scenarios["NULL"]["psi"] == pytest.approx(0.0, abs=1e-9)
+    assert result.scenarios["D6"]["psi"] > 1.0
+    assert result.survivors == () and "NULL" in result.scenarios
+    assert result.outcome == e2_score.OUTCOME_FAIL and result.claim == "NO_SCENARIO_FITS"
+    assert result.verdict is holdout.Verdict.INCONCLUSIVE
+
+
+def test_the_report_records_declarations_record_window_and_summary(world, tmp_path, monkeypatch):
+    s = Setup(world, tmp_path, monkeypatch)
+    two = s.score().report()
+    assert two["report_version"] == 2 and two["two_km_record"] is None
+    assert two["declarations"] == {"validation_stage": None, "sequence_check": None, "state": None}
+    assert "operator declarations, not established" in two["declarations_note"]
+    assert "NOT_SHARED cannot be declared here" in two["declarations_note"]
+    assert two["window"] == {"start": 2 * N, "samples": N, "sample_rate_hz": pytest.approx(FS)}
+    assert two["summary"].startswith("2 km: outcome ") and two["outcome"] in two["summary"]
+    assert "the verdict is capped at INCONCLUSIVE by design" in two["summary"]
+    assert "amplitude ratio vs B2B" in two["summary"]
+    ten = s.score(
+        s.holdout_10,
+        sequence_check=holdout.SequenceCheck.NOT_RUN,
+        state=holdout.HoldoutState.INTACT,
+    ).report()
+    assert ten["declarations"] == {
+        "validation_stage": "NOT_FAILED", "sequence_check": "NOT_RUN", "state": "INTACT",
+    }  # fmt: skip
+    committed = (s.root / e2_score.TWO_KM_RESULT_PATH).read_bytes()
+    selection_commit = git(
+        s.root, "log", "-1", "--format=%H", "--", str(e2_score.TWO_KM_RESULT_PATH)
+    )
+    assert ten["two_km_record"] == {
+        "path": e2_score.TWO_KM_RESULT_PATH.as_posix(),
+        "sha256": hashlib.sha256(committed).hexdigest(),
+        "commit": selection_commit,
+    }
+    assert ten["summary"].startswith("10 km: outcome ")
+    for scenario in ten["survivors"]:
+        dispersion = next(x for x in world["scenarios"] if x.scenario_id == scenario)
+        assert f"{dispersion.dispersion_ps_nm_km:g}" in ten["summary"]
+    assert not any("note only" in n for n in two["notes"])  # amplitude near 1
+
+
+def test_an_amplitude_ratio_outside_half_to_double_adds_a_note_and_nothing_else(
+    world, tmp_path, monkeypatch
+):
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    quiet = Setup(world, tmp_path / "a", monkeypatch, two_km=channel(41, ratio=0.3))
+    report = quiet.score().report()
+    assert report["amplitude_ratio_vs_b2b"] < 0.5
+    assert any(n.startswith("note only, not a verdict rule") for n in report["notes"])
+    normal = Setup(world, tmp_path / "b", monkeypatch, two_km=channel(41))
+    plain = normal.score().report()
+    assert (report["outcome"], report["verdict"]) == (plain["outcome"], plain["verdict"])
+
+
+def test_the_2km_report_written_by_the_script_is_a_valid_record_for_the_10km_stage(
+    world, tmp_path, monkeypatch, capsys
+):
+    s = frozen_only(world, tmp_path, monkeypatch)
+    for name, sha in s.sha.items():
+        monkeypatch.setitem(teriphic.HOLDOUT_SHA256, name, sha)
+    code, out, err = run_script(s, s.holdout_2, capsys)
+    assert code == 0, err
+    two = json.loads(out)
+    s.select(record=out)  # the script's stdout, byte for byte; ids are its carry_forward
+    assert s.carried == two["carry_forward"] and s.carried
+    code, out10, err = run_script(s, s.holdout_10, capsys, "--stage", "not-failed")
+    assert code == 0, err
+    ten = json.loads(out10)
+    assert ten["two_km_record"]["sha256"] == hashlib.sha256(out.encode()).hexdigest()
+    assert set(ten["scenarios"]) == set(two["carry_forward"]) | {"NULL"}
+    assert ten["verdict"] != "VALIDATED"
 
 
 def test_the_10km_scorer_uses_the_10km_length(setup):
@@ -2071,8 +2480,9 @@ def test_the_10km_scorer_uses_the_10km_length(setup):
         setup.comparator(),
         length_km=10.0,
         split=Split.LOCKED_TEST,
-        carried=["D6"],
+        carried=list(setup.carried),
     )
+    assert "D6" in setup.carried
     for key in ("D6", "NULL"):
         assert result.scenarios[key]["psi"] == pytest.approx(again.scenarios[key]["psi"], rel=1e-3)
     wrong = score(
@@ -2144,31 +2554,31 @@ def test_the_frozen_script_reaches_every_allowed_verdict_and_never_validated(
         monkeypatch.setitem(teriphic.HOLDOUT_SHA256, name, sha)
     code, out, _ = run_script(s, s.holdout_2, capsys)
     assert code == 0 and '"split": "VALIDATION"' in out
-    import json
-
     two = json.loads(out)
     assert (
         two["verdict"] != "VALIDATED" and two["reference_sequence"] == "REFERENCE_SEQUENCE_MISSING"
     )
     seen = set()
     for extra in (
-        (), ("--stage", "not-failed"), ("--stage", "failed"),
-        ("--stage", "not-failed", "--sequence-check", "not-shared", "--state", "intact"),
+        (), ("--stage", "failed"), ("--stage", "not-failed"),
+        ("--stage", "not-failed", "--sequence-check", "not-run", "--state", "intact"),
         ("--stage", "not-failed", "--sequence-check", "shared"),
         ("--stage", "not-failed", "--state", "burned"),
     ):  # fmt: skip
         code, out, err = run_script(s, s.holdout_10, capsys, *extra)
-        if "--stage" not in extra:
-            assert code == 2 and "2 km stage is done" in err
+        if "not-failed" not in extra:
+            # the two-stage contract: exit code 3, nothing hashed or opened
+            assert code == 3 and "two-stage contract" in err
+            assert ("2 km stage FAILED" if "failed" in extra else "2 km stage is done") in err
             continue
         assert code == 0, err
         report = json.loads(out)
         seen.add(report["verdict"])
         assert report["verdict"] != "VALIDATED"
-        if "burned" in extra:
+        if "burned" in extra or "shared" in extra:
             assert report["verdict"] == "EXPLORATORY"
-    assert seen <= {"INCONCLUSIVE", "EXPLORATORY", "FAILED", "UNIDENTIFIABLE_PARAMETER"}
-    assert "EXPLORATORY" in seen and ("INCONCLUSIVE" in seen or "FAILED" in seen)
+    assert seen <= {"INCONCLUSIVE", "EXPLORATORY", "UNIDENTIFIABLE_PARAMETER"}
+    assert "EXPLORATORY" in seen and ("INCONCLUSIVE" in seen or "UNIDENTIFIABLE_PARAMETER" in seen)
     code, _, err = run_script(s, s.holdout_2, capsys, pin="1" * 40)
     assert code == 2 and "REFUSED" in err and "pinned" in err
 
@@ -2182,12 +2592,19 @@ def test_the_script_flags_map_to_the_declared_enums():
     assert script.SEQUENCE == {
         "not-run": holdout.SequenceCheck.NOT_RUN,
         "shared": holdout.SequenceCheck.SHARED,
-        "not-shared": holdout.SequenceCheck.NOT_SHARED,
-    }
+    }  # NOT_SHARED cannot be declared with the frozen script (plan Revision 13)
     assert script.STATES == {
         "intact": holdout.HoldoutState.INTACT,
         "burned": holdout.HoldoutState.BURNED,
     }
+
+
+def test_the_frozen_script_cannot_declare_not_shared(setup, capsys):
+    with pytest.raises(SystemExit) as raised:
+        run_script(setup, setup.holdout_10, capsys, "--stage", "not-failed", "--sequence-check",
+                   "not-shared")  # fmt: skip
+    assert raised.value.code == 2
+    assert holdout.SequenceCheck.NOT_SHARED.value == "NOT_SHARED"  # the enum member stays
 
 
 # ---------------------------------------------------------------------------- routing (source scan)
@@ -2239,7 +2656,7 @@ def test_the_scoring_entry_point_checks_before_it_reads_and_reads_the_holdout_la
         "bind_to_freeze",
         "verify_code_identity",
         "check_registered_limits",
-        "read_selected_scenarios",
+        "read_two_km_record",
         "gate_sample_read",
         "_read_window",  # the B2B comparator
         "check_reproduction",
@@ -2328,3 +2745,77 @@ def test_real_preregistered_values_reproduce_from_b2b_alone():
     e2_score.check_reproduction(
         {k: registered[k] for k in ("predictions", "identifiable_in_principle")}, recomputed
     )
+
+
+# ---- R13 against the R12 freeze: the science is unchanged (plan Revision 13, item 16 as read)
+R12_FREEZE = "04360ec6a44bb6aaa2222cc605ab3979718be50a"
+R12_CRITERION = Path("docs/benchmarks/TERIPHIC_CRITERION_R12.yaml")
+# The only fields of the three documents that may differ from the R12 freeze: the code identity
+# the freeze script regenerates in the model, and the model hash that ties the other two to it.
+REGENERATED_FIELDS = {
+    "b2b_model.yaml": "code_identity",
+    "preregistered_predictions.yaml": "model_sha256",
+    "power_study.yaml": "model_sha256",
+}
+# SHA-256 of each R12-freeze document (git show 04360ec) as sorted JSON, without that field.
+R12_SCIENCE_SHA256 = {
+    "b2b_model.yaml": "9a76d2b6c688d123e7f55c3a293c9c7fd1adf596d84b409cdecbeecb3d3c20d3",
+    "preregistered_predictions.yaml": (
+        "9c774622906230fb25991cd376faf8d4c7998dddb59d0a511dc0a75cb235fe9e"
+    ),
+    "power_study.yaml": "48cf3a9c97054974ac3d72b6f084b009a1a67f5a6a76313013dcf6c50d441ede",
+}
+
+
+def science(data: bytes, name: str) -> dict:
+    document = yaml.safe_load(data)
+    document.pop(REGENERATED_FIELDS[name])
+    return document
+
+
+def science_sha256(data: bytes, name: str) -> str:
+    return hashlib.sha256(json.dumps(science(data, name), sort_keys=True).encode()).hexdigest()
+
+
+def test_the_committed_e2_documents_hold_the_r12_science_and_are_tied_to_each_other():
+    """Fitted values, limits, scenarios, predictions, power study, seeds and windows: as at R12."""
+    for name, digest in R12_SCIENCE_SHA256.items():
+        data = (ROOT / e2_score.E2_DIR / name).read_bytes()
+        assert science_sha256(data, name) == digest, name
+    model = hashlib.sha256((ROOT / e2_score.MODEL_PATH).read_bytes()).hexdigest()
+    for path in (e2_score.PREREGISTRATION_PATH, e2_score.POWER_STUDY_PATH):
+        assert yaml.safe_load((ROOT / path).read_bytes())["model_sha256"] == model
+
+
+def test_real_r13_documents_equal_the_r12_freeze_except_the_regenerated_fields():
+    if shutil.which("git") is None:
+        pytest.skip("git is not installed")
+    for name in REGENERATED_FIELDS:
+        relative = (e2_score.E2_DIR / name).as_posix()
+        then = subprocess.run(
+            ["git", "-C", str(ROOT), "show", f"{R12_FREEZE}:{relative}"],
+            check=True, capture_output=True,
+        ).stdout  # fmt: skip
+        now = (ROOT / relative).read_bytes()
+        assert science(now, name) == science(then, name), name
+        assert science_sha256(then, name) == R12_SCIENCE_SHA256[name]
+    scenarios = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"{R12_FREEZE}:{e2_score.SCENARIO_PATH.as_posix()}"],
+        check=True, capture_output=True,
+    ).stdout  # fmt: skip
+    assert scenarios == (ROOT / e2_score.SCENARIO_PATH).read_bytes()
+
+
+def test_real_r13_limits_equal_r12_and_the_plan_hash_differs():
+    r12 = yaml.safe_load((ROOT / R12_CRITERION).read_bytes())
+    r13 = yaml.safe_load((ROOT / holdout.CRITERION_PATH).read_bytes())
+    assert holdout.CRITERION_PATH.name == "TERIPHIC_CRITERION_R13.yaml"
+    for key in ("limits", "b2b_basis", "multipliers"):
+        assert set(r13[key]) == set(r12[key]) == set(holdout.METRICS)
+        for metric in holdout.METRICS:
+            assert math.isclose(r13[key][metric], r12[key][metric], rel_tol=1e-9), (key, metric)
+    assert r13["estimators"] == r12["estimators"] == dict(holdout.ESTIMATORS)
+    assert r13["criterion_version"] == r12["criterion_version"] == 3
+    assert r13["plan_sha256"] != r12["plan_sha256"]
+    plan = hashlib.sha256((ROOT / holdout.DEFAULT_PLAN).read_bytes()).hexdigest()
+    assert r13["plan_sha256"] == plan

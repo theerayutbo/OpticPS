@@ -1,4 +1,4 @@
-"""Scoring entry point for the TERIPHIC holdouts (Stage 3A, gate E2 part a, plan Revision 12).
+"""Scoring entry point for the TERIPHIC holdouts (Stage 3A, gate E2 part a, plan Revision 13).
 
 `score_holdout` is the only code in `src` that reads a sample of the 2 km or 10 km capture (plan
 R10.1, R12.1; a source scan in the tests keeps it so). It does, in this order, and refuses at the
@@ -12,9 +12,14 @@ first failure. Every refusal in steps 1 to 5 happens before the holdout is hashe
    repository, and must be the first commit on the first-parent history that holds the criterion;
 4. the working code must be the code that is loaded, and every file the result depends on (model,
    scenario list, pre-registration, evaluation script, role register, code files) must equal its
-   bytes at the freeze commit; the 10 km stage also needs `selected_scenario.yaml`, added once;
-5. the B2B comparator is read through its gate, the pre-registered predictions are recomputed and
-   must reproduce, and the carried scenario ids must be listed;
+   bytes at the freeze commit;
+5. the 10 km stage only: the committed 2 km record (`two_km_result.json`, the verbatim output of
+   this scorer's 2 km run) and `selected_scenario.yaml` are added together in one commit after the
+   freeze; the selection holds the record's SHA-256, the record names the 2 km file at the pinned
+   freeze and does not say FAIL or BLOCKED, and the carried ids are its `carry_forward` and the
+   carry rule recomputed from its psi table (`read_two_km_record`, plan Revision 13). Then the B2B
+   comparator is read through its gate and the pre-registered predictions are recomputed and must
+   reproduce;
 6. the holdout's MD5 and SHA-256 are checked against the recorded values at read time;
 7. only then the header and a fixed window of samples are read, through `ExternalCapture`.
 
@@ -25,7 +30,9 @@ scenario (all at 2 km, the carried ones at 10 km) and for the B2B copy. A result
 `PASS, DISCRIMINATING` only if some non-control scenario is within every limit while the B2B copy
 and the no-fibre control are not; `PASS, NOT DISCRIMINATING` if one of them is also within the
 limits; otherwise `FAIL`. Even `PASS, DISCRIMINATING` is capped: the claim is `PARTIAL` and
-`VALIDATED` is never returned, because an unmodelled low-pass passes (power study, R12.4).
+`VALIDATED` is never returned, because an unmodelled low-pass passes (power study, R12.4). The
+report (version 2) records the operator's declarations, the 2 km record used at 10 km, the window
+read and its sample rate, and a one-sentence summary.
 
 Never computed here: BER, SER, post-FEC BER (REFERENCE_SEQUENCE_MISSING) or any proxy of them.
 No instrument serial and no fibre value that is not a recorded source or a declared scenario.
@@ -35,6 +42,7 @@ No instrument serial and no fibre value that is not a recorded source or a decla
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import re
 import sys
@@ -66,6 +74,7 @@ from opticps.benchmarks.holdout import (
     METRICS,
     HoldoutState,
     SequenceCheck,
+    StageRefused,
     ValidationStage,
     Verdict,
     _blob,
@@ -93,6 +102,8 @@ SCENARIO_PATH = E2_DIR / "scenario_list.yaml"
 PREREGISTRATION_PATH = E2_DIR / "preregistered_predictions.yaml"
 POWER_STUDY_PATH = E2_DIR / "power_study.yaml"
 SELECTED_PATH = E2_DIR / "selected_scenario.yaml"  # written by E2b after the 2 km stage
+# The verbatim stdout of the evaluation script's 2 km run, committed with the selection (R13).
+TWO_KM_RESULT_PATH = E2_DIR / "two_km_result.json"
 EVALUATION_SCRIPT = Path("scripts/score_teriphic_e2.py")
 LENGTH_KM = {
     "50G_PAM4_PD1_2km_Subassembly1.bin": 2.0,
@@ -126,23 +137,37 @@ SELECTION_MARGIN = 0.25  # psi units: a single scenario is carried only if it wi
 REPRODUCTION_RTOL = 1e-6
 REPRODUCTION_ATOL = 1e-9
 SAMPLE_RATE_RTOL = 1e-6
+REPORT_VERSION = 2
+SELECTION_KEYS = frozenset({"scenario_ids", "rule", "selected_at_stage", "two_km_result_sha256"})
+DECLARATIONS_NOTE = (
+    "operator declarations, not established by this script; the shared-sequence check is not"
+    " implemented, so NOT_SHARED cannot be declared here"
+)
+AMPLITUDE_NOTE_RANGE = (0.5, 2.0)  # a note only, never a verdict rule
 OUTCOME_FAIL = "FAIL"
 OUTCOME_PASS_NOT_DISCRIMINATING = "PASS, NOT DISCRIMINATING"
 OUTCOME_PASS_DISCRIMINATING = "PASS, DISCRIMINATING"
 OUTCOME_BLOCKED = "BLOCKED"
 CLAIM_PARTIAL = "PARTIAL"
-CLAIM_GRID_LIMITED = "NO_GRID_SCENARIO_FITS"
+CLAIM_NO_SCENARIO_FITS = "NO_SCENARIO_FITS"
 BER_STATUS = "REFERENCE_SEQUENCE_MISSING"
 # One caveat per nuisance, printed with every result (plan R12.4). A FAIL says no scenario of the
 # family fits, not that the fibre model is wrong; a PASS never validates dispersion.
 FAIL_CAVEATS = (
     "chirp: unknown, set to zero (MODEL GAP: CHIRP); it changes the dispersion response",
     "dispersion outside 0 to 6.352 ps/(nm km), or between grid points above 3 (a true D can FAIL)",
-    "at 10 km a FAIL is reported INCONCLUSIVE: about 40 percent of true D above 3 miss the grid",
+    "at 10 km a FAIL is reported INCONCLUSIVE: the study brackets the fraction of true D above 3"
+    " ps/(nm km) that no grid scenario fits between about 20 and 60 percent (a D within 0.05 of a"
+    " grid point passed, one 0.10 away failed; the boundary between was not resolved),"
+    " small-signal only",
     "SNR change beyond noise factor 2.2, or a noise colour unlike B2B",
     "an unmodelled low-pass, reflection or export filter (fails at 2 km for 32 to 36 GHz)",
     "symbol statistics unlike uniform and independent; large-signal operation (not modelled)",
     "amplitude and launch power are NOT a cause: the amplitude ratio is reported and not tested",
+    "every pseudo-capture of the study has the model's own small-signal cosine form; a large-signal"
+    " (square-law, ER about 6 dB) pseudo-capture of real B2B FAILed at 10 km even on-grid at D=4.5"
+    " (psi 1.26; reviewer reproduction, window 12582912, not part of the pre-registered study). A"
+    " 10 km FAIL does not separate a grid miss from large-signal operation, chirp or a filter.",
 )
 PASS_CAVEATS = (
     "a pass does not validate dispersion: an unmodelled low-pass passes at 10 km (power study)",
@@ -542,10 +567,12 @@ def score_windows(
     if not survivors:
         outcome = OUTCOME_FAIL
         if split is Split.LOCKED_TEST:
-            claim = CLAIM_GRID_LIMITED
+            claim = CLAIM_NO_SCENARIO_FITS
             notes.append(
-                "no grid scenario fits at 10 km; a true dispersion above 3 ps/(nm km) between grid"
-                " points fails too (power study), so this is INCONCLUSIVE, not FAILED"
+                "no carried scenario fits at 10 km; the causes are not separable: a true dispersion"
+                " between grid points (about 20 to 60 percent of D above 3), large-signal"
+                " operation, chirp or an unmodelled filter (plan R13), so this is INCONCLUSIVE,"
+                " not FAILED"
             )
     elif copy_ok or null_ok or not fibre_survivors:
         outcome = OUTCOME_PASS_NOT_DISCRIMINATING
@@ -698,6 +725,10 @@ class E2Result:
     assumptions: tuple[str, ...]
     notes: tuple[str, ...]
     hashes_verified: bool
+    declarations: Mapping[str, str | None]
+    two_km_record: Mapping[str, str] | None
+    window: Mapping[str, Any]
+    summary: str
     ber_status: str = BER_STATUS
     fail_caveats: tuple[str, ...] = FAIL_CAVEATS
     pass_caveats: tuple[str, ...] = PASS_CAVEATS
@@ -713,6 +744,12 @@ class E2Result:
 
     def report(self) -> dict[str, Any]:
         return {
+            "report_version": REPORT_VERSION,
+            "declarations": dict(self.declarations),
+            "declarations_note": DECLARATIONS_NOTE,
+            "two_km_record": None if self.two_km_record is None else dict(self.two_km_record),
+            "window": dict(self.window),
+            "summary": self.summary,
             "filename": self.filename,
             "length_km": self.length_km,
             "split": self.split,
@@ -740,6 +777,10 @@ class E2Result:
             "fibre_knowledge": dict(self.fibre_knowledge),
         }
 
+    def report_json(self) -> str:
+        """The report as the evaluation script prints it (its 2 km run is the committed record)."""
+        return json.dumps(self.report(), indent=2, sort_keys=True)
+
 
 def _holdout_asset(path: Path, source: SourceRecord) -> AssetRecord:
     name = teriphic.fold_name(Path(path).resolve().name)
@@ -765,6 +806,7 @@ def _inputs(asset: AssetRecord, root: Path) -> dict[str, Path]:
     return {
         "frozen_parameters": root / MODEL_PATH,
         "selected_scenario": root / SELECTED_PATH,
+        "two_km_result": root / TWO_KM_RESULT_PATH,
         "evaluation_script": root / EVALUATION_SCRIPT,
     }
 
@@ -792,7 +834,7 @@ def require_freeze_pin(root: Path, frozen: Any, expected: str) -> None:
         raise BenchmarkError("the freeze commit is not the first on the first-parent history")
 
 
-def bind_to_freeze(root: Path, frozen: Any) -> None:
+def bind_to_freeze(root: Path, frozen: Any, revision: str = "HEAD") -> None:
     """Refuse unless every file the result depends on equals what the freeze commit held.
 
     `require_frozen_criterion` proves the criterion and the named inputs are committed and
@@ -802,9 +844,14 @@ def bind_to_freeze(root: Path, frozen: Any) -> None:
     `CODE_IDENTITY_FILES`. The freeze commit must be an ancestor of `HEAD`. If the criterion path
     itself moves, the freeze commit moves with it and this binding restarts; only the pin held
     outside the repository (`require_freeze_pin`) catches that.
+
+    With another `revision` (the head commit of the recorded 2 km run, plan Revision 13) the same
+    files are read at that commit instead of `HEAD` and compared with the freeze in the same way.
     """
-    if _git(root, "merge-base", "--is-ancestor", frozen.commit, "HEAD").returncode != 0:
-        raise BenchmarkError("the freeze commit is not an ancestor of HEAD")
+    at_head = revision == "HEAD"
+    where = "HEAD" if at_head else f"the 2 km run's head commit {revision[:12]}"
+    if _git(root, "merge-base", "--is-ancestor", frozen.commit, revision).returncode != 0:
+        raise BenchmarkError(f"the freeze commit is not an ancestor of {where}")
     paths = (
         MODEL_PATH,
         SCENARIO_PATH,
@@ -814,80 +861,259 @@ def bind_to_freeze(root: Path, frozen: Any) -> None:
         teriphic.CONFIG_PATH,
     )
     for relative in (*paths, *map(Path, CODE_IDENTITY_FILES)):
-        now, _ = _committed_bytes(root, root / relative, "frozen file")
+        if at_head:
+            now: bytes | None = _committed_bytes(root, root / relative, "frozen file")[0]
+        else:
+            now = _blob(root, revision, relative.as_posix())
         then = _blob(root, frozen.commit, relative.as_posix())
         if then is None:
             raise BenchmarkError(f"{relative.as_posix()}: did not exist at the freeze commit")
         if then != now:
-            raise BenchmarkError(f"{relative.as_posix()}: changed since the freeze commit")
+            raise BenchmarkError(
+                f"{relative.as_posix()}: changed since the freeze commit"
+                + ("" if at_head else f" (at {where})")
+            )
 
 
-def read_selected_scenarios(root: Path, frozen: Any, scenarios: Sequence[Scenario]) -> list[str]:
-    """The scenarios carried from the 2 km stage: added once after the freeze, never changed."""
-    relative = SELECTED_PATH.as_posix()
+def _added_once(root: Path, frozen: Any, relative: str, what: str) -> tuple[str, bytes]:
+    """The one commit that added `relative` after the freeze, and its bytes. Refuses otherwise."""
     if _blob(root, frozen.commit, relative) is not None:
-        raise BenchmarkError("selected scenario: already present at the freeze commit")
+        raise StageRefused(f"{what}: already present at the freeze commit")
     log = _git_ok(root, "log", "--full-history", "--format=%H", "--", relative)
     commits = log.decode("ascii").split()
     if len(commits) != 1:
-        raise BenchmarkError(f"selected scenario: added once, never changed, found {len(commits)}")
+        raise StageRefused(f"{what}: added once, never changed, found {len(commits)}")
     added = commits[0]
     if (
         added == frozen.commit
         or _git(root, "merge-base", "--is-ancestor", frozen.commit, added).returncode != 0
     ):
-        raise BenchmarkError("selected scenario: not added after the freeze commit")
+        raise StageRefused(f"{what}: not added after the freeze commit")
     status = _git_ok(
         root, "diff-tree", "--no-commit-id", "--name-status", "-r", "--find-renames=20%", added
     ).decode("utf-8", "replace")
     if f"A\t{relative}" not in status.splitlines():
-        raise BenchmarkError("selected scenario: must be a new file in its commit (not a rename)")
-    now, _ = _committed_bytes(root, root / SELECTED_PATH, "selected scenario")
+        raise StageRefused(f"{what}: must be a new file in its commit (not a rename)")
+    now, _ = _committed_bytes(root, root / relative, what)
     if _blob(root, added, relative) != now:
-        raise BenchmarkError("selected scenario: changed since it was added")
-    chosen = _mapping(
-        _parse(now, "selected scenario"),
-        "selected scenario",
-        {"scenario_ids", "rule", "selected_at_stage"},
+        raise StageRefused(f"{what}: changed since it was added")
+    return added, now
+
+
+def _strict_json(data: bytes, what: str) -> Any:
+    def pairs(items: list[tuple[str, Any]]) -> dict[str, Any]:
+        keys = [k for k, _ in items]
+        if len(set(keys)) != len(keys):
+            raise ValueError("duplicate key")
+        return dict(items)
+
+    def constant(name: str) -> Any:
+        raise ValueError(f"non-finite number {name}")
+
+    try:
+        return json.loads(data.decode("utf-8"), object_pairs_hook=pairs, parse_constant=constant)
+    except (UnicodeDecodeError, ValueError) as error:
+        raise StageRefused(f"{what}: cannot be read as strict JSON: {error}") from error
+
+
+def _two_km_name() -> str:
+    return next(name for name, role in ROLE_BY_NAME.items() if role is Split.VALIDATION)
+
+
+def read_two_km_record(
+    root: Path, frozen: Any, scenarios: Sequence[Scenario], limits: Mapping[str, float]
+) -> tuple[list[str], dict[str, str]]:
+    """The scenarios carried from the 2 km stage, bound to the committed 2 km record (plan R13).
+
+    `selected_scenario.yaml` and `two_km_result.json` (the verbatim output of the evaluation
+    script's 2 km run) must both be absent at the freeze, each touched by exactly one commit in the
+    full history, the same commit for both, a descendant of the freeze, both new files in it, and
+    unchanged since. The selection holds the SHA-256 of the record's bytes. The record must name
+    the 2 km file at the pinned freeze, with verified hashes, the frozen limits and every scenario,
+    and must not say FAIL or BLOCKED; its head commit lies between the freeze and the selection
+    commit with every bound file equal to the freeze. The carried ids must equal the record's
+    `carry_forward` in order and the carry rule recomputed from its psi table. The 2 km file is
+    not read. Returns the ids and `{path, sha256, commit}` of the record. Every refusal is a
+    `StageRefused` (a `BenchmarkError`).
+    """
+    selected_at, selection_bytes = _added_once(
+        root, frozen, SELECTED_PATH.as_posix(), "selected scenario"
     )
+    record_at, record_bytes = _added_once(
+        root, frozen, TWO_KM_RESULT_PATH.as_posix(), "2 km record"
+    )
+    if selected_at != record_at:
+        raise StageRefused(
+            "selected scenario and 2 km record: must be added together in one commit"
+            f" ({selected_at[:12]} and {record_at[:12]})"
+        )
+    try:
+        parsed = _parse(selection_bytes, "selected scenario")
+    except BenchmarkError as error:
+        raise StageRefused(str(error)) from error
+    if set(parsed) != SELECTION_KEYS:
+        raise StageRefused(f"selected scenario must have exactly the keys {sorted(SELECTION_KEYS)}")
+    chosen = parsed
     if chosen["selected_at_stage"] != "2km":
-        raise BenchmarkError("selected scenario: selected_at_stage must be '2km'")
+        raise StageRefused("selected scenario: selected_at_stage must be '2km'")
     if chosen["rule"] not in ("single", "all_survivors"):
-        raise BenchmarkError("selected scenario: rule must be 'single' or 'all_survivors'")
+        raise StageRefused("selected scenario: rule must be 'single' or 'all_survivors'")
     ids = chosen["scenario_ids"]
-    listed = {s.scenario_id for s in scenarios}
+    order = [s.scenario_id for s in scenarios]
     if (
         not isinstance(ids, list)
         or not ids
         or not all(isinstance(i, str) for i in ids)
         or len(set(ids)) != len(ids)
     ):
-        raise BenchmarkError(
-            "selected scenario: scenario_ids must be a non-empty list of unique ids"
+        raise StageRefused("selected scenario: scenario_ids must be a non-empty list of unique ids")
+    if not set(ids) <= set(order):
+        raise StageRefused("selected scenario: an id is not in the scenario list")
+    if (chosen["rule"] == "single") != (len(ids) == 1):
+        raise StageRefused(
+            "selected scenario: rule 'single' carries exactly one scenario, and one scenario is"
+            " carried by rule 'single'"
         )
-    if not set(ids) <= listed:
-        raise BenchmarkError("selected scenario: an id is not in the scenario list")
-    if chosen["rule"] == "single" and len(ids) != 1:
-        raise BenchmarkError("selected scenario: rule 'single' carries exactly one scenario")
-    return [str(i) for i in ids]
+    digest = sha256_of(record_bytes)
+    if chosen["two_km_result_sha256"] != digest:
+        raise StageRefused("selected scenario: two_km_result_sha256 is not the committed record's")
+    record = _strict_json(record_bytes, "2 km record")
+    if not isinstance(record, dict) or record.get("report_version") != REPORT_VERSION:
+        raise StageRefused(f"2 km record: not a report of version {REPORT_VERSION}")
+    if record.get("outcome") in (OUTCOME_FAIL, OUTCOME_BLOCKED) or record.get("verdict") in (
+        Verdict.FAILED.value,
+        Verdict.BLOCKED.value,
+    ):
+        raise StageRefused(
+            f"the 2 km record says {record.get('outcome')} ({record.get('verdict')}): nothing is"
+            " carried, the 10 km file stays unspent, plan R12.3"
+        )
+    if record.get("filename") != _two_km_name():
+        raise StageRefused("2 km record: does not name the registered 2 km file")
+    if record.get("split") != Split.VALIDATION.value or record.get("length_km") != 2.0:
+        raise StageRefused("2 km record: is not a VALIDATION result at 2 km")
+    if record.get("criterion_commit") != frozen.commit:
+        raise StageRefused("2 km record: was not scored at the pinned freeze commit")
+    if record.get("hashes_verified") is not True:
+        raise StageRefused("2 km record: the 2 km file's hashes were not verified")
+    table = record.get("scenarios")
+    if (
+        record.get("scenarios_scored") != len(order)
+        or not isinstance(table, dict)
+        or set(table) != set(order)
+    ):
+        raise StageRefused("2 km record: does not score every listed scenario")
+    recorded_limits = record.get("limits")
+    if not isinstance(recorded_limits, dict) or set(recorded_limits) != set(METRICS):
+        raise StageRefused("2 km record: limits are missing")
+    for name in METRICS:
+        value = recorded_limits[name]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isclose(float(value), float(limits[name]), rel_tol=1e-9)
+        ):
+            raise StageRefused(f"2 km record: limit {name} differs from the frozen")
+    head = record.get("head_commit")
+    if not isinstance(head, str) or not _SHA1.fullmatch(head):
+        raise StageRefused("2 km record: head_commit is not a full commit id")
+    if (
+        _git(root, "merge-base", "--is-ancestor", frozen.commit, head).returncode != 0
+        or _git(root, "merge-base", "--is-ancestor", head, selected_at).returncode != 0
+    ):
+        raise StageRefused(
+            "2 km record: its head commit is not between the freeze and the selection commit"
+        )
+    try:
+        bind_to_freeze(root, frozen, revision=head)
+    except BenchmarkError as error:
+        raise StageRefused(f"2 km record: {error}") from error
+    psi_table: dict[str, dict[str, Any]] = {}
+    for key in order:  # the order of the scenario list, as the 2 km run scored it
+        entry = table[key]
+        psi = entry.get("psi") if isinstance(entry, dict) else None
+        if isinstance(psi, bool) or not isinstance(psi, (int, float)) or not math.isfinite(psi):
+            raise StageRefused(f"2 km record: psi of {key} is not a finite number")
+        psi_table[key] = {"psi": float(psi)}
+    if record.get("carry_forward") != ids:
+        raise StageRefused("selected scenario: scenario_ids are not the record's carry_forward")
+    if carry_rule(psi_table) != tuple(ids):
+        raise StageRefused(
+            "selected scenario: scenario_ids are not the carry rule of the recorded psi table"
+        )
+    if any(psi_table[i]["psi"] > 1.0 for i in ids):
+        raise StageRefused("selected scenario: a carried id is not within the criterion at 2 km")
+    return [str(i) for i in ids], {
+        "path": TWO_KM_RESULT_PATH.as_posix(),
+        "sha256": digest,
+        "commit": record_at,
+    }
 
 
-def _read_window(path: Path, checksum: Any, model: Mapping[str, Any], label: str) -> Any:
-    """Open one capture, check its header against the model, read the evaluation window."""
+def _read_window(
+    path: Path, checksum: Any, model: Mapping[str, Any], label: str
+) -> tuple[Any, float | None]:
+    """Open one capture, check its header against the model, read the evaluation window.
+
+    Returns the normalised window (or the reason it is blocked) and the header's sample rate.
+    """
     window = model["windows"]["evaluation"]
     start, count = int(window["start"]), int(window["samples"])
     fs = float(model["sample_rate_hz"])
     capture = ExternalCapture.open_keysight_bin(path, checksum=checksum)
     try:
         increment = capture.layout.x_increment_s
-        if increment is None or not math.isclose(1.0 / increment, fs, rel_tol=SAMPLE_RATE_RTOL):
-            return f"{label} header sample rate differs from the B2B model"
+        rate = None if not increment else 1.0 / increment
+        if rate is None or not math.isclose(rate, fs, rel_tol=SAMPLE_RATE_RTOL):
+            return f"{label} header sample rate differs from the B2B model", rate
         if capture.count < start + count:
-            return f"{label} record is shorter than the window"
+            return f"{label} record is shorter than the window", rate
         norm = model["normalisation"]
-        return normalise(capture.read(start, start + count), float(norm["c0"]), float(norm["g0"]))
+        samples = capture.read(start, start + count)
+        return normalise(samples, float(norm["c0"]), float(norm["g0"])), rate
     finally:
         capture.close()
+
+
+def _declarations(
+    validation_stage: ValidationStage | None,
+    sequence_check: SequenceCheck | None,
+    state: HoldoutState | None,
+) -> dict[str, str | None]:
+    return {
+        "validation_stage": None if validation_stage is None else str(validation_stage.value),
+        "sequence_check": None if sequence_check is None else str(sequence_check.value),
+        "state": None if state is None else str(state.value),
+    }
+
+
+def _window_record(model: Mapping[str, Any], rate: float | None) -> dict[str, Any]:
+    window = model["windows"]["evaluation"]
+    return {
+        "start": int(window["start"]),
+        "samples": int(window["samples"]),
+        "sample_rate_hz": rate,
+    }
+
+
+def summary_line(
+    length_km: float,
+    outcome: str,
+    claim: str | None,
+    verdict: str | None,
+    dispersions: Sequence[float],
+    gain_ratio: float | None,
+) -> str:
+    """One sentence for the report (plan R13): outcome, claim, the survivors' dispersions."""
+    shown = ", ".join(f"{d:g}" for d in sorted(set(dispersions))) or "none"
+    ratio = "not measured" if gain_ratio is None else f"{gain_ratio:.4g}"
+    return (
+        f"{length_km:g} km: outcome {outcome}, claim {claim or 'none'},"
+        f" verdict {verdict or 'none'}; dispersions of the survivors {shown} ps/(nm km);"
+        f" amplitude ratio vs B2B {ratio}"
+        " (reported, not tested); a positive result is never VALIDATED: the verdict is capped at"
+        " INCONCLUSIVE by design."
+    )
 
 
 def score_holdout(
@@ -925,6 +1151,7 @@ def score_holdout(
     )
     if frozen is None:
         raise BenchmarkError(f"{asset.filename}: no frozen criterion was issued")
+    declarations = _declarations(validation_stage, sequence_check, state)
     require_freeze_pin(root, frozen, expected_freeze_commit)
     verify_loaded_code(root)
     bind_to_freeze(root, frozen)
@@ -956,8 +1183,9 @@ def score_holdout(
     limits = {name: float(frozen.limits[name]) for name in METRICS}
     check_registered_limits(registration, scenarios, limits)
     carried: list[str] | None = None
+    two_km_record: dict[str, str] | None = None
     if asset.split is Split.LOCKED_TEST:
-        carried = read_selected_scenarios(root, frozen, scenarios)
+        carried, two_km_record = read_two_km_record(root, frozen, scenarios, limits)
     # the B2B comparator and the pre-registered predictions: B2B only, still before the holdout.
     table = teriphic.HOLDOUT_SHA256 if holdout_sha256 is None else holdout_sha256
     expected_sha = table.get(asset.filename)
@@ -966,9 +1194,17 @@ def score_holdout(
     gate = teriphic.gate_sample_read(b2b_path, source, holdout_sha256=table)
     if not gate.is_b2b:
         raise BenchmarkError("the comparator file is not the B2B capture (MD5 differs); refused")
-    comparator = _read_window(b2b_path, gate.checksum, model, "B2B")
+    comparator, _ = _read_window(b2b_path, gate.checksum, model, "B2B")
     if isinstance(comparator, str):
-        return _blocked(asset, frozen, model, comparator)
+        return _blocked(
+            asset,
+            frozen,
+            model,
+            comparator,
+            declarations,
+            two_km_record,
+            _window_record(model, None),
+        )
     summaries = prediction_summaries(model, scenarios, (2.0, 10.0))
     recomputed = compute_preregistration(
         model, scenarios, comparator, limits, (2.0, 10.0), summaries
@@ -984,9 +1220,10 @@ def score_holdout(
             " not read",
             ErrorCode.LEAKAGE_DETECTED,
         )
-    measured = _read_window(holdout_path, checksum, model, "holdout")
+    measured, rate = _read_window(holdout_path, checksum, model, "holdout")
+    window = _window_record(model, rate)
     if isinstance(measured, str):
-        return _blocked(asset, frozen, model, measured)
+        return _blocked(asset, frozen, model, measured, declarations, two_km_record, window)
     length = LENGTH_KM[asset.filename]
     identifiable = bool(recomputed["identifiable_in_principle"][f"{length:g}"])
     scored = score_windows(
@@ -1004,13 +1241,23 @@ def score_holdout(
         identifiable_in_principle=identifiable,
         summaries=summaries,
     )
+    verdict = scored.verdict.value if scored.verdict else None
+    dispersion = {s.scenario_id: s.dispersion_ps_nm_km for s in scenarios}
+    notes = scored.notes
+    low, high = AMPLITUDE_NOTE_RANGE
+    if not low <= scored.gain_ratio <= high:
+        notes = (
+            *notes,
+            f"note only, not a verdict rule: the amplitude ratio {scored.gain_ratio:.4g} is outside"
+            f" {low:g} to {high:g}; check launch power and export scaling",
+        )
     return E2Result(
         filename=asset.filename,
         length_km=length,
         split=asset.split.value,
         outcome=scored.outcome,
         claim=scored.claim,
-        verdict=scored.verdict.value if scored.verdict else None,
+        verdict=verdict,
         best_scenario=scored.best,
         survivors=scored.survivors,
         carry_forward=scored.carry_forward,
@@ -1024,8 +1271,19 @@ def score_holdout(
         identifiable_in_principle=identifiable,
         model_gaps=tuple(str(x) for x in model["model_gaps"]),
         assumptions=tuple(str(x) for x in model["assumptions"]),
-        notes=scored.notes,
+        notes=notes,
         hashes_verified=True,
+        declarations=declarations,
+        two_km_record=two_km_record,
+        window=window,
+        summary=summary_line(
+            length,
+            scored.outcome,
+            scored.claim,
+            verdict,
+            [dispersion[i] for i in scored.survivors],
+            scored.gain_ratio,
+        ),
     )
 
 
@@ -1043,10 +1301,19 @@ def check_registered_limits(
         raise BenchmarkError("preregistered predictions: the scenario count differs")
 
 
-def _blocked(asset: AssetRecord, frozen: Any, model: Mapping[str, Any], reason: str) -> E2Result:
+def _blocked(
+    asset: AssetRecord,
+    frozen: Any,
+    model: Mapping[str, Any],
+    reason: str,
+    declarations: Mapping[str, str | None],
+    two_km_record: Mapping[str, str] | None,
+    window: Mapping[str, Any],
+) -> E2Result:
+    length = LENGTH_KM[asset.filename]
     return E2Result(
         filename=asset.filename,
-        length_km=LENGTH_KM[asset.filename],
+        length_km=length,
         split=asset.split.value,
         outcome=OUTCOME_BLOCKED,
         claim=None,
@@ -1066,4 +1333,8 @@ def _blocked(asset: AssetRecord, frozen: Any, model: Mapping[str, Any], reason: 
         assumptions=tuple(str(x) for x in model["assumptions"]),
         notes=(reason,),
         hashes_verified=False,
+        declarations=declarations,
+        two_km_record=two_km_record,
+        window=window,
+        summary=summary_line(length, OUTCOME_BLOCKED, None, Verdict.BLOCKED.value, (), None),
     )

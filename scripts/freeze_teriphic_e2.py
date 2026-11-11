@@ -7,7 +7,7 @@
 files under `docs/benchmarks/teriphic_e2/`: the fitted B2B model with its provenance and code
 identity, the scenario list, and the pre-registered predictions. It never opens, hashes or reads
 the 2 km or 10 km file and never imports the scoring entry point. `criterion` writes
-`docs/benchmarks/TERIPHIC_CRITERION_R12.yaml` from the pre-registered limits and the SHA-256 of the
+`holdout.CRITERION_PATH` (R13) from the pre-registered limits and the SHA-256 of the
 committed plan; it must be run only after the plan revision is final, and its output is the freeze.
 """
 
@@ -400,7 +400,7 @@ def criterion() -> int:
     dump(
         ROOT / holdout.CRITERION_PATH,
         document,
-        "# Frozen criterion for TERIPHIC PD1 PAM4 (plan Revision 12). The commit that first holds\n"
+        "# Frozen criterion for TERIPHIC PD1 PAM4 (plan Revision 13). The commit that first holds\n"
         "# this file is the freeze. Limits are b2b_basis times multipliers, from B2B only.\n",
     )
     print(f"wrote {ROOT / holdout.CRITERION_PATH}")

@@ -2,7 +2,7 @@
 preregistration_version: 2
 declared: Computed from the B2B capture and the code alone, before any 2 km or 10 km sample was read.
   No result column is filled.
-model_sha256: efbb4a3d7b95724af4adc03af2fd5a4ec3db47c4908630146e75c5714b2ef58c
+model_sha256: 6c57d4aa8e231639e866283cfdb5d7b0cfeed1cf08748a9502d5bbe27126ab55
 scenario_list_sha256: 528600b5e695325835dd649e0a5a50027a24aceb31240ef138c5428282354c99
 scenario_count: 123
 lengths_km: [2.0, 10.0]

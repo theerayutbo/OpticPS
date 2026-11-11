@@ -458,9 +458,9 @@ code_identity: {src/opticps/__init__.py: 73b18c2f2f411e59a48662c13f0b61689edcd89
   src/opticps/benchmarks/catalog.py: 069896ef92e6e2f9271192f423861808480e91c65dc118119d2e9cf5161ed194,
   src/opticps/benchmarks/e2_metrics.py: 64ba6abe5fcc0291149c759b28ca1fc9eb26b017dfad5c6dd35a569af0f44bde,
   src/opticps/benchmarks/e2_model.py: f512d29b9ea096d26e6f8093c04607a246d6e483d0b3b345a1af0a8d87d0d853,
-  src/opticps/benchmarks/e2_score.py: 6a8fb0cf3970446bc8f032e4cdf9f88974a445f3badb89b73407b20628edee0b,
+  src/opticps/benchmarks/e2_score.py: e6e2ba920b109752295cd9f1dec2dc7d4aaad4d78a7fb2bd3c28f24e78bb2e5b,
   src/opticps/benchmarks/external_capture.py: 7b64d0b8e4672319e478ddd0d6f0dc65b6fb2f4b2599a8263b63b675a34044b3,
-  src/opticps/benchmarks/holdout.py: de1bd71d77e3de2b868fd08d9dd14510f558a35d76c156bffe0393d195f4f8a4,
+  src/opticps/benchmarks/holdout.py: 1df38b3b025f1f1fc258cbd1e1c90de30ce67b6f7ed334b6f2d39cf823da6dea,
   src/opticps/benchmarks/provenance.py: 65a58540920cfabfcdef1c4f9934c1886b0ba752dfb50428ba2bcdf639976b6d,
   src/opticps/benchmarks/teriphic.py: 8b1765030f8289fa8f40db66878e9d3554fecab2b99bf4921895b2f8e77adeee,
   src/opticps/benchmarks/timing.py: 26ea7bcd3ee5416a2cfbf8a4b403217210219d31af1b8fa1d872689204db61be}

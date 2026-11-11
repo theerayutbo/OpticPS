@@ -9,7 +9,9 @@ Three refusals, all offline:
 - a BER needs a transmitted sequence stated by a source, never one inferred from a capture
   (`require_reference_for_ber`);
 - 2 km (the selection stage) cannot end VALIDATED, and 10 km cannot after a failed 2 km, with an
-  unrun shared-sequence check, or after the file is burned (`allowed_verdicts`).
+  unrun shared-sequence check, or after the file is burned (`allowed_verdicts`); a shared sequence
+  or a burned file leaves EXPLORATORY or BLOCKED only;
+- the 10 km file is not evaluated unless the 2 km stage is declared NOT_FAILED (plan Revision 13).
 
 The promise of the freeze guard (the same text is plan Revision 3, R3.1):
 
@@ -32,7 +34,10 @@ criterion at the fixed path.
 Stage gating is declared, not established. `validation_stage`, `sequence_check`, `state` and the
 existence of the input files are what the caller says: the tool checks that the input files are
 committed and not empty, and that the caller gave an allowed combination, not that the 2 km stage
-or the shared-sequence check was really done, or in which order the files were committed.
+or the shared-sequence check was really done, or in which order the files were committed. Since
+plan Revision 13 the scorer (`e2_score.read_two_km_record`) also ties the 10 km run to the 2 km
+result committed with the selection; that binding is to bytes in the local history, under the
+promise above.
 
 Nothing here reads a capture. The only program the tool starts is `git`, on the local
 repository.
@@ -88,13 +93,23 @@ ESTIMATORS = MappingProxyType(
 REQUIRED_INPUTS: Mapping[Split, tuple[str, ...]] = MappingProxyType(
     {
         Split.VALIDATION: ("b2b_model", "scenario_list"),
-        Split.LOCKED_TEST: ("frozen_parameters", "selected_scenario", "evaluation_script"),
+        Split.LOCKED_TEST: (
+            "frozen_parameters",
+            "selected_scenario",
+            "two_km_result",
+            "evaluation_script",
+        ),
     }
 )
 DEFAULT_PLAN = Path("docs/benchmarks/FIT_HOLDOUT_PLAN.md")
 # The one place a criterion can be: relative to the repository root. Not a parameter.
-CRITERION_PATH = Path("docs/benchmarks/TERIPHIC_CRITERION_R12.yaml")
+CRITERION_PATH = Path("docs/benchmarks/TERIPHIC_CRITERION_R13.yaml")
 _LIMIT_RELATIVE_TOLERANCE = 1e-9
+
+
+class StageRefused(BenchmarkError):
+    """The two-stage contract refuses the 10 km file (plan Revision 13): the 2 km stage is not
+    declared NOT_FAILED, or the committed 2 km record does not allow the 10 km run."""
 
 
 class Verdict(StrEnum):
@@ -146,8 +161,9 @@ def allowed_verdicts(
     Only the locked test can be VALIDATED, and only when the file is intact, the 2 km stage was
     done and did not fail, and the shared-sequence check was run and found no shared sequence.
     A state that is missing (None) never grants it. A burned file ends EXPLORATORY or BLOCKED. A
-    file with a shared sequence may additionally be labelled EXPLORATORY (R.2: "the affected
-    holdout"), at 2 km as well as 10 km. The arguments are the caller's declarations.
+    file with a shared sequence ends EXPLORATORY or BLOCKED too (R2.4 read literally, plan
+    Revision 13: "the affected holdout"), at 2 km as well as 10 km. The arguments are the caller's
+    declarations.
     """
     _enum(ValidationStage, validation_stage, "validation_stage")
     _enum(SequenceCheck, sequence_check, "sequence_check")
@@ -156,11 +172,9 @@ def allowed_verdicts(
         {Verdict.FAILED, Verdict.INCONCLUSIVE, Verdict.UNIDENTIFIABLE_PARAMETER, Verdict.BLOCKED}
     )
     if split is Split.LOCKED_TEST:
-        if state is HoldoutState.BURNED:
+        if state is HoldoutState.BURNED or sequence_check is SequenceCheck.SHARED:
             return frozenset({Verdict.EXPLORATORY, Verdict.BLOCKED})
         verdicts = set(open_verdicts)
-        if sequence_check is SequenceCheck.SHARED:
-            verdicts.add(Verdict.EXPLORATORY)
         if (
             state is HoldoutState.INTACT
             and validation_stage is ValidationStage.NOT_FAILED
@@ -170,7 +184,7 @@ def allowed_verdicts(
         return frozenset(verdicts)
     if split is Split.VALIDATION:
         if sequence_check is SequenceCheck.SHARED:
-            return open_verdicts | {Verdict.EXPLORATORY}
+            return frozenset({Verdict.EXPLORATORY, Verdict.BLOCKED})
         return open_verdicts
     if split is Split.CHARACTERISATION:
         return frozenset({Verdict.INCONCLUSIVE, Verdict.BLOCKED})
@@ -449,8 +463,10 @@ def require_frozen_criterion(
       `b2b_basis` times the stated multiplier for every metric, and the SHA-256 of the plan;
     - the first commit that holds the criterion at that path is the freeze commit, no later
       commit may have changed any part of it, and the path must never have been renamed in;
-    - for `LOCKED_TEST` the caller must declare the 2 km stage done (`validation_stage` FAILED or
-      NOT_FAILED); `validation_stage` and the input files are declarations, not established.
+    - for `LOCKED_TEST` the caller must declare the 2 km stage NOT_FAILED (plan Revision 13):
+      FAILED, NOT_DONE and None are refused (`StageRefused`) before any input is hashed;
+      `validation_stage` and the input files are declarations, not established (the scorer ties
+      the 10 km run to the committed 2 km record).
 
     The promise and its limits are in the module docstring: accidents and casual re-tuning, not
     tampering, no date proof. Every failure is a `BenchmarkError`.
@@ -468,11 +484,15 @@ def require_frozen_criterion(
             f"{asset.filename}: holdout evaluation refused, the inputs must be exactly"
             f" {list(required)}"
         )
-    if asset.split is Split.LOCKED_TEST and not (
-        validation_stage is ValidationStage.FAILED or validation_stage is ValidationStage.NOT_FAILED
-    ):
-        raise BenchmarkError(
+    if asset.split is Split.LOCKED_TEST and validation_stage is not ValidationStage.NOT_FAILED:
+        if validation_stage is ValidationStage.FAILED:
+            raise StageRefused(
+                f"{asset.filename}: the 2 km stage FAILED: nothing is carried, the 10 km file stays"
+                " unspent, plan R12.3"
+            )
+        raise StageRefused(
             f"{asset.filename}: the 10 km file is not evaluated before the 2 km stage is done"
+            " (declared NOT_FAILED)"
         )
     criterion_path = repo_root / CRITERION_PATH
     if not criterion_path.exists() and not criterion_path.is_symlink():
