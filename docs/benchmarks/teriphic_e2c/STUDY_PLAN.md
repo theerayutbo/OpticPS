@@ -231,3 +231,15 @@ D19. S1 Step 0 not viable (wrong sign, a clip, a code-step change, or a 2 km cha
 
 D15 (a) to (f) above are reproduced in `step0_diagnostics.yaml`, `law_model.yaml` and `power_study_e2c.yaml` under
 `declarations`. BER and SER stay REFERENCE_SEQUENCE_MISSING. VALIDATED is never returned.
+
+---
+
+# Amendment A1 (2026-11-11), committed before Step 0 and before any fit
+
+Found on fixtures only (the test channel of `tests/test_benchmark_e2c.py`, no capture read, no study step run): a
+single Nelder-Mead run of I5 stops at a collapsed simplex far from a known truth even when the truth has objective 0
+(known a = b = -0.04: one run ends at a -0.036, b -0.034, objective 0.020; three restarts from the best point reach
+a -0.0404, b -0.0399, objective 0.0013). I5 is amended for the optimiser only: after the first run, up to 3 restarts,
+each from the best point so far with a fresh initial simplex of the same steps and maxfev 600, stopping when a run
+improves the objective by less than 1e-4. Every run's objective is recorded. Nothing else changes: not the objective,
+parameters, profiles, starts, windows, seeds, limits, truths, thresholds or the decision rule.
