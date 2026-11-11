@@ -1,0 +1,1315 @@
+{
+  "amplitude_ratio_vs_b2b": 0.8323624121538234,
+  "assumptions": [
+    "level probabilities uniform and symbols independent (the record states neither)",
+    "fibre type, wavelength, dispersion and loss are scenarios (ASSUMED_G652D), not ground truth",
+    "launch power unknown: the received amplitude ratio is a scenario",
+    "AC-coupled: the amplitude ratio scales the signal about the B2B level centre"
+  ],
+  "b2b_copy": {
+    "metrics": {
+      "M1_level_spacing": 0.029803811344243814,
+      "M2_wasserstein1_amplitude": 0.015848437128707003,
+      "M3_quantile_error": 0.02445344670339633,
+      "M4_log_spectral_distance": 0.42949041625635304
+    },
+    "psi": 1.6434099334993588
+  },
+  "best_scenario": "D6.352_N1.5_THRU",
+  "carry_forward": [],
+  "caveats_if_fail": [
+    "chirp: unknown, set to zero (MODEL GAP: CHIRP); it changes the dispersion response",
+    "dispersion outside 0 to 6.352 ps/(nm km), or between grid points above 3 (a true D can FAIL)",
+    "at 10 km a FAIL is reported INCONCLUSIVE: the study brackets the fraction of true D above 3 ps/(nm km) that no grid scenario fits between about 20 and 60 percent (a D within 0.05 of a grid point passed, one 0.10 away failed; the boundary between was not resolved), small-signal only",
+    "SNR change beyond noise factor 2.2, or a noise colour unlike B2B",
+    "an unmodelled low-pass, reflection or export filter (fails at 2 km for 32 to 36 GHz)",
+    "symbol statistics unlike uniform and independent; large-signal operation (not modelled)",
+    "amplitude and launch power are NOT a cause: the amplitude ratio is reported and not tested",
+    "every pseudo-capture of the study has the model's own small-signal cosine form; a large-signal (square-law, ER about 6 dB) pseudo-capture of real B2B FAILed at 10 km even on-grid at D=4.5 (psi 1.26; reviewer reproduction, window 12582912, not part of the pre-registered study). A 10 km FAIL does not separate a grid miss from large-signal operation, chirp or a filter."
+  ],
+  "caveats_if_pass": [
+    "a pass does not validate dispersion: an unmodelled low-pass passes at 10 km (power study)",
+    "the surviving dispersions are a fit to the capture and are a set, not a prediction",
+    "chirp, wavelength and fibre type stay UNKNOWN; the chirp-free assumption is not tested",
+    "VALIDATED is never returned: the claim is PARTIAL at most"
+  ],
+  "claim": null,
+  "criterion_commit": "ce0ee732af1111c67d94943ad985469dea8c8389",
+  "declarations": {
+    "sequence_check": "NOT_RUN",
+    "state": null,
+    "validation_stage": null
+  },
+  "declarations_note": "operator declarations, not established by this script; the shared-sequence check is not implemented, so NOT_SHARED cannot be declared here",
+  "fibre_knowledge": {
+    "chirp": "UNKNOWN; MODEL GAP: CHIRP, scenarios assume zero",
+    "dispersion": "scenarios only (ASSUMED_G652D), not ground truth",
+    "fibre_type": "UNKNOWN",
+    "loss_and_launch_power": "UNKNOWN; the amplitude ratio is reported, not tested",
+    "wavelength": "UNKNOWN (O-band only)"
+  },
+  "filename": "50G_PAM4_PD1_2km_Subassembly1.bin",
+  "hashes_verified": true,
+  "head_commit": "5533cf64f416f5e1386db357852c6362097c3f99",
+  "identifiable_in_principle": false,
+  "length_km": 2.0,
+  "limits": {
+    "M1_level_spacing": 0.018135348178638377,
+    "M2_wasserstein1_amplitude": 0.060001309573172026,
+    "M3_quantile_error": 0.13066363126696678,
+    "M4_log_spectral_distance": 1.217921781382072
+  },
+  "model_gaps": [
+    "CHIRP: the modulator chirp is unidentifiable from B2B; the dispersion response assumes zero",
+    "LARGE_SIGNAL: optical offset and modulation depth are not recoverable from AC-normalised B2B",
+    "PHASE: the lumped response phase is unidentifiable from a power spectrum; zero phase assumed",
+    "NOISE_ORIGIN: signal-borne and receiver noise are not separable on B2B; noise follows fibre"
+  ],
+  "notes": [],
+  "outcome": "FAIL",
+  "reference_sequence": "REFERENCE_SEQUENCE_MISSING",
+  "report_version": 2,
+  "scenarios": {
+    "D0.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03886550048082926,
+        "M2_wasserstein1_amplitude": 0.026568108912378346,
+        "M3_quantile_error": 0.04365703221070065,
+        "M4_log_spectral_distance": 0.7235517721849716
+      },
+      "null_control": false,
+      "psi": 2.14307991762788
+    },
+    "D0.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027696037705152055,
+        "M2_wasserstein1_amplitude": 0.03470685784399553,
+        "M3_quantile_error": 0.12979127377999422,
+        "M4_log_spectral_distance": 0.6844413311193994
+      },
+      "null_control": false,
+      "psi": 1.5271853306778642
+    },
+    "D0.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027712837171655957,
+        "M2_wasserstein1_amplitude": 0.034711521489476274,
+        "M3_quantile_error": 0.12980549695897503,
+        "M4_log_spectral_distance": 0.6845994933477947
+      },
+      "null_control": false,
+      "psi": 1.5281116689173304
+    },
+    "D0.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03885586065394431,
+        "M2_wasserstein1_amplitude": 0.026547507593790647,
+        "M3_quantile_error": 0.04362997091732323,
+        "M4_log_spectral_distance": 0.7236427355866119
+      },
+      "null_control": false,
+      "psi": 2.1425483685895053
+    },
+    "D0.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021307912976431753,
+        "M2_wasserstein1_amplitude": 0.0564877760843097,
+        "M3_quantile_error": 0.21982628560126827,
+        "M4_log_spectral_distance": 0.6850258962726172
+      },
+      "null_control": false,
+      "psi": 1.6823831043860082
+    },
+    "D0.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02129300815211077,
+        "M2_wasserstein1_amplitude": 0.05648724479423983,
+        "M3_quantile_error": 0.2198448795569492,
+        "M4_log_spectral_distance": 0.6854073407960256
+      },
+      "null_control": false,
+      "psi": 1.6825254083729757
+    },
+    "D0_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038871485433563,
+        "M2_wasserstein1_amplitude": 0.02656607552507324,
+        "M3_quantile_error": 0.04366810083940115,
+        "M4_log_spectral_distance": 0.722595640063587
+      },
+      "null_control": true,
+      "psi": 2.143409933499359
+    },
+    "D0_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.0276855362136752,
+        "M2_wasserstein1_amplitude": 0.034705189305972925,
+        "M3_quantile_error": 0.12967061073082986,
+        "M4_log_spectral_distance": 0.6836528847370983
+      },
+      "null_control": false,
+      "psi": 1.5266062686508544
+    },
+    "D0_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021336043927997483,
+        "M2_wasserstein1_amplitude": 0.056506172791708414,
+        "M3_quantile_error": 0.2198480344577285,
+        "M4_log_spectral_distance": 0.6841300176496237
+      },
+      "null_control": false,
+      "psi": 1.6825495535826924
+    },
+    "D1.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.0388574148107077,
+        "M2_wasserstein1_amplitude": 0.026576422393161388,
+        "M3_quantile_error": 0.04360318189263439,
+        "M4_log_spectral_distance": 0.7315805752493436
+      },
+      "null_control": false,
+      "psi": 2.1426340662418517
+    },
+    "D1.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027710170317539973,
+        "M2_wasserstein1_amplitude": 0.03470170347322966,
+        "M3_quantile_error": 0.12999509889694583,
+        "M4_log_spectral_distance": 0.6913757290069483
+      },
+      "null_control": false,
+      "psi": 1.527964616095972
+    },
+    "D1.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027718991299716444,
+        "M2_wasserstein1_amplitude": 0.034700173199543306,
+        "M3_quantile_error": 0.12991740767993276,
+        "M4_log_spectral_distance": 0.6930353479953815
+      },
+      "null_control": false,
+      "psi": 1.5284510132739904
+    },
+    "D1.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038868012693071274,
+        "M2_wasserstein1_amplitude": 0.026574370480436607,
+        "M3_quantile_error": 0.04359845836675951,
+        "M4_log_spectral_distance": 0.732444073135874
+      },
+      "null_control": false,
+      "psi": 2.1432184433521875
+    },
+    "D1.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021287647766121465,
+        "M2_wasserstein1_amplitude": 0.0564190591655709,
+        "M3_quantile_error": 0.2197412754224337,
+        "M4_log_spectral_distance": 0.6923488342769413
+      },
+      "null_control": false,
+      "psi": 1.6817325011691049
+    },
+    "D1.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02140767415638911,
+        "M2_wasserstein1_amplitude": 0.05643306985265654,
+        "M3_quantile_error": 0.21944998324047216,
+        "M4_log_spectral_distance": 0.6955336201988368
+      },
+      "null_control": false,
+      "psi": 1.67950317247881
+    },
+    "D1_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03887279496857854,
+        "M2_wasserstein1_amplitude": 0.026580955251207718,
+        "M3_quantile_error": 0.043637912418775626,
+        "M4_log_spectral_distance": 0.7264973214840523
+      },
+      "null_control": false,
+      "psi": 2.1434821424805506
+    },
+    "D1_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027723317587583063,
+        "M2_wasserstein1_amplitude": 0.0347153184612778,
+        "M3_quantile_error": 0.1299346839155655,
+        "M4_log_spectral_distance": 0.6869775163269841
+      },
+      "null_control": false,
+      "psi": 1.5286895688188855
+    },
+    "D1_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02774929309538776,
+        "M2_wasserstein1_amplitude": 0.034723886806328125,
+        "M3_quantile_error": 0.12985143459197346,
+        "M4_log_spectral_distance": 0.6876978672529506
+      },
+      "null_control": false,
+      "psi": 1.5301218825273863
+    },
+    "D1_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03887507267443446,
+        "M2_wasserstein1_amplitude": 0.026579527616733205,
+        "M3_quantile_error": 0.04364241945822467,
+        "M4_log_spectral_distance": 0.7268648816087308
+      },
+      "null_control": false,
+      "psi": 2.1436077373041784
+    },
+    "D1_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021309759186087796,
+        "M2_wasserstein1_amplitude": 0.05646149923973595,
+        "M3_quantile_error": 0.21978210374741414,
+        "M4_log_spectral_distance": 0.6877162617045846
+      },
+      "null_control": false,
+      "psi": 1.6820449700985578
+    },
+    "D1_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02133177417090182,
+        "M2_wasserstein1_amplitude": 0.05646426556600279,
+        "M3_quantile_error": 0.21967502487077573,
+        "M4_log_spectral_distance": 0.6891237156429842
+      },
+      "null_control": false,
+      "psi": 1.6812254698627223
+    },
+    "D2.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038873567453479696,
+        "M2_wasserstein1_amplitude": 0.02666593428662736,
+        "M3_quantile_error": 0.04357664520552385,
+        "M4_log_spectral_distance": 0.7492566200982352
+      },
+      "null_control": false,
+      "psi": 2.1435247380179256
+    },
+    "D2.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02765975729065029,
+        "M2_wasserstein1_amplitude": 0.034671341547476565,
+        "M3_quantile_error": 0.1302215888145084,
+        "M4_log_spectral_distance": 0.7068919922189943
+      },
+      "null_control": false,
+      "psi": 1.5251847948103203
+    },
+    "D2.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027683089324398225,
+        "M2_wasserstein1_amplitude": 0.03465842086557468,
+        "M3_quantile_error": 0.13009661848148246,
+        "M4_log_spectral_distance": 0.7118551105316171
+      },
+      "null_control": false,
+      "psi": 1.5264713448957175
+    },
+    "D2.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0388628471129967,
+        "M2_wasserstein1_amplitude": 0.02664845653756697,
+        "M3_quantile_error": 0.04356642854136685,
+        "M4_log_spectral_distance": 0.7517464018643522
+      },
+      "null_control": false,
+      "psi": 2.1429336084527586
+    },
+    "D2.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.02127015934635712,
+        "M2_wasserstein1_amplitude": 0.05629263270474738,
+        "M3_quantile_error": 0.21970624843332365,
+        "M4_log_spectral_distance": 0.7081577363605103
+      },
+      "null_control": false,
+      "psi": 1.6814644312496452
+    },
+    "D2.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0212660990381206,
+        "M2_wasserstein1_amplitude": 0.05624682569737957,
+        "M3_quantile_error": 0.219577764371663,
+        "M4_log_spectral_distance": 0.717904464405516
+      },
+      "null_control": false,
+      "psi": 1.680481112016781
+    },
+    "D2_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038885112688391676,
+        "M2_wasserstein1_amplitude": 0.02665510087751737,
+        "M3_quantile_error": 0.0436493241513405,
+        "M4_log_spectral_distance": 0.7390516880640039
+      },
+      "null_control": false,
+      "psi": 2.1441613530306762
+    },
+    "D2_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02771572911350373,
+        "M2_wasserstein1_amplitude": 0.034709198271212306,
+        "M3_quantile_error": 0.13018792873885854,
+        "M4_log_spectral_distance": 0.6979280510017514
+      },
+      "null_control": false,
+      "psi": 1.5282711332859922
+    },
+    "D2_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027714772107194197,
+        "M2_wasserstein1_amplitude": 0.03469206679622182,
+        "M3_quantile_error": 0.13003732294563264,
+        "M4_log_spectral_distance": 0.7009339121737866
+      },
+      "null_control": false,
+      "psi": 1.5282183630661925
+    },
+    "D2_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038890321801969496,
+        "M2_wasserstein1_amplitude": 0.02664572771810259,
+        "M3_quantile_error": 0.043633491114817104,
+        "M4_log_spectral_distance": 0.7406253096008759
+      },
+      "null_control": false,
+      "psi": 2.144448588408046
+    },
+    "D2_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021302038796470635,
+        "M2_wasserstein1_amplitude": 0.05635613466200351,
+        "M3_quantile_error": 0.21976283646836148,
+        "M4_log_spectral_distance": 0.6990143913003879
+      },
+      "null_control": false,
+      "psi": 1.6818975130068956
+    },
+    "D2_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021304524965193528,
+        "M2_wasserstein1_amplitude": 0.056337344997909884,
+        "M3_quantile_error": 0.21964478028242684,
+        "M4_log_spectral_distance": 0.7050326813814745
+      },
+      "null_control": false,
+      "psi": 1.6809940007993294
+    },
+    "D3.25_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038842536489749446,
+        "M2_wasserstein1_amplitude": 0.02669397485323647,
+        "M3_quantile_error": 0.04348940667313027,
+        "M4_log_spectral_distance": 0.7705903938285981
+      },
+      "null_control": false,
+      "psi": 2.141813661758204
+    },
+    "D3.25_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027600698058108053,
+        "M2_wasserstein1_amplitude": 0.03462324850348537,
+        "M3_quantile_error": 0.1306324390920417,
+        "M4_log_spectral_distance": 0.7257227357607864
+      },
+      "null_control": false,
+      "psi": 1.5219282136870638
+    },
+    "D3.25_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02762101155672947,
+        "M2_wasserstein1_amplitude": 0.03459959456778336,
+        "M3_quantile_error": 0.13039936889989923,
+        "M4_log_spectral_distance": 0.7349085987642916
+      },
+      "null_control": false,
+      "psi": 1.523048318932429
+    },
+    "D3.25_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0388845763894341,
+        "M2_wasserstein1_amplitude": 0.026713069840413998,
+        "M3_quantile_error": 0.04348376164364093,
+        "M4_log_spectral_distance": 0.7752165313147381
+      },
+      "null_control": false,
+      "psi": 2.144131781006346
+    },
+    "D3.25_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021258124259388778,
+        "M2_wasserstein1_amplitude": 0.056171277126066066,
+        "M3_quantile_error": 0.21957573588044177,
+        "M4_log_spectral_distance": 0.7269279172787592
+      },
+      "null_control": false,
+      "psi": 1.6804655874886354
+    },
+    "D3.25_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021261106103798166,
+        "M2_wasserstein1_amplitude": 0.05611333311088343,
+        "M3_quantile_error": 0.2193624949185078,
+        "M4_log_spectral_distance": 0.7447916791410312
+      },
+      "null_control": false,
+      "psi": 1.6788336034402334
+    },
+    "D3.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03884867169617168,
+        "M2_wasserstein1_amplitude": 0.026727912564322463,
+        "M3_quantile_error": 0.043463797765476264,
+        "M4_log_spectral_distance": 0.779627914157372
+      },
+      "null_control": false,
+      "psi": 2.142151962758097
+    },
+    "D3.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027577385126170695,
+        "M2_wasserstein1_amplitude": 0.0346063748185953,
+        "M3_quantile_error": 0.13070245776683986,
+        "M4_log_spectral_distance": 0.7337399811348769
+      },
+      "null_control": false,
+      "psi": 1.520642716893304
+    },
+    "D3.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027590135221551515,
+        "M2_wasserstein1_amplitude": 0.03457169499795466,
+        "M3_quantile_error": 0.13053672403101224,
+        "M4_log_spectral_distance": 0.7446801161559545
+      },
+      "null_control": false,
+      "psi": 1.5213457690351888
+    },
+    "D3.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03888796439170239,
+        "M2_wasserstein1_amplitude": 0.026745384141028374,
+        "M3_quantile_error": 0.04346792615313578,
+        "M4_log_spectral_distance": 0.7851327502727955
+      },
+      "null_control": false,
+      "psi": 2.1443185986089044
+    },
+    "D3.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.02123035407471563,
+        "M2_wasserstein1_amplitude": 0.056114415631698666,
+        "M3_quantile_error": 0.21957626482924164,
+        "M4_log_spectral_distance": 0.734734981354929
+      },
+      "null_control": false,
+      "psi": 1.680469635660225
+    },
+    "D3.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0212575872650016,
+        "M2_wasserstein1_amplitude": 0.05604626121432779,
+        "M3_quantile_error": 0.21936536220687763,
+        "M4_log_spectral_distance": 0.7559449213461628
+      },
+      "null_control": false,
+      "psi": 1.6788555474834383
+    },
+    "D3.75_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038844838605029186,
+        "M2_wasserstein1_amplitude": 0.02677944008311183,
+        "M3_quantile_error": 0.04347479774354279,
+        "M4_log_spectral_distance": 0.7896983587476328
+      },
+      "null_control": false,
+      "psi": 2.14194060254021
+    },
+    "D3.75_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02752574535473129,
+        "M2_wasserstein1_amplitude": 0.034574050709130326,
+        "M3_quantile_error": 0.1306937389940357,
+        "M4_log_spectral_distance": 0.742741149947048
+      },
+      "null_control": false,
+      "psi": 1.5177952517699032
+    },
+    "D3.75_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027583765881926015,
+        "M2_wasserstein1_amplitude": 0.03456008740121653,
+        "M3_quantile_error": 0.13055136679253554,
+        "M4_log_spectral_distance": 0.7556873916034793
+      },
+      "null_control": false,
+      "psi": 1.5209945577122652
+    },
+    "D3.75_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038881726895531044,
+        "M2_wasserstein1_amplitude": 0.026757880260239297,
+        "M3_quantile_error": 0.04344857050783888,
+        "M4_log_spectral_distance": 0.796211193266239
+      },
+      "null_control": false,
+      "psi": 2.1439746572569156
+    },
+    "D3.75_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021205723600018933,
+        "M2_wasserstein1_amplitude": 0.056040541184496834,
+        "M3_quantile_error": 0.21962842832459106,
+        "M4_log_spectral_distance": 0.7432469584808191
+      },
+      "null_control": false,
+      "psi": 1.680868855357731
+    },
+    "D3.75_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021215661338882752,
+        "M2_wasserstein1_amplitude": 0.05597665147158931,
+        "M3_quantile_error": 0.2193336732497695,
+        "M4_log_spectral_distance": 0.7684390489139936
+      },
+      "null_control": false,
+      "psi": 1.6786130243207122
+    },
+    "D3_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03884946514922516,
+        "M2_wasserstein1_amplitude": 0.026687157415853313,
+        "M3_quantile_error": 0.04353113393542643,
+        "M4_log_spectral_distance": 0.7625931976164834
+      },
+      "null_control": false,
+      "psi": 2.142195714498933
+    },
+    "D3_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027628439066813115,
+        "M2_wasserstein1_amplitude": 0.03464966924196821,
+        "M3_quantile_error": 0.13048006649736266,
+        "M4_log_spectral_distance": 0.7186606470949513
+      },
+      "null_control": false,
+      "psi": 1.523457878760588
+    },
+    "D3_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02767659395177602,
+        "M2_wasserstein1_amplitude": 0.034637234603656905,
+        "M3_quantile_error": 0.13035680618844214,
+        "M4_log_spectral_distance": 0.7262014790563261
+      },
+      "null_control": false,
+      "psi": 1.5261131839958977
+    },
+    "D3_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038889777535247916,
+        "M2_wasserstein1_amplitude": 0.026687914594099353,
+        "M3_quantile_error": 0.04351348748063271,
+        "M4_log_spectral_distance": 0.7664308441962381
+      },
+      "null_control": false,
+      "psi": 2.144418577033783
+    },
+    "D3_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021262638945588108,
+        "M2_wasserstein1_amplitude": 0.056220015102820174,
+        "M3_quantile_error": 0.21954972332170364,
+        "M4_log_spectral_distance": 0.719960258004035
+      },
+      "null_control": false,
+      "psi": 1.680266507159351
+    },
+    "D3_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021288848024000107,
+        "M2_wasserstein1_amplitude": 0.05616826572668765,
+        "M3_quantile_error": 0.21937764795529757,
+        "M4_log_spectral_distance": 0.7347208326955506
+      },
+      "null_control": false,
+      "psi": 1.6789495732525128
+    },
+    "D4.25_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03885802243776604,
+        "M2_wasserstein1_amplitude": 0.026878684023899407,
+        "M3_quantile_error": 0.043477966254881595,
+        "M4_log_spectral_distance": 0.8132557141348792
+      },
+      "null_control": false,
+      "psi": 2.1426675713641328
+    },
+    "D4.25_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02755895257354335,
+        "M2_wasserstein1_amplitude": 0.03457933881153615,
+        "M3_quantile_error": 0.13088290902477695,
+        "M4_log_spectral_distance": 0.7637716616138457
+      },
+      "null_control": false,
+      "psi": 1.5196263287630194
+    },
+    "D4.25_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027495718067625186,
+        "M2_wasserstein1_amplitude": 0.0344837167305402,
+        "M3_quantile_error": 0.13048586538493057,
+        "M4_log_spectral_distance": 0.7815200217796521
+      },
+      "null_control": false,
+      "psi": 1.516139519174624
+    },
+    "D4.25_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03891223394700405,
+        "M2_wasserstein1_amplitude": 0.02688057889570044,
+        "M3_quantile_error": 0.04346831926017183,
+        "M4_log_spectral_distance": 0.8221263024656185
+      },
+      "null_control": false,
+      "psi": 2.1456568445065067
+    },
+    "D4.25_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021148640022317755,
+        "M2_wasserstein1_amplitude": 0.05590956027803176,
+        "M3_quantile_error": 0.21975956578080247,
+        "M4_log_spectral_distance": 0.763338910307268
+      },
+      "null_control": false,
+      "psi": 1.6818724816532795
+    },
+    "D4.25_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02105309376512765,
+        "M2_wasserstein1_amplitude": 0.05581191821855834,
+        "M3_quantile_error": 0.21932227562553885,
+        "M4_log_spectral_distance": 0.7975616605038836
+      },
+      "null_control": false,
+      "psi": 1.678525795578329
+    },
+    "D4.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038855831234204,
+        "M2_wasserstein1_amplitude": 0.026941110183925226,
+        "M3_quantile_error": 0.043455200711363544,
+        "M4_log_spectral_distance": 0.8268682772614625
+      },
+      "null_control": false,
+      "psi": 2.1425467463576062
+    },
+    "D4.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02753356643953908,
+        "M2_wasserstein1_amplitude": 0.03455675032157906,
+        "M3_quantile_error": 0.13100725749527387,
+        "M4_log_spectral_distance": 0.7759468017565337
+      },
+      "null_control": false,
+      "psi": 1.5182265136751476
+    },
+    "D4.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027509603257376725,
+        "M2_wasserstein1_amplitude": 0.03447624679742523,
+        "M3_quantile_error": 0.13064090961538177,
+        "M4_log_spectral_distance": 0.7964812581605274
+      },
+      "null_control": false,
+      "psi": 1.5169051614779738
+    },
+    "D4.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03893330936712036,
+        "M2_wasserstein1_amplitude": 0.02693291688154374,
+        "M3_quantile_error": 0.0434822904386941,
+        "M4_log_spectral_distance": 0.8372026754753978
+      },
+      "null_control": false,
+      "psi": 2.1468189628131813
+    },
+    "D4.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021059851514056094,
+        "M2_wasserstein1_amplitude": 0.05582098665386039,
+        "M3_quantile_error": 0.2197962791638215,
+        "M4_log_spectral_distance": 0.7748396493146045
+      },
+      "null_control": false,
+      "psi": 1.6821534579483897
+    },
+    "D4.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02110430182699785,
+        "M2_wasserstein1_amplitude": 0.05575864167054709,
+        "M3_quantile_error": 0.21915590262711815,
+        "M4_log_spectral_distance": 0.814188143532406
+      },
+      "null_control": false,
+      "psi": 1.677252503256606
+    },
+    "D4.75_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03884142444424599,
+        "M2_wasserstein1_amplitude": 0.026970957779633587,
+        "M3_quantile_error": 0.04338216809557112,
+        "M4_log_spectral_distance": 0.8418146010364086
+      },
+      "null_control": false,
+      "psi": 2.141752342532761
+    },
+    "D4.75_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02750916564869499,
+        "M2_wasserstein1_amplitude": 0.03455809597018425,
+        "M3_quantile_error": 0.13118796922673193,
+        "M4_log_spectral_distance": 0.7894395139716742
+      },
+      "null_control": false,
+      "psi": 1.5168810313274288
+    },
+    "D4.75_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027508686966530194,
+        "M2_wasserstein1_amplitude": 0.03445545061813848,
+        "M3_quantile_error": 0.13072441821626724,
+        "M4_log_spectral_distance": 0.8129850477861822
+      },
+      "null_control": false,
+      "psi": 1.516854636346749
+    },
+    "D4.75_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0389125924131114,
+        "M2_wasserstein1_amplitude": 0.026950486212832792,
+        "M3_quantile_error": 0.04345735687700925,
+        "M4_log_spectral_distance": 0.8536911247475018
+      },
+      "null_control": false,
+      "psi": 2.145676610661743
+    },
+    "D4.75_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021029600835048123,
+        "M2_wasserstein1_amplitude": 0.055767445637967136,
+        "M3_quantile_error": 0.21981752192935344,
+        "M4_log_spectral_distance": 0.7875126023416382
+      },
+      "null_control": false,
+      "psi": 1.682316033910239
+    },
+    "D4.75_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0210862699526837,
+        "M2_wasserstein1_amplitude": 0.05567389982202267,
+        "M3_quantile_error": 0.2193320982733109,
+        "M4_log_spectral_distance": 0.8324091454903679
+      },
+      "null_control": false,
+      "psi": 1.6786009706494396
+    },
+    "D4_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03884459964496645,
+        "M2_wasserstein1_amplitude": 0.02683215669856066,
+        "M3_quantile_error": 0.04349699880664113,
+        "M4_log_spectral_distance": 0.8008983294383643
+      },
+      "null_control": false,
+      "psi": 2.1419274260596493
+    },
+    "D4_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027544527535781738,
+        "M2_wasserstein1_amplitude": 0.03456963998637326,
+        "M3_quantile_error": 0.13077138427950885,
+        "M4_log_spectral_distance": 0.7526690380207434
+      },
+      "null_control": false,
+      "psi": 1.5188309187372775
+    },
+    "D4_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027537153356387067,
+        "M2_wasserstein1_amplitude": 0.034527788651389675,
+        "M3_quantile_error": 0.13051362516377374,
+        "M4_log_spectral_distance": 0.7679552190469413
+      },
+      "null_control": false,
+      "psi": 1.5184242996130106
+    },
+    "D4_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03891487566681184,
+        "M2_wasserstein1_amplitude": 0.02684073401462274,
+        "M3_quantile_error": 0.043477332556933056,
+        "M4_log_spectral_distance": 0.808525922583935
+      },
+      "null_control": false,
+      "psi": 2.1458025113986876
+    },
+    "D4_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.02113755876341461,
+        "M2_wasserstein1_amplitude": 0.05596405170988677,
+        "M3_quantile_error": 0.2197912271829261,
+        "M4_log_spectral_distance": 0.7528550828537113
+      },
+      "null_control": false,
+      "psi": 1.6821147939311232
+    },
+    "D4_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02112847183295896,
+        "M2_wasserstein1_amplitude": 0.055899131103384514,
+        "M3_quantile_error": 0.21927326258678637,
+        "M4_log_spectral_distance": 0.7822898647477232
+      },
+      "null_control": false,
+      "psi": 1.6781506870781502
+    },
+    "D5.25_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03882435055076505,
+        "M2_wasserstein1_amplitude": 0.027028072154285793,
+        "M3_quantile_error": 0.04332034147543471,
+        "M4_log_spectral_distance": 0.8761655178260819
+      },
+      "null_control": false,
+      "psi": 2.1408108721340264
+    },
+    "D5.25_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027397138267429844,
+        "M2_wasserstein1_amplitude": 0.03451423755243483,
+        "M3_quantile_error": 0.13127338044377934,
+        "M4_log_spectral_distance": 0.8203467833667792
+      },
+      "null_control": false,
+      "psi": 1.5107037371193637
+    },
+    "D5.25_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027471784879834038,
+        "M2_wasserstein1_amplitude": 0.03444213009232747,
+        "M3_quantile_error": 0.13102223993095752,
+        "M4_log_spectral_distance": 0.8509916722659193
+      },
+      "null_control": false,
+      "psi": 1.5148198208950323
+    },
+    "D5.25_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038906828141146876,
+        "M2_wasserstein1_amplitude": 0.027010183246264464,
+        "M3_quantile_error": 0.043357061916209735,
+        "M4_log_spectral_distance": 0.8914217631896943
+      },
+      "null_control": false,
+      "psi": 2.1453587633335442
+    },
+    "D5.25_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.020906301220433576,
+        "M2_wasserstein1_amplitude": 0.05560939296878224,
+        "M3_quantile_error": 0.21995265307828493,
+        "M4_log_spectral_distance": 0.8159659903550398
+      },
+      "null_control": false,
+      "psi": 1.6833502248907068
+    },
+    "D5.25_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021033954022903423,
+        "M2_wasserstein1_amplitude": 0.055504699849578995,
+        "M3_quantile_error": 0.21926792866667233,
+        "M4_log_spectral_distance": 0.8737908785301841
+      },
+      "null_control": false,
+      "psi": 1.6781098653126572
+    },
+    "D5.5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038777136896795183,
+        "M2_wasserstein1_amplitude": 0.027058755371016294,
+        "M3_quantile_error": 0.04327375695778359,
+        "M4_log_spectral_distance": 0.8954662237964655
+      },
+      "null_control": false,
+      "psi": 2.1382074672528626
+    },
+    "D5.5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027345267453318778,
+        "M2_wasserstein1_amplitude": 0.034490163108662875,
+        "M3_quantile_error": 0.13128001052326566,
+        "M4_log_spectral_distance": 0.8378884270377157
+      },
+      "null_control": false,
+      "psi": 1.5078435320877248
+    },
+    "D5.5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02744411295443272,
+        "M2_wasserstein1_amplitude": 0.034400674524231706,
+        "M3_quantile_error": 0.13092286823250188,
+        "M4_log_spectral_distance": 0.8725738752369745
+      },
+      "null_control": false,
+      "psi": 1.5132939651392596
+    },
+    "D5.5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038894650169452705,
+        "M2_wasserstein1_amplitude": 0.027040272058465174,
+        "M3_quantile_error": 0.04329846808525497,
+        "M4_log_spectral_distance": 0.9128264315810138
+      },
+      "null_control": false,
+      "psi": 2.144687258624938
+    },
+    "D5.5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.020863678915380213,
+        "M2_wasserstein1_amplitude": 0.05554233614721339,
+        "M3_quantile_error": 0.21997106849108672,
+        "M4_log_spectral_distance": 0.8319965523884107
+      },
+      "null_control": false,
+      "psi": 1.6834911624463467
+    },
+    "D5.5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02105763543815442,
+        "M2_wasserstein1_amplitude": 0.055437211614359355,
+        "M3_quantile_error": 0.2191703249438599,
+        "M4_log_spectral_distance": 0.8971370429031439
+      },
+      "null_control": false,
+      "psi": 1.6773628806937084
+    },
+    "D5.75_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038760912311392115,
+        "M2_wasserstein1_amplitude": 0.02709631572906268,
+        "M3_quantile_error": 0.04321166969674359,
+        "M4_log_spectral_distance": 0.9164936719922997
+      },
+      "null_control": false,
+      "psi": 2.137312828493063
+    },
+    "D5.75_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.02736451480460156,
+        "M2_wasserstein1_amplitude": 0.03450679034841239,
+        "M3_quantile_error": 0.13142320886510062,
+        "M4_log_spectral_distance": 0.8569577341409629
+      },
+      "null_control": false,
+      "psi": 1.5089048489752304
+    },
+    "D5.75_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027358242445269187,
+        "M2_wasserstein1_amplitude": 0.03436549006716266,
+        "M3_quantile_error": 0.13087904771663172,
+        "M4_log_spectral_distance": 0.8960679540292549
+      },
+      "null_control": false,
+      "psi": 1.5085589852360517
+    },
+    "D5.75_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03888846663135448,
+        "M2_wasserstein1_amplitude": 0.027088974318890468,
+        "M3_quantile_error": 0.043268629405804546,
+        "M4_log_spectral_distance": 0.9360578907782542
+      },
+      "null_control": false,
+      "psi": 2.144346292571388
+    },
+    "D5.75_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.020839243762627024,
+        "M2_wasserstein1_amplitude": 0.05548379084201857,
+        "M3_quantile_error": 0.21986044016334283,
+        "M4_log_spectral_distance": 0.8491932334111789
+      },
+      "null_control": false,
+      "psi": 1.6826444974128465
+    },
+    "D5.75_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02098720561790901,
+        "M2_wasserstein1_amplitude": 0.055329137459384184,
+        "M3_quantile_error": 0.21937233108923815,
+        "M4_log_spectral_distance": 0.9222751298782571
+      },
+      "null_control": false,
+      "psi": 1.6789088820057758
+    },
+    "D5_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038848094241823006,
+        "M2_wasserstein1_amplitude": 0.02701621886985605,
+        "M3_quantile_error": 0.043387633158067346,
+        "M4_log_spectral_distance": 0.8582576558265468
+      },
+      "null_control": false,
+      "psi": 2.1421201213871464
+    },
+    "D5_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027467668061874617,
+        "M2_wasserstein1_amplitude": 0.03454163332463939,
+        "M3_quantile_error": 0.1312812992842911,
+        "M4_log_spectral_distance": 0.8042059346351662
+      },
+      "null_control": false,
+      "psi": 1.5145928157160378
+    },
+    "D5_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.027514270086776982,
+        "M2_wasserstein1_amplitude": 0.034462528973003725,
+        "M3_quantile_error": 0.13093061404867745,
+        "M4_log_spectral_distance": 0.8311500248023684
+      },
+      "null_control": false,
+      "psi": 1.517162494800405
+    },
+    "D5_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03894180507124323,
+        "M2_wasserstein1_amplitude": 0.027010984955530986,
+        "M3_quantile_error": 0.0434552974575277,
+        "M4_log_spectral_distance": 0.8717574548626046
+      },
+      "null_control": false,
+      "psi": 2.147287423856178
+    },
+    "D5_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.021024897580899538,
+        "M2_wasserstein1_amplitude": 0.05570082915507046,
+        "M3_quantile_error": 0.2198348106780621,
+        "M4_log_spectral_distance": 0.8011447822496289
+      },
+      "null_control": false,
+      "psi": 1.68244834883629
+    },
+    "D5_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.021109365100071553,
+        "M2_wasserstein1_amplitude": 0.05560464411271283,
+        "M3_quantile_error": 0.2192094913945386,
+        "M4_log_spectral_distance": 0.8522562027322491
+      },
+      "null_control": false,
+      "psi": 1.6776626309019256
+    },
+    "D6.25_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.03872897447214407,
+        "M2_wasserstein1_amplitude": 0.027201928209571694,
+        "M3_quantile_error": 0.04313242440714839,
+        "M4_log_spectral_distance": 0.9636762851992712
+      },
+      "null_control": false,
+      "psi": 2.1355517462721187
+    },
+    "D6.25_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027279277953364822,
+        "M2_wasserstein1_amplitude": 0.03450196715831845,
+        "M3_quantile_error": 0.13168055869304318,
+        "M4_log_spectral_distance": 0.8998300769655214
+      },
+      "null_control": false,
+      "psi": 1.50420480956065
+    },
+    "D6.25_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02723487022146398,
+        "M2_wasserstein1_amplitude": 0.03432111978925236,
+        "M3_quantile_error": 0.13079072986573426,
+        "M4_log_spectral_distance": 0.9489549660311629
+      },
+      "null_control": false,
+      "psi": 1.5017561258373813
+    },
+    "D6.25_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03887452978313344,
+        "M2_wasserstein1_amplitude": 0.027222009523564274,
+        "M3_quantile_error": 0.04321568431791098,
+        "M4_log_spectral_distance": 0.9880929386835899
+      },
+      "null_control": false,
+      "psi": 2.1435778017718863
+    },
+    "D6.25_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.020744501292790707,
+        "M2_wasserstein1_amplitude": 0.05532903456400837,
+        "M3_quantile_error": 0.2199938956038796,
+        "M4_log_spectral_distance": 0.8875062364058622
+      },
+      "null_control": false,
+      "psi": 1.6836658637964588
+    },
+    "D6.25_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02089099847405107,
+        "M2_wasserstein1_amplitude": 0.05513836949109682,
+        "M3_quantile_error": 0.21931693502847782,
+        "M4_log_spectral_distance": 0.978475159289734
+      },
+      "null_control": false,
+      "psi": 1.6784849227125649
+    },
+    "D6.352_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038702555358481994,
+        "M2_wasserstein1_amplitude": 0.027214107799605248,
+        "M3_quantile_error": 0.04310698880090125,
+        "M4_log_spectral_distance": 0.974166768235034
+      },
+      "null_control": false,
+      "psi": 2.1340949717232185
+    },
+    "D6.352_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027246298017979953,
+        "M2_wasserstein1_amplitude": 0.034481405939747016,
+        "M3_quantile_error": 0.13171354646889988,
+        "M4_log_spectral_distance": 0.9092766328182715
+      },
+      "null_control": false,
+      "psi": 1.5023862651875282
+    },
+    "D6.352_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02722663095934319,
+        "M2_wasserstein1_amplitude": 0.0343171863714634,
+        "M3_quantile_error": 0.13080445332297685,
+        "M4_log_spectral_distance": 0.9607174584467223
+      },
+      "null_control": false,
+      "psi": 1.5013018052453733
+    },
+    "D6.352_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.038825979280018186,
+        "M2_wasserstein1_amplitude": 0.02719854624490591,
+        "M3_quantile_error": 0.043145592447233594,
+        "M4_log_spectral_distance": 0.9996090725897213
+      },
+      "null_control": false,
+      "psi": 2.1409006817829557
+    },
+    "D6.352_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.02074652463886273,
+        "M2_wasserstein1_amplitude": 0.055310201372608336,
+        "M3_quantile_error": 0.2199448588780899,
+        "M4_log_spectral_distance": 0.8960020809035663
+      },
+      "null_control": false,
+      "psi": 1.6832905740137225
+    },
+    "D6.352_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.020912338548840337,
+        "M2_wasserstein1_amplitude": 0.05510914814684656,
+        "M3_quantile_error": 0.21925813130506944,
+        "M4_log_spectral_distance": 0.990879893449273
+      },
+      "null_control": false,
+      "psi": 1.6780348837626429
+    },
+    "D6_N1": {
+      "metrics": {
+        "M1_level_spacing": 0.038741108622853626,
+        "M2_wasserstein1_amplitude": 0.02714263650710213,
+        "M3_quantile_error": 0.043161966596437645,
+        "M4_log_spectral_distance": 0.9391832809115322
+      },
+      "null_control": false,
+      "psi": 2.1362208346507936
+    },
+    "D6_N1.5": {
+      "metrics": {
+        "M1_level_spacing": 0.027312734519249426,
+        "M2_wasserstein1_amplitude": 0.034514168396726004,
+        "M3_quantile_error": 0.13150659640015183,
+        "M4_log_spectral_distance": 0.8776544337148613
+      },
+      "null_control": false,
+      "psi": 1.506049635783728
+    },
+    "D6_N1.5_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.0273284609979787,
+        "M2_wasserstein1_amplitude": 0.0343632258014906,
+        "M3_quantile_error": 0.13093609419891505,
+        "M4_log_spectral_distance": 0.9215423416546081
+      },
+      "null_control": false,
+      "psi": 1.5069168084773188
+    },
+    "D6_N1_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.03889490040247545,
+        "M2_wasserstein1_amplitude": 0.027171198729827012,
+        "M3_quantile_error": 0.043246488771709564,
+        "M4_log_spectral_distance": 0.9610999392092027
+      },
+      "null_control": false,
+      "psi": 2.1447010567070195
+    },
+    "D6_N2.2": {
+      "metrics": {
+        "M1_level_spacing": 0.02075841604069173,
+        "M2_wasserstein1_amplitude": 0.05539472092117742,
+        "M3_quantile_error": 0.21999994653691024,
+        "M4_log_spectral_distance": 0.8676535462770565
+      },
+      "null_control": false,
+      "psi": 1.6837121730331757
+    },
+    "D6_N2.2_THRU": {
+      "metrics": {
+        "M1_level_spacing": 0.02097620966592073,
+        "M2_wasserstein1_amplitude": 0.0552529640082583,
+        "M3_quantile_error": 0.21924238408346408,
+        "M4_log_spectral_distance": 0.9494229886919177
+      },
+      "null_control": false,
+      "psi": 1.6779143665119538
+    }
+  },
+  "scenarios_scored": 123,
+  "split": "VALIDATION",
+  "summary": "2 km: outcome FAIL, claim none, verdict FAILED; dispersions of the survivors none ps/(nm km); amplitude ratio vs B2B 0.8324 (reported, not tested); a positive result is never VALIDATED: the verdict is capped at INCONCLUSIVE by design.",
+  "survivors": [],
+  "two_km_record": null,
+  "verdict": "FAILED",
+  "window": {
+    "sample_rate_hz": 2047999999999.9998,
+    "samples": 4194304,
+    "start": 16777216
+  }
+}
