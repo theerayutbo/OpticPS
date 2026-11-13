@@ -57,6 +57,7 @@ ENTRY_MODULES = (
     "opticps.measurement.nanf_freeze",
     "opticps.measurement.nanf_import",
     "opticps.measurement.nanf_benchmark",
+    "opticps.measurement.nanf_holdout",  # the holdout runner (Amendment 11 J-G.5)
     "opticps.optical_channel.link",
     "opticps.optical_channel.fiber",
 )
