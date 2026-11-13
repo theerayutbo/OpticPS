@@ -142,16 +142,71 @@ def test_rendered_file_equals_the_committed_file(committed: list[dict[str, Any]]
     assert m.dump_matrix(committed) == (ROOT / m.MATRIX_PATH).read_text(encoding="utf-8")
 
 
-def test_evidence_label_rule(by_id: dict[str, dict[str, Any]]) -> None:
-    """Captures only: EXTERNAL RAW CAPTURE. Simulated scenario against a capture: both words."""
+EXPECTED_KINDS = {
+    # model versus capture: plan l.915 ("the model's misfit on B2B"), law_model_v2.yaml l.1-4,
+    # two_km_result.json (best of 123 simulated scenarios scored against the 2 km capture)
+    "T-B2B-M1": ["model", "capture"],
+    "T-B2B-M2": ["model", "capture"],
+    "T-B2B-M3": ["model", "capture"],
+    "T-B2B-M4": ["model", "capture"],
+    "T-E2C-A2": ["model", "capture"],
+    "T-2KM": ["model", "capture"],
+    # an inferred pattern against the same capture; no number at all for 10 km and BER
+    "T-PRBS-B2B": ["capture"],
+    "T-10KM": [],
+    "T-BER": [],
+    # our analytic computation; rows that compute nothing declare nothing
+    "W1": ["model"],
+    "W2": ["model"],
+    "W3": ["model"],
+    "W4a": ["model"],
+    "W4b": ["model"],
+    "W5": ["model"],
+    "R4": ["model"],
+}
+
+
+def test_evidence_label_follows_the_declared_kinds_for_every_row(
+    committed: list[dict[str, Any]],
+) -> None:
     assert m.COMBINED_LABEL == "SIMULATED vs EXTERNAL RAW CAPTURE"
     assert m.ROW_LABELS == (*m.LEGAL_LABELS, m.COMBINED_LABEL)
-    assert by_id["T-2KM"]["evidence_label"] == m.COMBINED_LABEL
-    for key in ("T-B2B-M1", "T-B2B-M2", "T-B2B-M3", "T-B2B-M4", "T-E2C-A2", "T-PRBS-B2B"):
-        assert by_id[key]["evidence_label"] == "EXTERNAL RAW CAPTURE", key
-    for row in by_id.values():
-        if row["id"][0] in "WR":
-            assert row["evidence_label"] in ("SIMULATED", "UNKNOWN"), row["id"]
+    assert m.label_from_kinds([]) == "UNKNOWN"
+    assert m.label_from_kinds(["capture"]) == "EXTERNAL RAW CAPTURE"
+    assert m.label_from_kinds(["model"]) == "SIMULATED"
+    assert m.label_from_kinds(["published"]) == "PUBLISHED DATA"
+    assert m.label_from_kinds(["capture", "model"]) == m.COMBINED_LABEL
+    for kinds in (["model", "published"], ["capture", "published"], ["x"], ["model", "model"]):
+        with pytest.raises(BenchmarkError):
+            m.label_from_kinds(kinds)
+    for row in committed:
+        assert row["evidence_label"] == m.label_from_kinds(row["evidence_kinds"]), row["id"]
+        if row["our_value"] is not None:
+            assert row["evidence_kinds"], row["id"]
+        # a row that compares a model with a capture is never labelled by one side alone
+        if "model" in row["evidence_kinds"] and "capture" in row["evidence_kinds"]:
+            assert row["evidence_label"] == m.COMBINED_LABEL
+        assert row["evidence_kinds"] == EXPECTED_KINDS.get(row["id"], row["evidence_kinds"])
+    for row in committed:
+        if row["id"][0] in "WR" and row["id"] not in EXPECTED_KINDS:
+            assert row["evidence_kinds"] == [], row["id"]
+
+
+def test_a_model_versus_capture_row_labelled_capture_only_is_refused(
+    by_id: dict[str, dict[str, Any]],
+) -> None:
+    row = by_id["T-B2B-M1"]
+    assert row["evidence_kinds"] == ["model", "capture"]
+    with pytest.raises(BenchmarkError, match="disagrees"):
+        m.validate_row(_bad(row, evidence_label="EXTERNAL RAW CAPTURE"), ROOT)
+    with pytest.raises(BenchmarkError, match="disagrees"):
+        m.validate_row(_bad(row, evidence_label="SIMULATED"), ROOT)
+    with pytest.raises(BenchmarkError, match="disagrees"):
+        m.validate_row(_bad(by_id["T-PRBS-B2B"], evidence_label=m.COMBINED_LABEL), ROOT)
+    with pytest.raises(BenchmarkError, match="needs a declared evidence kind"):
+        m.validate_row(_bad(row, evidence_kinds=[], evidence_label="UNKNOWN"), ROOT)
+    with pytest.raises(BenchmarkError, match="evidence_kinds"):
+        m.validate_row(_bad(row, evidence_kinds="model"), ROOT)
 
 
 # ----------------------------------------------------------------------------- provenance fields
@@ -177,8 +232,11 @@ def test_code_version_is_what_the_record_states_or_the_package_version(
     for key, row in by_id.items():
         value = row["code_version"]["value"]
         if key[0] in "WR":
-            assert value == f"opticps {__version__}", key
-            assert "--check" in row["code_version"]["basis"]
+            if row["evidence_kinds"]:
+                assert value == f"opticps {__version__}", key
+                assert "--check" in row["code_version"]["basis"]
+            else:
+                assert value is None and "computes no value" in row["code_version"]["basis"], key
         if value is not None and key[0] == "T":
             assert re.fullmatch(r"[0-9a-f]{40}", value), key
     for key in ("T-B2B-M1", "T-10KM", "T-BER"):
@@ -204,6 +262,7 @@ def test_output_hash_is_canonical_and_tracks_every_reported_value(
         ("our_value", good_row["our_value"] * 1.001),
         ("status", "MISMATCH"),
         ("evidence_label", "SIMULATED"),
+        ("evidence_kinds", ["model"]),
         ("unit", "other"),
         ("id", "X"),
     ):
@@ -439,6 +498,58 @@ def test_wiegart_published_points_are_the_three_running_text_numbers(specs: list
     assert ys == [0.63, 0.71, 0.83]
 
 
+def test_every_series_label_is_derived_from_its_declared_kinds(specs: list[Any]) -> None:
+    for spec in specs:
+        for panel in spec.panels:
+            for series in panel.series:
+                assert series.evidence_label == m.label_from_kinds(series.kinds), series.label
+
+
+def _texts(specs: list[Any], name: str) -> list[str]:
+    return next(s for s in specs if s.name == name).specification()["texts"]
+
+
+def test_specification_covers_attribution_caption_and_footer_text(specs: list[Any]) -> None:
+    for name in ("teriphic_two_km_ratios", "teriphic_fibre_sensitivity"):
+        assert any("CC BY 4.0" in t and "Zenodo" in t for t in _texts(specs, name)), name
+    fibre = _texts(specs, "teriphic_fibre_sensitivity")
+    assert any(t.startswith("no scenario reaches psi <= 1") for t in fibre)
+    assert any("not a fit" in t and "UNSPENT" in t for t in fibre)  # footer sentence
+    assert any("PARTIAL/FAILED" in t and "not a fit" in t for t in fibre)  # title
+    assert any("limit = 1.0" in t for t in _texts(specs, "teriphic_two_km_ratios"))
+    wiegart = _texts(specs, "wiegart_gain_check")
+    assert any("not experimental validation" in t for t in wiegart)
+
+
+def test_any_drawn_text_changes_the_specification_hash(specs: list[Any]) -> None:
+    spec = next(s for s in specs if s.name == "teriphic_fibre_sensitivity")
+    base = spec.specification_hash()
+    for artist in [*spec.figure.texts, *spec.panels[0].ax.texts]:
+        old = artist.get_text()
+        artist.set_text(old.replace("not a fit", "a fit").replace("no scenario", "a scenario"))
+        assert spec.specification_hash() != base, old[:30]
+        artist.set_text(old)
+    attribution = spec.figure.texts[0]
+    old = attribution.get_text()
+    attribution.set_text(old.replace("CC BY 4.0", "CC0"))
+    assert spec.specification_hash() != base
+    attribution.set_text(old)
+    legend_text = spec.panels[0].ax.get_legend().get_texts()[0]
+    old = legend_text.get_text()
+    legend_text.set_text("changed")
+    assert spec.specification_hash() != base
+    legend_text.set_text(old)
+    assert spec.specification_hash() == base
+
+
+def test_specification_is_the_same_before_and_after_drawing(
+    specs: list[Any], tmp_path: Path
+) -> None:
+    before = [s.specification_hash() for s in specs]
+    save_figures(specs, tmp_path)
+    assert [s.specification_hash() for s in specs] == before
+
+
 def test_fibre_sensitivity_covers_all_scenarios_and_shows_the_failure(specs: list[Any]) -> None:
     spec = next(s for s in specs if s.name == "teriphic_fibre_sensitivity")
     panel = spec.panels[0]
@@ -463,13 +574,15 @@ def test_unlabelled_or_illegal_series_are_rejected() -> None:
     panel = Panel(fig_specs[0].panels[0].ax, forbidden=("DIGITIZED",))
     for label in (None, "", "  ", "series 1", "_nolegend_", "simulated", "MEASURED | x"):
         with pytest.raises(BenchmarkError):
-            panel.line([0, 1], [0, 1], label)  # type: ignore[arg-type]
+            panel.line([0, 1], [0, 1], label, ("model",))  # type: ignore[arg-type]
     with pytest.raises(BenchmarkError, match="exactly one"):
-        panel.line([0, 1], [0, 1], "SIMULATED | PUBLISHED DATA")
+        panel.line([0, 1], [0, 1], "SIMULATED | PUBLISHED DATA", ("model",))
     with pytest.raises(BenchmarkError, match="not allowed"):
-        panel.line([0, 1], [0, 1], "DIGITIZED | paper curve")
+        panel.line([0, 1], [0, 1], "DIGITIZED | paper curve", ("model",))
     with pytest.raises(BenchmarkError, match="not allowed"):
-        panel.points([0], [0], "DIGITIZED")
+        panel.points([0], [0], "DIGITIZED", ("model",))
+    with pytest.raises(BenchmarkError, match="disagrees"):
+        panel.line([0, 1], [0, 1], "EXTERNAL RAW CAPTURE | x", ("model", "capture"))
     assert check_series_label("DIGITIZED | x") == "DIGITIZED"  # legal word; figures forbid it
     combined = "SIMULATED vs EXTERNAL RAW CAPTURE | best scenario"
     assert check_series_label(combined) == m.COMBINED_LABEL

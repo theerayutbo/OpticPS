@@ -94,11 +94,11 @@ table with the matrix.
 
 | Row | Status | Evidence label |
 |---|---|---|
-| T-B2B-M1 | CALIBRATION | EXTERNAL RAW CAPTURE |
-| T-B2B-M2 | CALIBRATION | EXTERNAL RAW CAPTURE |
-| T-B2B-M3 | CALIBRATION | EXTERNAL RAW CAPTURE |
-| T-B2B-M4 | CALIBRATION | EXTERNAL RAW CAPTURE |
-| T-E2C-A2 | FIT_INVALID | EXTERNAL RAW CAPTURE |
+| T-B2B-M1 | CALIBRATION | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-B2B-M2 | CALIBRATION | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-B2B-M3 | CALIBRATION | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-B2B-M4 | CALIBRATION | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-E2C-A2 | FIT_INVALID | SIMULATED vs EXTERNAL RAW CAPTURE |
 | T-2KM | FAILED | SIMULATED vs EXTERNAL RAW CAPTURE |
 | T-10KM | UNSPENT | UNKNOWN |
 | T-BER | REFERENCE_SEQUENCE_MISSING | UNKNOWN |
@@ -128,21 +128,40 @@ exact words; `MATCH`, `NOT COMPARABLE`, `BLOCKED` come from the comparison layer
 Only the five legend words `PUBLISHED DATA`, `EXTERNAL RAW CAPTURE`, `SIMULATED`, `DIGITIZED`,
 `UNKNOWN` are used, in one rule for the matrix, the figure legends and the table below:
 
-* a statistic computed from captures only carries `EXTERNAL RAW CAPTURE`;
-* a statistic that compares a simulated scenario with a capture names both, written
-  `SIMULATED vs EXTERNAL RAW CAPTURE` (the only combined label; the matrix and the figure checks
-  accept it and nothing else beyond the five words).
+Every matrix row declares `evidence_kinds`, the kinds of evidence its reported value is computed
+from (`model`, `capture`, `published`; empty when the row reports no number). One function,
+`e4_matrix.label_from_kinds`, turns the declaration into the label, the figure series use the same
+function, and the validator refuses a row whose label disagrees with its declaration:
 
-Applied to TERIPHIC: row `T-2KM` and the "best of 123 scenarios" series are the psi of the best of
-123 simulated fibre scenarios scored against the 2 km capture, so they carry
-`SIMULATED vs EXTERNAL RAW CAPTURE`. The "B2B copy" series is the B2B capture's evaluation window
-scored against the 2 km capture with the same four metrics and limits (the comparator of
-`docs/benchmarks/FIT_HOLDOUT_PLAN.md` line 937, "The B2B evaluation window, normalised as above,
-scored against the holdout"; recorded as `b2b_copy` in `docs/benchmarks/teriphic_e2/two_km_result.json`).
-No simulation is involved, so it carries `EXTERNAL RAW CAPTURE`. The B2B misfit rows, the E2c row and
-the pattern-search row are statistics of captures only and carry `EXTERNAL RAW CAPTURE`. The first
-version of the figure labelled both series `SIMULATED`; that was wrong for the copy and is
-corrected here.
+* captures only: `EXTERNAL RAW CAPTURE`; a model only: `SIMULATED`; published numbers only:
+  `PUBLISHED DATA`; no number: `UNKNOWN`;
+* a model compared with a capture names both, `SIMULATED vs EXTERNAL RAW CAPTURE` (the only
+  combined label).
+
+Declarations, from what the frozen plan and the records say the number is:
+
+* `T-B2B-M1` to `T-B2B-M4`: the misfit of the surrogate's no-fibre prediction against the real B2B
+  evaluation window (`docs/benchmarks/FIT_HOLDOUT_PLAN.md` line 915, "the model's misfit on B2B"),
+  model versus capture, so `SIMULATED vs EXTERNAL RAW CAPTURE`. The row's uncertainty, the
+  record's `b2b_window_spread`, is capture only (the B2B spread window against the evaluation
+  window, no model); the row says so.
+* `T-E2C-A2`: the law model's fit objective against the B2B and 2 km fit windows
+  (`docs/benchmarks/teriphic_e2c/law_model_v2.yaml` lines 1 to 4), model versus capture, combined.
+* `T-2KM` and the "best of 123 scenarios" series: the psi of the best of 123 simulated fibre
+  scenarios against the 2 km capture, combined. The six scenario families of the sensitivity figure
+  are the same kind.
+* The "B2B copy" series: the B2B evaluation window scored against the holdout capture (plan wording:
+  "scored against the holdout") with the same metrics and limits (`FIT_HOLDOUT_PLAN.md` line 937, recorded as `b2b_copy` in
+  `docs/benchmarks/teriphic_e2/two_km_result.json`). Capture against capture, `EXTERNAL RAW CAPTURE`.
+* `T-PRBS-B2B`: a pattern inferred from the B2B capture, scored against the same capture's
+  verification window; no link model is involved, so `EXTERNAL RAW CAPTURE`.
+* `T-10KM`, `T-BER`, and the Wiegart and Ran rows that report no number: no value, `UNKNOWN`.
+* `W1` to `W5`, `R4`: our analytic computation, `SIMULATED`; the published number of a Wiegart row is
+  its `source_label`, `PUBLISHED DATA`. Wiegart and Ran figure series are `SIMULATED` or
+  `PUBLISHED DATA` likewise.
+
+The first version labelled both 2 km series `SIMULATED` and the B2B, E2c rows
+`EXTERNAL RAW CAPTURE`; both were wrong under this rule and are corrected here.
 
 ### Code version, output hash and uncertainty
 
@@ -156,8 +175,9 @@ Every matrix row carries three further fields.
   itself states (`head_commit` of `two_km_result.json`, of `law_model_v2.yaml`, of
   `b2b_sequence_candidate.yaml`); a commit cannot name the file that holds it, so no commit of this
   gate is written. The B2B misfit rows (the pre-registration states a model hash, no commit), `T-10KM`
-  and `T-BER` carry `null` with the reason. For the Wiegart and Ran rows, which the E3 modules
-  compute, it is the package version `opticps 1.2.0`;
+  and `T-BER` carry `null` with the reason. For the Wiegart and Ran rows that compute a value (W1 to
+  W5, R4) it is the package version `opticps 1.2.0`; the seven rows that compute nothing carry
+  `null` with the reason;
   `python scripts/build_evidence_matrix.py --check` proves the matrix equals the code at whichever
   commit holds it.
 * `uncertainty`: a bound only where a committed record states one. The four B2B rows carry the
@@ -169,9 +189,10 @@ Every matrix row carries three further fields.
 
 `scripts/make_benchmark_figures.py` regenerates all five; every plotted series has one legend label
 following the rule above, written as `<LABEL> | detail`. No series is `DIGITIZED`. Each PNG holds
-a SHA-256 of its specification (series labels, evidence labels, title and the plotted numbers to
-5 significant digits) in the text chunk `OpticPS-figure-spec-sha256`; a test compares it with the
-code, so a relabelled series or a changed number fails without any pixel comparison.
+a SHA-256 of its specification (series labels, evidence labels, every text drawn on the figure,
+collected from the figure object, and the plotted numbers to 5 significant digits) in the text chunk `OpticPS-figure-spec-sha256`; a test compares it with the
+code, so a relabelled series, a changed number or a changed caption, footer or attribution fails
+without any pixel comparison.
 
 | File (`docs/benchmarks/figures/`) | Content | Series |
 |---|---|---|

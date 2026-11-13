@@ -16,10 +16,12 @@ A status is either one the comparison layer returns or a word taken from the und
 records' lowercase "unspent" written as a status). `CALIBRATION` is this module's own word for a
 number from the training partition: it carries no pass or fail claim.
 
-Evidence label rule, applied here and in `e4_figures`: a statistic computed from captures only
-carries `EXTERNAL RAW CAPTURE`; a statistic that compares a simulated scenario with a capture
-carries `SIMULATED vs EXTERNAL RAW CAPTURE` (the only two-word label); anything else carries one
-of the five legend words.
+Evidence label rule, applied here and in `e4_figures` through one function, `label_from_kinds`:
+every row declares `evidence_kinds`, the kinds of evidence its reported value is computed from
+(`model`, `capture`, `published`; empty when it reports no number). A value computed from captures
+only is `EXTERNAL RAW CAPTURE`; from a model only, `SIMULATED`; a model compared with a capture,
+`SIMULATED vs EXTERNAL RAW CAPTURE` (the only two-word label); an empty declaration is `UNKNOWN`.
+The validator refuses a row whose label differs from its declaration.
 
 Every row also carries `code_version`, `output_hash` and `uncertainty`. `output_hash` is the
 SHA-256 of a canonical serialisation of the row's reported values (floats to 6 significant
@@ -40,6 +42,7 @@ import hashlib
 import json
 import math
 import re
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +76,28 @@ LEGAL_LABELS = (
 # A statistic that compares a simulated scenario with a capture names both (rule in the docstring).
 COMBINED_LABEL = "SIMULATED vs EXTERNAL RAW CAPTURE"
 ROW_LABELS = (*LEGAL_LABELS, COMBINED_LABEL)
+EVIDENCE_KINDS = ("capture", "model", "published")
+
+
+def label_from_kinds(kinds: Iterable[str]) -> str:
+    """The one place where a declaration of evidence kinds becomes a label."""
+    declared = list(kinds)
+    unknown = sorted(set(declared) - set(EVIDENCE_KINDS))
+    if unknown or len(set(declared)) != len(declared):
+        raise BenchmarkError(f"evidence kinds {declared!r} must be unique, from {EVIDENCE_KINDS}")
+    chosen = frozenset(declared)
+    table = {
+        frozenset(): "UNKNOWN",
+        frozenset({"capture"}): "EXTERNAL RAW CAPTURE",
+        frozenset({"model"}): "SIMULATED",
+        frozenset({"published"}): "PUBLISHED DATA",
+        frozenset({"model", "capture"}): COMBINED_LABEL,
+    }
+    if chosen not in table:
+        raise BenchmarkError(f"no evidence label for the combination {sorted(chosen)}")
+    return table[chosen]
+
+
 # No row of this repository may carry a digitised value (licence of the figures is unverified).
 FORBIDDEN_LABELS = ("DIGITIZED",)
 ROW_FIELDS = (
@@ -88,6 +113,7 @@ ROW_FIELDS = (
     "tolerance",
     "status",
     "reason",
+    "evidence_kinds",
     "evidence_label",
     "source_label",
     "evidence_paths",
@@ -103,6 +129,7 @@ HASHED_FIELDS = (
     "deviation",
     "tolerance",
     "status",
+    "evidence_kinds",
     "evidence_label",
     "source_label",
 )
@@ -158,11 +185,12 @@ def _no_bound(basis: str) -> dict[str, Any]:
 
 
 def _row(**fields: Any) -> dict[str, Any]:
-    wanted = [name for name in ROW_FIELDS if name != "output_hash"]
+    wanted = [name for name in ROW_FIELDS if name not in ("output_hash", "evidence_label")]
     missing = [name for name in wanted if name not in fields]
     if missing:
         raise BenchmarkError(f"row {fields.get('id')!r} lacks fields {missing}")
     row = {name: fields[name] for name in wanted}
+    row["evidence_label"] = label_from_kinds(row["evidence_kinds"])
     row["output_hash"] = output_hash(row)
     return {name: row[name] for name in ROW_FIELDS}
 
@@ -184,14 +212,18 @@ def _module_row(row: Row, source: str, paths: list[str]) -> dict[str, Any]:
         tolerance=result.tolerance,
         status=result.status.value,
         reason=result.reason,
-        evidence_label="SIMULATED" if computed else "UNKNOWN",
+        evidence_kinds=["model"] if computed else [],
         source_label="PUBLISHED DATA" if published else None,
         evidence_paths=list(paths),
-        code_version=_stated(
-            f"opticps {__version__}",
-            None,
-            "package version; scripts/build_evidence_matrix.py --check proves the matrix equals "
-            "the code at whichever commit holds it",
+        code_version=(
+            _stated(
+                f"opticps {__version__}",
+                None,
+                "package version; scripts/build_evidence_matrix.py --check proves the matrix "
+                "equals the code at whichever commit holds it",
+            )
+            if computed
+            else _no_bound("null: this row computes no value, so no code produced one")
         ),
         uncertainty=_no_bound(
             "null: the E3 record states no uncertainty for this row; its tolerance is a "
@@ -237,7 +269,13 @@ _TWO_KM = "docs/benchmarks/teriphic_e2/two_km_result.json"
 _PREREG = "docs/benchmarks/teriphic_e2/preregistered_predictions.yaml"
 _E2_NOTICE = "docs/benchmarks/teriphic_e2/NOTICE.md"
 _E2_CLOSING = "docs/benchmarks/E2_CLOSING_RECORD.md"
-_E2_RECORD_PATHS = [_PREREG, "docs/benchmarks/teriphic_e2/b2b_model.yaml", _E2_NOTICE, _REGISTER]
+_E2_RECORD_PATHS = [
+    _PREREG,
+    "docs/benchmarks/FIT_HOLDOUT_PLAN.md",
+    "docs/benchmarks/teriphic_e2/b2b_model.yaml",
+    _E2_NOTICE,
+    _REGISTER,
+]
 
 
 def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
@@ -257,7 +295,9 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 quantity=f"B2B surrogate misfit, {name}",
                 conditions=(
                     "50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is "
-                    "the pre-registered misfit of the B2B-calibrated surrogate against B2B; the "
+                    "the pre-registered misfit of the B2B-calibrated surrogate's no-fibre "
+                    "prediction against the real B2B evaluation window (plan line 915, model "
+                    "versus capture); the "
                     f"2 km criterion limit built from it is {prereg['limits'][key]:.6f}"
                 ),
                 our_value=float(prereg["b2b_surrogate_misfit"][key]),
@@ -267,7 +307,7 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 tolerance=None,
                 status="CALIBRATION",
                 reason="training partition: no pass or fail claim is made for a calibration number",
-                evidence_label="EXTERNAL RAW CAPTURE",
+                evidence_kinds=["model", "capture"],
                 source_label=None,
                 evidence_paths=list(_E2_RECORD_PATHS),
                 code_version=_no_bound(
@@ -277,9 +317,10 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 uncertainty=_stated(
                     float(prereg["b2b_window_spread"][key]),
                     "normalized (plan R13 metric)",
-                    "b2b_window_spread of this metric in preregistered_predictions.yaml: the "
-                    "spread over the B2B spread windows as the record states it; it is a spread, "
-                    "not a confidence interval",
+                    "capture only (no model): b2b_window_spread of this metric in "
+                    "preregistered_predictions.yaml, the spread of the real B2B spread window "
+                    "against the real B2B evaluation window as the record states it; it is a "
+                    "spread, not a confidence interval",
                 ),
             )
         )
@@ -291,7 +332,8 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             quantity="E2c law model joint calibration, amendment A2",
             conditions=(
                 "joint fit on the B2B and 2 km fit windows; the 2 km capture is calibration "
-                "data from E2c on and is no longer a holdout; acceptance check "
+                "data from E2c on and is no longer a holdout; the value is the law model's fit "
+                "objective against those capture windows (model versus capture); acceptance check "
                 f"{', '.join(law_v2['acceptance']['failed'])} failed (one basin)"
             ),
             our_value=float(law_v2["profiles"]["poly"]["objective"]),
@@ -301,7 +343,7 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             tolerance=None,
             status="FIT_INVALID",
             reason=str(law_v2["acceptance"]["status"]),
-            evidence_label="EXTERNAL RAW CAPTURE",
+            evidence_kinds=["model", "capture"],
             source_label=None,
             evidence_paths=[
                 "docs/benchmarks/teriphic_e2c/law_model_v2.yaml",
@@ -339,7 +381,7 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             tolerance=1.0,
             status="FAILED",
             reason=f"record outcome {two_km['outcome']}, verdict {two_km['verdict']}, claim none",
-            evidence_label=COMBINED_LABEL,
+            evidence_kinds=["model", "capture"],
             source_label=None,
             evidence_paths=[_TWO_KM, _PREREG, _E2_CLOSING, _E2_NOTICE, _REGISTER],
             code_version=_stated(
@@ -367,7 +409,7 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             tolerance=None,
             status="UNSPENT",
             reason="the 10 km capture is unspent and unread",
-            evidence_label="UNKNOWN",
+            evidence_kinds=[],
             source_label=None,
             evidence_paths=[
                 _E2_CLOSING,
@@ -393,7 +435,7 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             tolerance=None,
             status="REFERENCE_SEQUENCE_MISSING",
             reason="BER and SER are refused without a validated reference sequence",
-            evidence_label="UNKNOWN",
+            evidence_kinds=[],
             source_label=None,
             evidence_paths=[_E2_CLOSING, "docs/benchmarks/MISSING_PARAMETERS.md", _REGISTER],
             code_version=_no_bound("null: no value was computed"),
@@ -414,8 +456,11 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             deviation=None,
             tolerance=None,
             status=str(prbs["status"]).split(" ")[0],
-            reason="inferred from B2B; BER and SER stay REFERENCE_SEQUENCE_MISSING",
-            evidence_label="EXTERNAL RAW CAPTURE",
+            reason="inferred from B2B; BER and SER stay REFERENCE_SEQUENCE_MISSING; the pattern "
+            "is inferred from the capture itself and the mismatch is the pattern against the "
+            "same capture's verification window, no link model is involved, so the label is "
+            "capture only",
+            evidence_kinds=["capture"],
             source_label=None,
             evidence_paths=[
                 "docs/benchmarks/teriphic_prbs/b2b_sequence_candidate.yaml",
@@ -500,6 +545,16 @@ def validate_row(row: dict[str, Any], root: Path) -> None:
     for label in (row["evidence_label"], row["source_label"]):
         if label is not None and any(word in label for word in FORBIDDEN_LABELS):
             raise BenchmarkError(f"{where}: label {label!r} is not allowed in this repository")
+    kinds = row["evidence_kinds"]
+    if not isinstance(kinds, list) or not all(isinstance(k, str) for k in kinds):
+        raise BenchmarkError(f"{where}: evidence_kinds must be a list of strings")
+    if row["evidence_label"] != label_from_kinds(kinds):
+        raise BenchmarkError(
+            f"{where}: evidence_label {row['evidence_label']!r} disagrees with its declared "
+            f"evidence_kinds {kinds!r}, which give {label_from_kinds(kinds)!r}"
+        )
+    if row["our_value"] is not None and not kinds:
+        raise BenchmarkError(f"{where}: a reported value needs a declared evidence kind")
     for name in ("our_value", "source_value", "deviation", "tolerance"):
         _check_number(row[name], f"{where} {name}")
     if row["status"] == "MATCH" and (row["our_value"] is None and row["id"] != "W5"):

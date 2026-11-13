@@ -41,13 +41,15 @@ import numpy as np
 import yaml
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
+from matplotlib.text import Text
+from matplotlib.ticker import ScalarFormatter
 
 from opticps.benchmarks.e4_matrix import (
-    COMBINED_LABEL,
     FORBIDDEN_LABELS,
     LEGAL_LABELS,
     ROW_LABELS,
     e3_result_rows,
+    label_from_kinds,
 )
 from opticps.benchmarks.provenance import BenchmarkError
 
@@ -61,6 +63,11 @@ TERIPHIC_ATTRIBUTION = (
     "Derived statistics of TERIPHIC PD-array dataset, Groumas et al., Zenodo "
     "10.5281/zenodo.7886498, CC BY 4.0; summaries only, no samples"
 )
+
+
+def series_label(kinds: tuple[str, ...], detail: str) -> str:
+    """`<LABEL> | detail`, the label derived from the declared kinds of evidence."""
+    return f"{label_from_kinds(kinds)}{SEPARATOR}{detail}"
 
 
 def check_series_label(label: object, forbidden: tuple[str, ...] = ()) -> str:
@@ -91,6 +98,7 @@ class Series:
     kind: str
     x: list[str]
     y: list[str]
+    kinds: tuple[str, ...]
     matrix_refs: tuple[tuple[str, str], ...]
 
     @property
@@ -103,6 +111,7 @@ class Series:
             "label": self.label,
             "evidence_label": self.evidence_label,
             "kind": self.kind,
+            "evidence_kinds": list(self.kinds),
             "data_sha256": hashlib.sha256(numbers.encode("ascii")).hexdigest(),
             "matrix_refs": [list(ref) for ref in self.matrix_refs],
         }
@@ -123,23 +132,27 @@ class Panel:
         x: Any,
         y: Any,
         label: str,
+        kinds: tuple[str, ...],
         matrix_refs: tuple[tuple[str, str], ...],
     ) -> None:
-        check_series_label(label, self.forbidden)
+        head = check_series_label(label, self.forbidden)
+        if head != label_from_kinds(kinds):
+            raise BenchmarkError(f"legend label {label!r} disagrees with its kinds {kinds!r}")
         if label in self.labels:
             raise BenchmarkError(f"duplicate legend label {label!r} in one panel")
         self.labels.append(label)
-        self.series.append(Series(label, kind, _digits(x), _digits(y), matrix_refs))
+        self.series.append(Series(label, kind, _digits(x), _digits(y), kinds, matrix_refs))
 
     def line(
         self,
         x: Any,
         y: Any,
         label: str,
+        kinds: tuple[str, ...],
         matrix_refs: tuple[tuple[str, str], ...] = (),
         **kwargs: Any,
     ) -> None:
-        self._register("line", x, y, label, matrix_refs)
+        self._register("line", x, y, label, kinds, matrix_refs)
         self.ax.plot(x, y, label=label, **kwargs)
 
     def points(
@@ -147,10 +160,11 @@ class Panel:
         x: Any,
         y: Any,
         label: str,
+        kinds: tuple[str, ...],
         matrix_refs: tuple[tuple[str, str], ...] = (),
         **kwargs: Any,
     ) -> None:
-        self._register("points", x, y, label, matrix_refs)
+        self._register("points", x, y, label, kinds, matrix_refs)
         self.ax.scatter(x, y, label=label, **kwargs)
 
     def bars(
@@ -159,11 +173,34 @@ class Panel:
         heights: Any,
         width: float,
         label: str,
+        kinds: tuple[str, ...],
         matrix_refs: tuple[tuple[str, str], ...] = (),
         **kwargs: Any,
     ) -> None:
-        self._register("bars", x, heights, label, matrix_refs)
+        self._register("bars", x, heights, label, kinds, matrix_refs)
         self.ax.bar(x, heights, width=width, label=label, **kwargs)
+
+
+def figure_texts(fig: Figure) -> list[str]:
+    """Every non-empty text a reader sees, collected from the figure object itself.
+
+    Titles, axis labels, annotations, footers, legend entries and explicitly set tick labels. The
+    numeric tick labels a locator fills in at draw time are left out (they vary with the matplotlib
+    version and appear only after drawing), so the result is the same before and after saving.
+    """
+    skipped: set[int] = set()
+    fixed: list[str] = []
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            for tick in (*axis.majorTicks, *axis.minorTicks):
+                skipped.update(id(t) for t in (tick.label1, tick.label2))
+            skipped.add(id(axis.get_offset_text()))
+            if not isinstance(axis.get_major_formatter(), ScalarFormatter):
+                fixed.extend(t.get_text() for t in axis.get_ticklabels())
+    found = [
+        t.get_text() for t in fig.findobj(Text) if id(t) not in skipped and t.get_text().strip()
+    ]
+    return sorted(found + [t for t in fixed if t.strip()])
 
 
 @dataclass
@@ -176,6 +213,7 @@ class FigureSpec:
         """Pure description of the figure: title, series labels, evidence labels, data hashes."""
         return {
             "name": self.name,
+            "texts": figure_texts(self.figure),
             "panels": [
                 {
                     "title": panel.ax.get_title(),
@@ -252,7 +290,8 @@ def wiegart_gain_check(root: Path) -> FigureSpec:
     panel.points(
         x,
         ours,
-        "SIMULATED | OpticPS AWGN rates",
+        series_label(("model",), "OpticPS AWGN rates"),
+        ("model",),
         matrix_refs=tuple((i, "evidence_label") for i in ids),
         marker="o",
         color="tab:blue",
@@ -260,7 +299,8 @@ def wiegart_gain_check(root: Path) -> FigureSpec:
     panel.points(
         x,
         stated,
-        "PUBLISHED DATA | number in running text",
+        series_label(("published",), "number in running text"),
+        ("published",),
         matrix_refs=tuple((i, "source_label") for i in ids),
         marker="D",
         color="tab:red",
@@ -309,12 +349,18 @@ def wiegart_required_psnr(root: Path) -> FigureSpec:
             best = best_symmetric(float(r), metric)
             shaped.append(required_psnr_db(symmetric_pmf(best.p0), float(r), metric))
         panel.line(
-            rates, uniform, f"SIMULATED | uniform, {metric.upper()}", linestyle=style, color="k"
+            rates,
+            uniform,
+            series_label(("model",), f"uniform, {metric.upper()}"),
+            ("model",),
+            linestyle=style,
+            color="k",
         )
         panel.line(
             rates,
             shaped,
-            f"SIMULATED | best symmetric PMF, {metric.upper()}",
+            series_label(("model",), f"best symmetric PMF, {metric.upper()}"),
+            ("model",),
             linestyle=style,
             color="tab:blue",
         )
@@ -340,7 +386,8 @@ def ran_chirp_free_response(root: Path) -> FigureSpec:
         panel.line(
             f_hz / 1e9,
             response,
-            f"SIMULATED | analytical, {length:.0f} km, {link.wavelength_nm:.0f} nm",
+            series_label(("model",), f"analytical, {length:.0f} km, {link.wavelength_nm:.0f} nm"),
+            ("model",),
             matrix_refs=(("R4", "evidence_label"),),
             color=colour,
         )
@@ -371,7 +418,11 @@ def teriphic_two_km_ratios(root: Path) -> FigureSpec:
         x - width / 2,
         [best[k] / limits[k] for k in keys],
         width,
-        f"{COMBINED_LABEL} | best of {record['scenarios_scored']} scenarios vs 2 km capture",
+        series_label(
+            ("model", "capture"),
+            f"best of {record['scenarios_scored']} scenarios vs 2 km capture",
+        ),
+        ("model", "capture"),
         matrix_refs=(("T-2KM", "evidence_label"),),
         color="tab:blue",
     )
@@ -379,7 +430,8 @@ def teriphic_two_km_ratios(root: Path) -> FigureSpec:
         x + width / 2,
         [copy[k] / limits[k] for k in keys],
         width,
-        "EXTERNAL RAW CAPTURE | B2B copy vs 2 km capture",
+        series_label(("capture",), "B2B copy vs 2 km capture"),
+        ("capture",),
         color="tab:gray",
     )
     panel.ax.set_xticks(x, [k.split("_")[0] for k in keys])
@@ -425,7 +477,8 @@ def teriphic_fibre_sensitivity(root: Path) -> FigureSpec:
             panel.line(
                 [d for d, _ in members],
                 [v for _, v in members],
-                f"{COMBINED_LABEL} | noise x{factor:g}, noise {where}",
+                series_label(("model", "capture"), f"noise x{factor:g}, noise {where}"),
+                ("model", "capture"),
                 color=colour,
                 linestyle=style,
                 marker=".",
@@ -434,7 +487,8 @@ def teriphic_fibre_sensitivity(root: Path) -> FigureSpec:
     panel.line(
         [0.0, 6.352],
         [copy_psi, copy_psi],
-        f"EXTERNAL RAW CAPTURE | B2B copy vs 2 km capture, psi {copy_psi:.4f}",
+        series_label(("capture",), f"B2B copy vs 2 km capture, psi {copy_psi:.4f}"),
+        ("capture",),
         color="tab:gray",
         linestyle=":",
     )

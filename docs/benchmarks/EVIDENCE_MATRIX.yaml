@@ -8,7 +8,8 @@ rows:
   partition: 'calibration: B2B only (E2 part a)'
   quantity: B2B surrogate misfit, M1 level spacing
   conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
-    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.018135
+    misfit of the B2B-calibrated surrogate's no-fibre prediction against the real B2B evaluation window
+    (plan line 915, model versus capture); the 2 km criterion limit built from it is 0.018135
   our_value: 0.009067674089319189
   source_value: null
   unit: normalized (plan R13 metric)
@@ -16,10 +17,14 @@ rows:
   tolerance: null
   status: CALIBRATION
   reason: 'training partition: no pass or fail claim is made for a calibration number'
-  evidence_label: EXTERNAL RAW CAPTURE
+  evidence_kinds:
+  - model
+  - capture
+  evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
   - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/FIT_HOLDOUT_PLAN.md
   - docs/benchmarks/teriphic_e2/b2b_model.yaml
   - docs/benchmarks/teriphic_e2/NOTICE.md
   - docs/benchmarks/SOURCE_REGISTER.md
@@ -27,18 +32,20 @@ rows:
     value: null
     unit: null
     basis: 'null: the pre-registration record states a model hash but no commit or code version'
-  output_hash: 197589c7566770a1cd128ca4951826471a79789ba6c08d0f1d8916eb5ba39ece
+  output_hash: de3cdcdb0438c1f838b30b7c5f3851f2dbb1531eac9900793026fbc70e9c6e29
   uncertainty:
     value: 0.002904985728421239
     unit: normalized (plan R13 metric)
-    basis: 'b2b_window_spread of this metric in preregistered_predictions.yaml: the spread over the B2B
-      spread windows as the record states it; it is a spread, not a confidence interval'
+    basis: 'capture only (no model): b2b_window_spread of this metric in preregistered_predictions.yaml,
+      the spread of the real B2B spread window against the real B2B evaluation window as the record states
+      it; it is a spread, not a confidence interval'
 - id: T-B2B-M2
   source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
   partition: 'calibration: B2B only (E2 part a)'
   quantity: B2B surrogate misfit, M2 Wasserstein-1 amplitude
   conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
-    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.060001
+    misfit of the B2B-calibrated surrogate's no-fibre prediction against the real B2B evaluation window
+    (plan line 915, model versus capture); the 2 km criterion limit built from it is 0.060001
   our_value: 0.030000654786586013
   source_value: null
   unit: normalized (plan R13 metric)
@@ -46,10 +53,14 @@ rows:
   tolerance: null
   status: CALIBRATION
   reason: 'training partition: no pass or fail claim is made for a calibration number'
-  evidence_label: EXTERNAL RAW CAPTURE
+  evidence_kinds:
+  - model
+  - capture
+  evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
   - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/FIT_HOLDOUT_PLAN.md
   - docs/benchmarks/teriphic_e2/b2b_model.yaml
   - docs/benchmarks/teriphic_e2/NOTICE.md
   - docs/benchmarks/SOURCE_REGISTER.md
@@ -57,18 +68,20 @@ rows:
     value: null
     unit: null
     basis: 'null: the pre-registration record states a model hash but no commit or code version'
-  output_hash: 6c362aaa86f1a549550266cc5c2b0442e9acc7723e122771511845cfce7f3bd4
+  output_hash: f58c72367256b53d1d49929d2feb3521eb760b26c9d33bf16f6e1971907e8ff5
   uncertainty:
     value: 0.0013194237736585783
     unit: normalized (plan R13 metric)
-    basis: 'b2b_window_spread of this metric in preregistered_predictions.yaml: the spread over the B2B
-      spread windows as the record states it; it is a spread, not a confidence interval'
+    basis: 'capture only (no model): b2b_window_spread of this metric in preregistered_predictions.yaml,
+      the spread of the real B2B spread window against the real B2B evaluation window as the record states
+      it; it is a spread, not a confidence interval'
 - id: T-B2B-M3
   source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
   partition: 'calibration: B2B only (E2 part a)'
   quantity: B2B surrogate misfit, M3 quantile error
   conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
-    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.130664
+    misfit of the B2B-calibrated surrogate's no-fibre prediction against the real B2B evaluation window
+    (plan line 915, model versus capture); the 2 km criterion limit built from it is 0.130664
   our_value: 0.06533181563348339
   source_value: null
   unit: normalized (plan R13 metric)
@@ -76,10 +89,14 @@ rows:
   tolerance: null
   status: CALIBRATION
   reason: 'training partition: no pass or fail claim is made for a calibration number'
-  evidence_label: EXTERNAL RAW CAPTURE
+  evidence_kinds:
+  - model
+  - capture
+  evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
   - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/FIT_HOLDOUT_PLAN.md
   - docs/benchmarks/teriphic_e2/b2b_model.yaml
   - docs/benchmarks/teriphic_e2/NOTICE.md
   - docs/benchmarks/SOURCE_REGISTER.md
@@ -87,18 +104,20 @@ rows:
     value: null
     unit: null
     basis: 'null: the pre-registration record states a model hash but no commit or code version'
-  output_hash: 4b21a7e82ea004f3b1f2e6701472fffce0a4b3a0a3728e97c88284ccb99f3b5e
+  output_hash: 87887adbff2430f0379af769946b107443d5a87b3567327b08e480675551c127
   uncertainty:
     value: 0.004228849729457362
     unit: normalized (plan R13 metric)
-    basis: 'b2b_window_spread of this metric in preregistered_predictions.yaml: the spread over the B2B
-      spread windows as the record states it; it is a spread, not a confidence interval'
+    basis: 'capture only (no model): b2b_window_spread of this metric in preregistered_predictions.yaml,
+      the spread of the real B2B spread window against the real B2B evaluation window as the record states
+      it; it is a spread, not a confidence interval'
 - id: T-B2B-M4
   source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
   partition: 'calibration: B2B only (E2 part a)'
   quantity: B2B surrogate misfit, M4 log spectral distance
   conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
-    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 1.217922
+    misfit of the B2B-calibrated surrogate's no-fibre prediction against the real B2B evaluation window
+    (plan line 915, model versus capture); the 2 km criterion limit built from it is 1.217922
   our_value: 0.608960890691036
   source_value: null
   unit: normalized (plan R13 metric)
@@ -106,10 +125,14 @@ rows:
   tolerance: null
   status: CALIBRATION
   reason: 'training partition: no pass or fail claim is made for a calibration number'
-  evidence_label: EXTERNAL RAW CAPTURE
+  evidence_kinds:
+  - model
+  - capture
+  evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
   - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/FIT_HOLDOUT_PLAN.md
   - docs/benchmarks/teriphic_e2/b2b_model.yaml
   - docs/benchmarks/teriphic_e2/NOTICE.md
   - docs/benchmarks/SOURCE_REGISTER.md
@@ -117,18 +140,20 @@ rows:
     value: null
     unit: null
     basis: 'null: the pre-registration record states a model hash but no commit or code version'
-  output_hash: b5bcbf2c86833e24ef4ed57013f70c931c4184c03bd58fd4a99bca821b7cbb1b
+  output_hash: 7c3fc79e13ca5d9e86feaddf5bf963b598dfdd2fb695fc4139e3d3ecee03d30c
   uncertainty:
     value: 0.08064794634315586
     unit: normalized (plan R13 metric)
-    basis: 'b2b_window_spread of this metric in preregistered_predictions.yaml: the spread over the B2B
-      spread windows as the record states it; it is a spread, not a confidence interval'
+    basis: 'capture only (no model): b2b_window_spread of this metric in preregistered_predictions.yaml,
+      the spread of the real B2B spread window against the real B2B evaluation window as the record states
+      it; it is a spread, not a confidence interval'
 - id: T-E2C-A2
   source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
   partition: 'calibration: B2B and 2 km fit windows (E2c A2, after the 2 km holdout)'
   quantity: E2c law model joint calibration, amendment A2
   conditions: joint fit on the B2B and 2 km fit windows; the 2 km capture is calibration data from E2c
-    on and is no longer a holdout; acceptance check AC4_two_basin_agreement failed (one basin)
+    on and is no longer a holdout; the value is the law model's fit objective against those capture windows
+    (model versus capture); acceptance check AC4_two_basin_agreement failed (one basin)
   our_value: 0.140582285876315
   source_value: null
   unit: fit objective (E2c plan)
@@ -136,7 +161,10 @@ rows:
   tolerance: null
   status: FIT_INVALID
   reason: FIT_INVALID, S2 not evaluable
-  evidence_label: EXTERNAL RAW CAPTURE
+  evidence_kinds:
+  - model
+  - capture
+  evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
   - docs/benchmarks/teriphic_e2c/law_model_v2.yaml
@@ -147,7 +175,7 @@ rows:
     value: 861ee6bf35be348ecf62bbdbed482a109596af7a
     unit: null
     basis: head_commit field of law_model_v2.yaml (the commit the record states it was produced at)
-  output_hash: 67716b176e0a093493c2833874febf3919686a80aa76be0a09c852aa78692d08
+  output_hash: e475c7d50243bc37c653a39ac9d03d4b1a8ea9d50db2d7d8cbb358a35573f9d7
   uncertainty:
     value: null
     unit: null
@@ -167,6 +195,9 @@ rows:
   tolerance: 1.0
   status: FAILED
   reason: record outcome FAIL, verdict FAILED, claim none
+  evidence_kinds:
+  - model
+  - capture
   evidence_label: SIMULATED vs EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
@@ -179,7 +210,7 @@ rows:
     value: 5533cf64f416f5e1386db357852c6362097c3f99
     unit: null
     basis: head_commit field of two_km_result.json (the commit the record states it was produced at)
-  output_hash: 6fca2766cf152f4cc9c36db925d4f6f7175a2cd5c0ea65a5c705eb702562cc11
+  output_hash: 532238999c9c1e94bddf41e89dba29eedf4eefba5c673353319c584d5a31f540
   uncertainty:
     value: null
     unit: null
@@ -198,6 +229,7 @@ rows:
   tolerance: null
   status: UNSPENT
   reason: the 10 km capture is unspent and unread
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -209,7 +241,7 @@ rows:
     value: null
     unit: null
     basis: 'null: no value was computed for the unspent capture'
-  output_hash: fe4dc25fefd3284b3504650c6874d21c5d6369cf124759ecf98924bb0d8b3418
+  output_hash: 92ebbbc1008811d73982dae1d8473fddd129e31bf90b761c5efff3cd4399265d
   uncertainty:
     value: null
     unit: null
@@ -226,6 +258,7 @@ rows:
   tolerance: null
   status: REFERENCE_SEQUENCE_MISSING
   reason: BER and SER are refused without a validated reference sequence
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -236,7 +269,7 @@ rows:
     value: null
     unit: null
     basis: 'null: no value was computed'
-  output_hash: 59fcc73a930b6857f5a6dd99cc6bfe0a23ce997921243591dda5d34fe5782a98
+  output_hash: 995d6a31eafd9da15d0cf33a59e15ae5b83f6909d8dbef4b859c8d9781caeb18
   uncertainty:
     value: null
     unit: null
@@ -253,7 +286,11 @@ rows:
   deviation: null
   tolerance: null
   status: INFERRED_REFERENCE
-  reason: inferred from B2B; BER and SER stay REFERENCE_SEQUENCE_MISSING
+  reason: inferred from B2B; BER and SER stay REFERENCE_SEQUENCE_MISSING; the pattern is inferred from
+    the capture itself and the mismatch is the pattern against the same capture's verification window,
+    no link model is involved, so the label is capture only
+  evidence_kinds:
+  - capture
   evidence_label: EXTERNAL RAW CAPTURE
   source_label: null
   evidence_paths:
@@ -265,7 +302,7 @@ rows:
     unit: null
     basis: head_commit field of b2b_sequence_candidate.yaml (the commit the record states it was produced
       at)
-  output_hash: 4b04cf2387b9e477d9dbee06718518bd245577494041cc11e65a1fc9acaa3a0a
+  output_hash: 49b3521d27ca49ec325536d61b0e8c1f9052b194e6d3ebbcd6758a3c7a8d4d34
   uncertainty:
     value: null
     unit: null
@@ -282,6 +319,8 @@ rows:
   tolerance: 0.01
   status: MATCH
   reason: within tolerance
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -297,7 +336,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: 8ede5b5e1fe49b3e2b26e5bf668733db07203c834748afd86072baa6cf17368b
+  output_hash: 3e07bf245047e5c5274315f38b2783767715f1dbc97325113103cda1289cc402
   uncertainty:
     value: null
     unit: null
@@ -315,6 +354,8 @@ rows:
   tolerance: 0.01
   status: MATCH
   reason: within tolerance
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -330,7 +371,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: dd986be3a8e006985285a2860ee8f9a06d3ade67c84e6773047f15cb9d95d026
+  output_hash: 439b6dd3f4296637c82e83b2d8a48b860157a773507296f339f2e95870734880
   uncertainty:
     value: null
     unit: null
@@ -348,6 +389,8 @@ rows:
   tolerance: 0.01
   status: MATCH
   reason: within tolerance
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -363,7 +406,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: fecf3ce195045959b9281e147715d2e6d4f2e8c5e06bef9642b3826e1255e40d
+  output_hash: 0e3cc7dd0f0753d537eef2c9279b3bc48aa27810c527718e661b7e9827584225
   uncertainty:
     value: null
     unit: null
@@ -382,6 +425,8 @@ rows:
   tolerance: 0.01
   status: NOT COMPARABLE
   reason: rate_definition is null on the published side
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -397,7 +442,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: 4d2db617c3884dce1b9079a9578a83f6098f924c12e68251257a1d19cf9ebedc
+  output_hash: 57c53c01b9f240d8e13fc1253896c24e1898eeb3ca2c8101fd291bdd954e957b
   uncertainty:
     value: null
     unit: null
@@ -416,6 +461,8 @@ rows:
   tolerance: 0.01
   status: NOT COMPARABLE
   reason: rate_definition is null on the published side
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -431,7 +478,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: d83ccf6d35e85a64e055b039392157d687868f4e935253700501cf25deebeb8f
+  output_hash: 6725e4a78e532e22369e94f7f3093075a483020251902a884c02ae293c2faeb0
   uncertainty:
     value: null
     unit: null
@@ -451,6 +498,8 @@ rows:
   tolerance: null
   status: MATCH
   reason: ordering reproduced
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: PUBLISHED DATA
   evidence_paths:
@@ -466,7 +515,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: 660d0c2dd4b1c35b1a4a04f6968e9a8904c2078f3a6199530b3bb53534afc08a
+  output_hash: 4cf24aaa04df3c1d7a1b42ec2221b348e093248a9e69e7ac833a94710379a3a9
   uncertainty:
     value: null
     unit: null
@@ -485,6 +534,7 @@ rows:
   status: NOT COMPARABLE
   reason: 'NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 1, x:
     PSNR [dB], y: P_X(0); the curve for SMD and for BMD'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -496,11 +546,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: 482354d359ed6b31fa8faf37eb2bbc2f01f4af8a5fdfa67b1662b77677de85a5
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: 52ec1ed0e71b505e557b32b275062fa87e6d38e1644d4deb7ba0cbd865cab614
   uncertainty:
     value: null
     unit: null
@@ -520,6 +569,7 @@ rows:
   status: NOT COMPARABLE
   reason: 'NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 2a (BMD)
     and 2b (SMD), x: PSNR [dB], y: rate [bit/channel use]; curves and annotations'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -531,11 +581,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: 68c0aa48131f3c0a70a4021511f51f5c969bc49955bcdc6fa461bf8b267f3b23
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: 21d93c0c5c0751b3edad64512dcffa028cf8b73f12b66d38909e352a557d8c35
   uncertainty:
     value: null
     unit: null
@@ -556,6 +605,7 @@ rows:
   reason: 'NOT COMPARABLE: coded-FER quantity, not an information rate; the code construction (protograph,
     girth optimisation, CCDM length) is not specified completely enough to rebuild it; out of scope for
     an AIR comparison'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -567,11 +617,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: 3504a96a6bc0d0da222f7fc207a24f35e48fc64ecbf10d33a9b0203f7f967263
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: dc4707d6feaf3b34f5e8158ef50feb18bc95d37507ebcccac83ca7c7f46683cb
   uncertainty:
     value: null
     unit: null
@@ -591,6 +640,7 @@ rows:
   reason: 'NOT COMPARABLE: measured with a 5/11-tap FFE and an estimated AIR; the experiment''s electrical
     PSNR at the receiver, baud rate per point and the link loss budget are not stated, so no PSNR (the
     compared axis) is known; the fibre results include chromatic dispersion, which the AWGN model omits'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -602,11 +652,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: b8ed9ebfb029dc9abcc1b1233fdbd4c9a42d12d5a5770ef91b329967d600fc63
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: 3752d17a5f7893eabb05ab956ff738ec7b7ed5cbfe95ffec0ad9eb13acd59a34
   uncertainty:
     value: null
     unit: null
@@ -631,6 +680,7 @@ rows:
     receiver bandwidth and noise; laser relative intensity noise and linewidth; receiver sampling and
     equaliser training details beyond the tap count; MLSD memory length; settings of the on-chip adaptive
     dispersion compensation; Source Data spreadsheet (not obtained; licence unverified)'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -641,11 +691,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: b3cdeed158d039f682b18cd9c8d3a2b43f1bd8edb681a9ec38c77b94b9ba2d5c
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: 3a461a59867de04d8a66247e230f6a8d956c48a87dba86c883cc029a4b1a1a96
   uncertainty:
     value: null
     unit: null
@@ -670,6 +719,7 @@ rows:
     receiver bandwidth and noise; laser relative intensity noise and linewidth; receiver sampling and
     equaliser training details beyond the tap count; MLSD memory length; settings of the on-chip adaptive
     dispersion compensation; Source Data spreadsheet (not obtained; licence unverified)'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -680,11 +730,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: 8631dd4b1081a5b248d01f9b9ee721a2bd8d0da7f67a4b3931fa88ceab5d570f
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: d27ae74ec22e40a092d20346200bdcb26808c2d7904e08b16ac94bf0f0777483
   uncertainty:
     value: null
     unit: null
@@ -702,6 +751,7 @@ rows:
   tolerance: null
   status: BLOCKED
   reason: 'BLOCKED: SOURCE DATA XLSX NOT OBTAINED (LICENCE/REUSE TERMS UNVERIFIED)'
+  evidence_kinds: []
   evidence_label: UNKNOWN
   source_label: null
   evidence_paths:
@@ -712,11 +762,10 @@ rows:
   - tests/test_benchmark_e3.py
   - docs/benchmarks/SOURCE_REGISTER.md
   code_version:
-    value: opticps 1.2.0
+    value: null
     unit: null
-    basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
-      at whichever commit holds it
-  output_hash: 46ba18b125ff3877c8a29087d8a79052b4446756cf331eec3c40c8c0cab481fa
+    basis: 'null: this row computes no value, so no code produced one'
+  output_hash: fdfcbceed34558fb45d5a4cc6d55638837824de446959db46538568acd3dca53
   uncertainty:
     value: null
     unit: null
@@ -736,6 +785,8 @@ rows:
   status: NOT COMPARABLE
   reason: 'NOT COMPARABLE: no published counterpart, and the real link is chirped, so a chirp-free null
     is not a prediction of the experiment'
+  evidence_kinds:
+  - model
   evidence_label: SIMULATED
   source_label: null
   evidence_paths:
@@ -750,7 +801,7 @@ rows:
     unit: null
     basis: package version; scripts/build_evidence_matrix.py --check proves the matrix equals the code
       at whichever commit holds it
-  output_hash: f11621dcc2d7e63785afd2d387baf2eb490d48975830fd611d76cfa3a2669af9
+  output_hash: e79e3cf0745b39388073c36b4aa6f08c90a21cebf7d3719a28da283cd3a4a992
   uncertainty:
     value: null
     unit: null
