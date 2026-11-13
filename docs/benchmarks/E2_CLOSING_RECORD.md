@@ -1,6 +1,7 @@
 # E2 closing record: PARTIAL (2026-11-13)
 
-This record closes the H2 study of Gate E2 at PARTIAL. It is a new file. It edits no R13-bound file,
+This record closes the H2 study of Gate E2 at PARTIAL. It is a new file, kept outside
+`teriphic_e2/` because a test treats that whole folder as R13-bound. It edits no R13-bound file,
 no E2c output and not `STUDY_PLAN.md`. The advice it follows is
 `docs/orchestration/opticps-v2/questions/E2_next_paths_fable.md`, section 5. The owner chose that path.
 
@@ -39,4 +40,4 @@ The stale 10 km not-frozen test was replaced earlier (commit 2e87b9e).
 
 E3 (analytic curves; Ran subcases only, MODEL GAP: CHIRP), E4 (evidence matrix, BENCHMARK_REPORT,
 REPRODUCE) and NANF N3b. In parallel, a B2B-only characterisation of the transmitted pattern
-(plan R.2, `prbs_search_prereg.md`) that cannot produce a BER reference.
+(plan R.2, `teriphic_prbs/prbs_search_prereg.md`) that cannot produce a BER reference.

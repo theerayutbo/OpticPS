@@ -1,6 +1,6 @@
 """B2B-only search for the transmitted pattern (plan R.2 characterisation; P1 to P7).
 
-The design is fixed in `docs/benchmarks/teriphic_e2/prbs_search_prereg.md`, committed before this
+The design is fixed in `docs/benchmarks/teriphic_prbs/prbs_search_prereg.md`, committed before this
 module read any data; the thresholds of `verify` are the ones Fable wrote (advice section 7, P6) and
 are constants here, not parameters of a run. Everything is deterministic: there are no seeds.
 

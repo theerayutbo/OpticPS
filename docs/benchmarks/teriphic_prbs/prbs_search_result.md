@@ -2,7 +2,8 @@
 
 One run of `scripts/prbs_search_b2b.py` on the B2B capture only, under `prbs_search_prereg.md` (with
 amendment A1, committed before any capture was read). Output: `b2b_sequence_candidate.yaml`. Run at
-commit 13bbf49. The 2 km and 10 km files were not used, opened, hashed or linked. No threshold was changed.
+commit 13bbf49 (the hashes in the output are of that run's module and script; later edits to them
+change only file paths and a docstring). The 2 km and 10 km files were not used, opened, hashed or linked. No threshold was changed.
 
 **Status: `INFERRED_REFERENCE (B2B only)`, provenance INFERRED.** BER and SER stay
 `REFERENCE_SEQUENCE_MISSING`; `require_reference_for_ber` is unchanged and still refuses an inferred sequence.
@@ -28,3 +29,8 @@ statement, and the pattern is not stored in the repository. The proxy is
 Consequence under plan R.2 and R2.4, stated without having looked: if the same pattern is carried by the
 2 km or 10 km files, which is likely for one source but unchecked, that holdout ends EXPLORATORY or
 BLOCKED. A source-stated pattern would need the publisher's answer (question 1).
+
+Location. These files were first committed under `teriphic_e2/` and moved to `teriphic_prbs/` (closing
+record to `docs/benchmarks/`) because `test_real_no_r13_bound_file_changed` treats the whole
+`teriphic_e2/` folder as R13-bound. Contents are unchanged, so `prereg_sha256` in the output still matches
+`prbs_search_prereg.md`, whose text still names the old output path.

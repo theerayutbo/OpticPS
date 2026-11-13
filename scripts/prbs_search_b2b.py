@@ -1,4 +1,4 @@
-"""B2B-only transmitted-pattern search (plan R.2; `teriphic_e2/prbs_search_prereg.md`).
+"""B2B-only transmitted-pattern search (plan R.2; `teriphic_prbs/prbs_search_prereg.md`).
 
     python scripts/prbs_search_b2b.py [--data PATH] [--out PATH]
 
@@ -27,9 +27,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from opticps.benchmarks import prbs_search, teriphic  # noqa: E402
 from opticps.benchmarks.provenance import BenchmarkError  # noqa: E402
 
-OUT_PATH = ROOT / "docs/benchmarks/teriphic_e2/b2b_sequence_candidate.yaml"
+OUT_PATH = ROOT / "docs/benchmarks/teriphic_prbs/b2b_sequence_candidate.yaml"
 MODEL_PATH = ROOT / "docs/benchmarks/teriphic_e2/b2b_model.yaml"
-PREREG_PATH = ROOT / "docs/benchmarks/teriphic_e2/prbs_search_prereg.md"
+PREREG_PATH = ROOT / "docs/benchmarks/teriphic_prbs/prbs_search_prereg.md"
 CODE_FILES = (
     "src/opticps/benchmarks/prbs_search.py",
     "scripts/prbs_search_b2b.py",
