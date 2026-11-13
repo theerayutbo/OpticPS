@@ -14,14 +14,14 @@ Base 784ad2c. Commits c8e08fd, 4c9861a, 2ba2244, plus this handoff (tip SHA in t
 - Ran: Source Data XLSX absent (names listed only) -> BLOCKED; verdict MODEL GAP: CHIRP with 14 missing items; ANALYTICAL chirp-free nulls from 1271 nm and -3.99 ps/(nm km) (read from the config; no function default).
 
 ## Results
-- Wiegart (ours vs text): W1 SMD gain 0.8328 vs 0.83 dB, W2 BMD 0.7097 vs 0.71, W3 fixed PMF BMD 0.6268 vs 0.63, W4 P_X(0) 0.3982 (SMD) and 0.3958 (BMD) vs 0.4: all MATCH. W5 qualitative OOK-range ordering MATCH (10.70 dB SMD, 12.05 dB BMD). W6, W7 (Fig. 1, 2a, 2b) NOT COMPARABLE: figure values. W8 (LDPC FER), W9 (measured) NOT COMPARABLE. No MISMATCH.
+- Wiegart (ours vs text): W1 SMD gain 0.8328 vs 0.83 dB, W2 BMD 0.7097 vs 0.71, W3 fixed PMF BMD 0.6268 vs 0.63, W4 P_X(0) 0.3982 (SMD) and 0.3958 (BMD) vs 0.4: all MATCH. W5 qualitative OOK-range ordering MATCH (10.70 dB SMD, 12.05 dB BMD). W6, W7 (Fig. 1, 2a, 2b) NOT COMPARABLE: figure values. W8 (LDPC FER), W9 (measured) NOT COMPARABLE. No MISMATCH. (Superseded by the fix round below: W4a and W4b are NOT COMPARABLE because the paper states no decoder metric for 0.4; only W1, W2, W3 and W5 are MATCH.)
 - Methods agree to 1.4e-5 dB (SMD) and 4.4e-5 dB (BMD) on the gains.
 - Ran: R1, R2 headline rates NOT COMPARABLE (MODEL GAP: CHIRP); R3 BLOCKED (XLSX); R4 first null 68.20 GHz (5 km), 48.22 GHz (10 km), -3 dB 48.22 / 34.10 GHz, NOT COMPARABLE (no published counterpart, chirped link). Time-domain simulation agrees with |cos| to 2e-3.
 - Tests: new file 108 passed. Full-suite, ruff, mypy totals are in the Aria report.
 
 ## Open risks
 - Reviewer should check my reading of the BMD label order and that "PX(0)" is the outer probability (paper Sec. II).
-- W4 metric unstated in the paper; both reported. Paper values are rounded (tolerance is rounding-bound).
+- W4 metric unstated in the paper; both reported. Paper values are rounded (tolerance is rounding-bound). (Superseded by the fix round below: the 0.05 window was removed.)
 - Locations are arXiv v2 numbering, JLT numbering unchecked. The tolerance declaration is by file order in a single working session, not by an external timestamp.
 - Concurrent report-only clone created `handoff/N3a_dev4.md` here; left untracked.
 

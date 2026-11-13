@@ -37,7 +37,7 @@ The compared quantity is the **PSNR gain in dB**: PSNR a uniform 4-PAM needs to 
 * Closed forms and limits pinned in the tests: noise-free limit gives H(X); low-SNR limit gives Var(X) / (2 s^2 ln 2); on-off keying agrees with a third method, 1 - E[log2(1 + exp(LLR))] with LLR = g z - g^2 / 2, g = 3/s (`quad`, to 1e-8), and there R_B = R_S exactly because the two outer labels differ in one bit; R_B never exceeds R_S; uniform 4-PAM saturates at 2 bit; an unconstrained search over the whole PMF simplex at 12.9 dB ends symmetric (p0 = p3 and p1 = p2 within 2e-3).
 * Measured agreement of the two routes on the gains below: 1.4e-5 dB (SMD, best symmetric) and 4.4e-5 dB (BMD, best symmetric), 6.6e-7 dB and 2.1e-5 dB for the fixed PMF (SMD, BMD); the tests allow 2e-4 dB.
 
-### Tolerances (fixed before the deviations were computed)
+### Tolerances (declared in the same commit as the rows; see the disclosure above)
 
 * Gains in dB: **0.01 dB**. The paper prints two decimals (rounding alone is 0.005 dB); a further 0.005 dB allows for the line-search resolution and rate estimator it does not report. Our two methods agree far below this.
 * Optimal P_X(0): **no match window**. The paper states no decoder metric for its value 0.4, so the comparison layer refuses the row (see W4a, W4b). A rounding-bound window of 0.05 was removed because it could not separate 0.40 from the paper's own fixed PMF value 0.35. `compare` still requires a tolerance argument; the refused rows pass the placeholder `TOL_P0_UNUSED = 0.01`, which is never used to accept or reject a number and must be decided again if the metric is ever stated.
