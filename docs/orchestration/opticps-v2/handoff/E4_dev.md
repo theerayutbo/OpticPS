@@ -42,7 +42,7 @@ Commits: 9624a45, c0383a3, 38acabd, 3229d94 (REPRODUCE count, handoff section), 
 Gate lines: all run at 3229d94: provenance whole file `368 passed in 112.92s`; e4+e3+e2_freeze `187 passed in 77.76s` (51+131+5); `build_evidence_matrix.py --check` `matches the code (23 rows)`; figures regenerated to a scratch dir, all 5 spec hashes equal to the committed PNGs; `ruff check src tests scripts` all passed; `ruff format --check` on touched files clean; `mypy` no issues in 73 files. `git diff --stat ce0501c..HEAD` lists only the E4 files and this handoff.
 Not done: full suite (orchestrator); TERIPHIC commands of REPRODUCE section 2 (need captures); no new uncertainty was estimated, so 19 rows stay null by design; [SUPERSEDED, wrong: the 6- and 5-digit hash rounding adds no risk or tolerance; `--check` compares the full YAML text with full-precision floats, so float drift on another platform fails it whatever the hash rounding, while pytest uses rel 1e-9.]
 
-## Fix round 3 at TIP3
+## Fix round 3 at c38646f (gates run there; the next commit changes only this file)
 R2-1: every row now declares `evidence_kinds` (model, capture, published; empty = no number); `e4_matrix.label_from_kinds` is the only place a label is made, figure series use it (`series_label`, Panel checks head against kinds), the validator refuses a disagreeing row. Tests check the rule for all 23 rows and refuse a model-vs-capture row labelled capture-only.
 | Row or series | What is compared (path and line) | Label |
 |---|---|---|
@@ -56,4 +56,4 @@ R2-1: every row now declares `evidence_kinds` (model, capture, published; empty 
 | Wiegart text points, `source_label` of W1-W3 | numbers in the paper's running text | PUBLISHED DATA |
 R2-2: the specification hash now covers `figure_texts(fig)`: every non-empty Text artist of the figure object (title, axis labels, annotations, footer, legend) plus explicit tick labels, sorted; stable before and after drawing. Hand mutants, each restored (`git diff --stat` empty): attribution CC BY 4.0 replaced: 3 failed, 53 passed; "no scenario reaches" reversed: 3 failed, 53 passed; "not a fit" removed from footer: 3 failed, 53 passed. Matrix and 5 PNGs regenerated.
 R2-3: `code_version` is null with reason on the 7 rows that compute nothing (W6-W9, R1-R3); kept on W1-W3, W4a, W4b, W5, R4 (7 rows). R2-4: statement corrected above.
-Gate lines: GATES3
+Gate lines, all at c38646f: provenance whole file `368 passed in 89.91s`; e4+e3+e2_freeze `192 passed in 45.95s` (56+131+5); `--check` matches the code (23 rows); 5 figures regenerated to scratch, all spec hashes equal to the committed PNGs; ruff check clean; ruff format --check clean on touched files; mypy no issues in 73 files; `git diff --stat 65b53bd..HEAD` lists only E4 files and this handoff.
