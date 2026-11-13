@@ -25,7 +25,7 @@ and the Ran Source Data are never in the repository.
 | All five figures | `.venv/bin/python scripts/make_benchmark_figures.py --out build/figures` | five PNG paths, each under 300 kB, each with the text chunk `OpticPS-figure-spec-sha256` equal to that of the committed PNG | 28 s |
 | Register metadata, opens nothing | `.venv/bin/python -m opticps.cli.main benchmark inspect-format --metadata-only` | prints the B2B file's register metadata; ends with `metadata only: the file was not opened`; exit 0, no `data/external/` needed | not timed |
 | E3 numerics (W1 to W9, R1 to R4) | `.venv/bin/python -m pytest -o addopts= tests/test_benchmark_e3.py` | `131 passed` | 34 s |
-| E4 checks | `.venv/bin/python -m pytest -o addopts= tests/test_benchmark_e4.py` | `36 passed` | 45 s |
+| E4 checks | `.venv/bin/python -m pytest -o addopts= tests/test_benchmark_e4.py` | `51 passed` | 55 s |
 
 Wiegart numbers (rows W1 to W3, ours against the paper's running text, tolerance 0.01 dB), printed
 by the matrix, are: W1 0.8328 against 0.83 (dev +0.0028), W2 0.7097 against 0.71 (-0.0003), W3
