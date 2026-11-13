@@ -72,8 +72,9 @@ the arXiv author manuscript held locally; whether the journal numbering is ident
 
 ### Ran 2025
 
-Only the cited numeric facts (1271 nm, -3.99 ps/(nm km), 5 km and 10 km, lane rates, FEC
-thresholds) were used. No chirp model was built because the cited facts do not give the chirp
+Only the cited numeric facts were used: the wavelength (1271 nm), the measured dispersion
+(-3.99 ps/(nm km)), the link lengths (5 km and 10 km) with their lane rates, and the FEC
+thresholds. No chirp model was built because the cited facts do not give the chirp
 parameter, bias, drive, rate definitions, BER definition or power (`e3_ran.CHIRP_MODEL_MISSING`).
 The analytical chirp-free first nulls are 68.20 GHz (5 km) and 48.22 GHz (10 km); the real link is
 chirped, so these are not a prediction of the experiment.
