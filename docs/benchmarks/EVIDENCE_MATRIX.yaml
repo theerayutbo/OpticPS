@@ -1,0 +1,516 @@
+# Evidence matrix of the external benchmark (gate E4), one row per point.
+# Written by scripts/build_evidence_matrix.py; tests/test_benchmark_e4.py rebuilds the
+# Wiegart and Ran rows from the E3 modules and compares. Do not edit by hand.
+matrix_version: 1
+rows:
+- id: T-B2B-M1
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration: B2B only (E2 part a)'
+  quantity: B2B surrogate misfit, M1 level spacing
+  conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
+    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.018135
+  our_value: 0.009067674089319189
+  source_value: null
+  unit: normalized (plan R13 metric)
+  deviation: null
+  tolerance: null
+  status: CALIBRATION
+  reason: 'training partition: no pass or fail claim is made for a calibration number'
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/teriphic_e2/b2b_model.yaml
+  - docs/benchmarks/teriphic_e2/NOTICE.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-B2B-M2
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration: B2B only (E2 part a)'
+  quantity: B2B surrogate misfit, M2 Wasserstein-1 amplitude
+  conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
+    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.060001
+  our_value: 0.030000654786586013
+  source_value: null
+  unit: normalized (plan R13 metric)
+  deviation: null
+  tolerance: null
+  status: CALIBRATION
+  reason: 'training partition: no pass or fail claim is made for a calibration number'
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/teriphic_e2/b2b_model.yaml
+  - docs/benchmarks/teriphic_e2/NOTICE.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-B2B-M3
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration: B2B only (E2 part a)'
+  quantity: B2B surrogate misfit, M3 quantile error
+  conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
+    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 0.130664
+  our_value: 0.06533181563348339
+  source_value: null
+  unit: normalized (plan R13 metric)
+  deviation: null
+  tolerance: null
+  status: CALIBRATION
+  reason: 'training partition: no pass or fail claim is made for a calibration number'
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/teriphic_e2/b2b_model.yaml
+  - docs/benchmarks/teriphic_e2/NOTICE.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-B2B-M4
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration: B2B only (E2 part a)'
+  quantity: B2B surrogate misfit, M4 log spectral distance
+  conditions: 50 GBd PAM4, back-to-back, model fitted on the B2B fit window; the value is the pre-registered
+    misfit of the B2B-calibrated surrogate against B2B; the 2 km criterion limit built from it is 1.217922
+  our_value: 0.608960890691036
+  source_value: null
+  unit: normalized (plan R13 metric)
+  deviation: null
+  tolerance: null
+  status: CALIBRATION
+  reason: 'training partition: no pass or fail claim is made for a calibration number'
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/teriphic_e2/b2b_model.yaml
+  - docs/benchmarks/teriphic_e2/NOTICE.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-E2C-A2
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration: B2B and 2 km fit windows (E2c A2, after the 2 km holdout)'
+  quantity: E2c law model joint calibration, amendment A2
+  conditions: joint fit on the B2B and 2 km fit windows; the 2 km capture is calibration data from E2c
+    on and is no longer a holdout; acceptance check AC4_two_basin_agreement failed (one basin)
+  our_value: 0.140582285876315
+  source_value: null
+  unit: fit objective (E2c plan)
+  deviation: null
+  tolerance: null
+  status: FIT_INVALID
+  reason: FIT_INVALID, S2 not evaluable
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2c/law_model_v2.yaml
+  - docs/benchmarks/teriphic_e2c/a2_endpoint_decomposition.md
+  - docs/benchmarks/E2_CLOSING_RECORD.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-2KM
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'holdout: 2 km, scored once (E2b stage 1)'
+  quantity: worst ratio of the four held-out metrics to their pre-registered limits (psi, pass needs psi
+    <= 1), best of 123 scenarios
+  conditions: 50 GBd PAM4, 2 km, fibre type and wavelength UNKNOWN, scenarios ASSUMED_G652D; best scenario
+    D6.352_N1.5_THRU; scenarios scored 123; survivors 0; amplitude ratio vs B2B 0.8324 (reported, not
+    tested)
+  our_value: 1.5013018052453733
+  source_value: null
+  unit: ratio to criterion limit
+  deviation: null
+  tolerance: 1.0
+  status: FAILED
+  reason: record outcome FAIL, verdict FAILED, claim none
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_e2/two_km_result.json
+  - docs/benchmarks/teriphic_e2/preregistered_predictions.yaml
+  - docs/benchmarks/E2_CLOSING_RECORD.md
+  - docs/benchmarks/teriphic_e2/NOTICE.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-10KM
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'holdout reserved: 10 km, never read'
+  quantity: 10 km held-out metrics
+  conditions: stop rule D4 after the 2 km FAIL; reserved once for a differently designed hypothesis (H3)
+    that does not exist yet; no audit hook opened the file
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: UNSPENT
+  reason: the 10 km capture is unspent and unread
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/E2_CLOSING_RECORD.md
+  - docs/benchmarks/teriphic_e2/two_km_result.json
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-BER
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: not applicable
+  quantity: measured BER or exact SER
+  conditions: no transmitted reference sequence is documented by the record
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: REFERENCE_SEQUENCE_MISSING
+  reason: BER and SER are refused without a validated reference sequence
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/E2_CLOSING_RECORD.md
+  - docs/benchmarks/MISSING_PARAMETERS.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: T-PRBS-B2B
+  source: TERIPHIC (Zenodo 7886498, PD1 PAM4)
+  partition: 'calibration side study: B2B only'
+  quantity: symbol mismatch of the repeated inferred pattern on the verification window
+  conditions: B2B only; periodic pattern of 8128 symbols, not a standard PRBS; mapping and level order
+    not identified; a proxy, not a BER
+  our_value: 0.013839
+  source_value: null
+  unit: fraction of symbols
+  deviation: null
+  tolerance: null
+  status: INFERRED_REFERENCE
+  reason: inferred from B2B; BER and SER stay REFERENCE_SEQUENCE_MISSING
+  evidence_label: EXTERNAL RAW CAPTURE
+  source_label: null
+  evidence_paths:
+  - docs/benchmarks/teriphic_prbs/b2b_sequence_candidate.yaml
+  - docs/benchmarks/teriphic_prbs/prbs_search_result.md
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W1
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'PSNR gain over uniform 4-PAM at R = 1.0 bpcu, best symmetric PMF: 0.83 dB'
+  conditions: 'Sec. II, running text after Fig. 2. Ours: same quantity, SMD: 0.8328 dB'
+  our_value: 0.8327771895402254
+  source_value: 0.83
+  unit: dB
+  deviation: 0.002777189540225433
+  tolerance: 0.01
+  status: MATCH
+  reason: within tolerance
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W2
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'PSNR gain over uniform 4-PAM at R = 1.0 bpcu, best symmetric PMF: 0.71 dB'
+  conditions: 'Sec. II, running text after Fig. 2. Ours: same quantity, BMD: 0.7097 dB'
+  our_value: 0.7097164652623782
+  source_value: 0.71
+  unit: dB
+  deviation: -0.00028353473762177117
+  tolerance: 0.01
+  status: MATCH
+  reason: within tolerance
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W3
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'PSNR gain over uniform 4-PAM at R = 1.0 bpcu, PMF (0.35, 0.15, 0.15, 0.35): 0.63 dB'
+  conditions: 'Sec. II, running text after Fig. 2. Ours: same quantity, BMD: 0.6268 dB'
+  our_value: 0.6268331632272286
+  source_value: 0.63
+  unit: dB
+  deviation: -0.0031668367727714086
+  tolerance: 0.01
+  status: MATCH
+  reason: within tolerance
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W4a
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'optimal P_X(0) of the symmetric family at R = 1.0 bpcu: 0.4 (decoder metric not stated)'
+  conditions: 'Sec. III, running text on the dispersion-less model optimum. Ours: SMD optimum 0.3982,
+    information only, no match claim (it rounds to 0.4 at the source''s printed precision)'
+  our_value: 0.3981608555286586
+  source_value: 0.4
+  unit: probability
+  deviation: null
+  tolerance: 0.01
+  status: NOT COMPARABLE
+  reason: rate_definition is null on the published side
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W4b
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'optimal P_X(0) of the symmetric family at R = 1.0 bpcu: 0.4 (decoder metric not stated)'
+  conditions: 'Sec. III, running text on the dispersion-less model optimum. Ours: BMD optimum 0.3958,
+    information only, no match claim (it rounds to 0.4 at the source''s printed precision)'
+  our_value: 0.39584864202470693
+  source_value: 0.4
+  unit: probability
+  deviation: null
+  tolerance: 0.01
+  status: NOT COMPARABLE
+  reason: rate_definition is null on the published side
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W5
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 'remark after Fig. 1, ordering only: BMD keeps two-level signalling optimal up to a higher
+    PSNR than SMD'
+  conditions: 'Sec. II, running text after Fig. 1 (qualitative). Ours: OOK stops being optimal at 10.70
+    dB (SMD) and 12.05 dB (BMD), 0.05 dB grid'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: MATCH
+  reason: ordering reproduced
+  evidence_label: SIMULATED
+  source_label: PUBLISHED DATA
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W6
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: optimal P_X(0) against PSNR
+  conditions: 'Fig. 1. Ours: Fig. 1, x: PSNR [dB], y: P_X(0); the curve for SMD and for BMD'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 1, x:
+    PSNR [dB], y: P_X(0); the curve for SMD and for BMD'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W7
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: achievable rate curves and the annotated gaps in dB and bit
+  conditions: 'Fig. 2a, 2b. Ours: Fig. 2a (BMD) and 2b (SMD), x: PSNR [dB], y: rate [bit/channel use];
+    curves and annotations'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 2a (BMD)
+    and 2b (SMD), x: PSNR [dB], y: rate [bit/channel use]; curves and annotations'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W8
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: 0.47 dB gain at frame error rate 1e-3 for a protograph LDPC code with PAS and CCDM
+  conditions: 'Sec. II, running text, finite-length LDPC simulation. Ours: not computed: needs a finite-length
+    coded simulation'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'NOT COMPARABLE: coded-FER quantity, not an information rate; the code construction (protograph,
+    girth optimisation, CCDM length) is not specified completely enough to rebuild it; out of scope for
+    an AIR comparison'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: W9
+  source: Wiegart 2021 (JLT 39(2) 400-405)
+  partition: not applicable (analytic check)
+  quantity: measured gains (0.24 dB and 0.31 dB attenuation, 0.05 bpcu, reach gains) at 16 GBd
+  conditions: 'Sec. III, running text, experiments. Ours: not computed: needs the experiment''s PSNR'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'NOT COMPARABLE: measured with a 5/11-tap FFE and an estimated AIR; the experiment''s electrical
+    PSNR at the receiver, baud rate per point and the link loss budget are not stated, so no PSNR (the
+    compared axis) is known; the fibre results include chromatic dispersion, which the AWGN model omits'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_wiegart.py
+  - src/opticps/benchmarks/published_points.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/wiegart_2021_peak_pam4.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: R1
+  source: Ran 2025 (Nat. Commun. 16, 6268)
+  partition: not applicable (analytic check)
+  quantity: PAM4 lane rate 256 Gb/s over 5 km, 1271 nm, rate definition and BER definition not stated
+  conditions: 'abstract and Experimental results (cited fact, register Source 3). Ours: not computed:
+    the transmitter is chirped and no chirp model is built'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'MODEL GAP: CHIRP. Missing: chirp parameter of the silicon MZM (value and sign); bias point
+    of the MZM; drive swing and Vpi, and the electrical driver bandwidth; MZM electro-optic bandwidth;
+    symbol rate per lane (only bit rates are cited); gross versus net definition of the 256 and 200 Gb/s
+    rates; BER definition; launch and received optical power per figure, and link loss; photodiode responsivity,
+    receiver bandwidth and noise; laser relative intensity noise and linewidth; receiver sampling and
+    equaliser training details beyond the tap count; MLSD memory length; settings of the on-chip adaptive
+    dispersion compensation; Source Data spreadsheet (not obtained; licence unverified)'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_ran.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/ran_2025_g652d.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: R2
+  source: Ran 2025 (Nat. Commun. 16, 6268)
+  partition: not applicable (analytic check)
+  quantity: PAM4 lane rate 200 Gb/s over 10 km, 1271 nm, rate definition and BER definition not stated
+  conditions: 'abstract and Experimental results (cited fact, register Source 3). Ours: not computed:
+    the transmitter is chirped and no chirp model is built'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'MODEL GAP: CHIRP. Missing: chirp parameter of the silicon MZM (value and sign); bias point
+    of the MZM; drive swing and Vpi, and the electrical driver bandwidth; MZM electro-optic bandwidth;
+    symbol rate per lane (only bit rates are cited); gross versus net definition of the 256 and 200 Gb/s
+    rates; BER definition; launch and received optical power per figure, and link loss; photodiode responsivity,
+    receiver bandwidth and noise; laser relative intensity noise and linewidth; receiver sampling and
+    equaliser training details beyond the tap count; MLSD memory length; settings of the on-chip adaptive
+    dispersion compensation; Source Data spreadsheet (not obtained; licence unverified)'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_ran.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/ran_2025_g652d.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: R3
+  source: Ran 2025 (Nat. Commun. 16, 6268)
+  partition: not applicable (analytic check)
+  quantity: published BER against the FEC thresholds 2.4e-2 (SD, 20% overhead) and 3.8e-3 (HD, 6.7%)
+  conditions: 'Source Data spreadsheet (figure-linked BER points). Ours: not computed'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: BLOCKED
+  reason: 'BLOCKED: SOURCE DATA XLSX NOT OBTAINED (LICENCE/REUSE TERMS UNVERIFIED)'
+  evidence_label: UNKNOWN
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_ran.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/ran_2025_g652d.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
+- id: R4
+  source: Ran 2025 (Nat. Commun. 16, 6268)
+  partition: not applicable (analytic check)
+  quantity: no published null frequency
+  conditions: 'none: the cited facts give no null or fading frequency. Ours: ANALYTICAL chirp-free first
+    null at 68.20 GHz (5 km), 48.22 GHz (10 km)'
+  our_value: null
+  source_value: null
+  unit: null
+  deviation: null
+  tolerance: null
+  status: NOT COMPARABLE
+  reason: 'NOT COMPARABLE: no published counterpart, and the real link is chirped, so a chirp-free null
+    is not a prediction of the experiment'
+  evidence_label: SIMULATED
+  source_label: null
+  evidence_paths:
+  - src/opticps/benchmarks/e3_ran.py
+  - src/opticps/benchmarks/comparison.py
+  - configs/benchmarks/ran_2025_g652d.yaml
+  - docs/benchmarks/E3_WIEGART_RAN.md
+  - tests/test_benchmark_e3.py
+  - docs/benchmarks/SOURCE_REGISTER.md
