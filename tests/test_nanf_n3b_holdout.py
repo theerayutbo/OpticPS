@@ -398,3 +398,17 @@ def test_the_holdout_runner_is_part_of_the_code_identity(tmp_path):
     with (repo.root / "src/opticps/measurement/nanf_holdout.py").open("a") as handle:
         handle.write("\n# an edit after the freeze\n")
     assert nfz.code_identity(repo.root) != before
+
+
+def test_the_real_runner_refuses_a_result_that_did_not_run_under_the_record(frozen, monkeypatch):
+    def unrecorded(params, rate, rop, *, link=None, point_index=0, **kw):
+        return PointResult(
+            reading=BerReading.from_counts(500, 1_294_016), snr_db=12.0, ser=0.0,
+            n_scored_symbols=647_008, laser_power_w=1e-3, mean_received_dbm=rop, seconds={},
+            dfe=None, frozen_record_hash=None, rate_gbps=rate, rop_dbm=float(rop),
+            point_index=point_index,
+        )  # fmt: skip  # type: ignore[arg-type]
+
+    monkeypatch.setattr(nc, "simulate_point", unrecorded)
+    with pytest.raises(nc.NotScorableError, match="freeze record"):
+        nh.simulate_holdout_point(nh.HoldoutTask("B2B/80G/-9", None, 80, -9.0, 2))

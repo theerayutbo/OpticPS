@@ -11,7 +11,8 @@ killed.
 
 The list is a hand-written sample of the guards (the 14 gaps of the third N1 review, the N2a
 guards, the N2 fix-round guards, the N3 part a guards, the 14 survivors of the first N3 part a
-review and the guards added in the N3 part a fix round). It proves nothing about mutants that are
+review and the guards added in the N3 part a fix round, then the N3 part b guards: the fit driver,
+the freeze script and the holdout runner). It proves nothing about mutants that are
 not in it.
 The label says what the mutant does.
 """
@@ -38,7 +39,13 @@ D = "src/opticps/receiver/dfe.py"
 CH = "src/opticps/measurement/nanf_chain.py"
 SC = "src/opticps/measurement/nanf_scoring.py"
 FZ = "src/opticps/measurement/nanf_freeze.py"
+NF = "src/opticps/measurement/nanf_fit.py"
+NH = "src/opticps/measurement/nanf_holdout.py"
 TESTS = (
+    "tests/nanf_fit_stub.py",
+    "tests/nanf_holdout_stub.py",
+    "tests/test_nanf_n3b_fit.py",
+    "tests/test_nanf_n3b_holdout.py",
     "tests/nanf_freeze_support.py",
     "tests/test_nanf_profiles.py",
     "tests/test_nanf_propagation.py",
@@ -59,6 +66,8 @@ TESTS = (
 # reachable by imports from nanf_chain and nanf_benchmark); reading infinity as censored in
 # `is_censored` (the range check still refuses it); allowing NaN fields in `Crossing` (the per-kind
 # finiteness checks still refuse them).
+# Equivalent, left out (N3 part b): dropping `np.clip(u, 0.0, 1.0)` in `run_optimiser.call`; every point
+# that reaches it is inside the box already (the design, the clipped trials, the Jacobian steps).
 # Equivalent, left out: removing `require_scorable([result])` from `run_point` (the same refusal
 # is made by `PointOutcome.__post_init__`, which is itself mutated and killed).
 # Fast files first, so that most mutants are killed early; the slow chain tests run last.
@@ -77,6 +86,10 @@ RUN_ORDER = (
     "tests/test_nanf_n3a_chain.py",
     "tests/test_nanf_n3a_fix.py",
 )
+# The N3 part b mutants are killed by the new tests; those run first for them, so that the older
+# mutants do not wait for the (slower) new files.
+NEW_PREFIXES = ("fit:", "holdout:", "chain: the declared", "freeze: the holdout runner")
+NEW_ORDER = ("tests/test_nanf_n3b_fit.py", "tests/test_nanf_n3b_holdout.py", *RUN_ORDER)
 # (label, file, old text, new text); `old` must occur exactly once.
 MUTANTS: list[tuple[str, str, str, str]] = [
     # the 14 gaps of the third N1 review (finding 6)
@@ -1781,6 +1794,360 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "    return FREEZE_RECORD_PATH.exists() or FREEZE_RECORD_PATH.is_symlink()",
         "    return FREEZE_RECORD_PATH.is_file()",
     ),
+    (
+        "fit: the budget is 80",
+        NF,
+        "BUDGET = 70",
+        "BUDGET = 80",
+    ),
+    (
+        "fit: the budget check lets one more evaluation start",
+        NF,
+        "        if count >= budget:\n            raise _BudgetExhaustedError",
+        "        if count > budget:\n            raise _BudgetExhaustedError",
+    ),
+    (
+        "fit: another design seed",
+        NF,
+        "FIT_SEED = (20261101, 4101)",
+        "FIT_SEED = (20261101, 4102)",
+    ),
+    (
+        "fit: the design draws the coordinates before the permutation",
+        NF,
+        "        perm = rng.permutation(n)\n        rnd = rng.random(n)",
+        "        rnd = rng.random(n)\n        perm = rng.permutation(n)",
+    ),
+    (
+        "fit: a zero-error point enters as 1e-30 and not 1/N_b",
+        NF,
+        "max(p.ber, 1.0 / p.n_bits)",
+        "max(p.ber, 1e-30)",
+    ),
+    (
+        "fit: the BER residual is divided by 1.0 and not 0.5",
+        NF,
+        "BER_RESIDUAL_SCALE = 0.5",
+        "BER_RESIDUAL_SCALE = 1.0",
+    ),
+    (
+        "fit: a censored published cell is a term",
+        NF,
+        "                if not d.censored[k]:",
+        "                if True:",
+    ),
+    (
+        "fit: the SNR residual has another sign convention for the BER term",
+        NF,
+        "(math.log10(simulated) - math.log10(float(d.ber[k])))",
+        "(math.log10(float(d.ber[k])) - math.log10(simulated))",
+    ),
+    (
+        "fit: a resume does not check the replayed vector",
+        NF,
+        '            if rec["vector"] != vector or rec["i"] != n:',
+        "            if False:",
+    ),
+    (
+        "fit: a log of another run is resumed",
+        NF,
+        "        if first != dict(header):",
+        "        if False:",
+    ),
+    (
+        "fit: a log longer than the run is accepted",
+        NF,
+        "    if len(journal.recorded) > len(log.evaluations):",
+        "    if False:",
+    ),
+    (
+        "fit: a fit runs after a freeze record exists",
+        NF,
+        "    if nanf_freeze.freeze_record_present():\n        raise FitRefusedError",
+        "    if False:\n        raise FitRefusedError",
+    ),
+    (
+        "fit: seven workers are allowed",
+        NF,
+        "        if workers < 1 or workers > 6:",
+        "        if workers < 1 or workers > 60:",
+    ),
+    (
+        "fit: a published axis other than the declared grid is accepted",
+        NF,
+        "    if found != declared:",
+        "    if False:",
+    ),
+    (
+        "fit: the BER and SNR axes may differ",
+        NF,
+        "    if ber.x != snr.x:",
+        "    if False:",
+    ),
+    (
+        "fit: a vector is not clamped into its range",
+        NF,
+        "    return {s.name: min(max(float(values[s.name]), s.low), s.high) for s in B4_PARAMETERS}",
+        "    return {s.name: float(values[s.name]) for s in B4_PARAMETERS}",
+    ),
+    (
+        "fit: the stalled search reads as converged",
+        NF,
+        '                return OptimiserResult(False, count, "no step lowers the cost: search stalled")',
+        '                return OptimiserResult(True, count, "no step lowers the cost: search stalled")',
+    ),
+    (
+        "fit: a lost Jacobian point reads as converged",
+        NF,
+        '                return OptimiserResult(False, count, "a Jacobian point lost lock")',
+        '                return OptimiserResult(True, count, "a Jacobian point lost lock")',
+    ),
+    (
+        "fit: either stop tolerance is enough",
+        NF,
+        "                if moved <= X_TOL and gain <= F_TOL:",
+        "                if moved <= X_TOL or gain <= F_TOL:",
+    ),
+    (
+        "fit: a point pushed outward at an edge is free",
+        NF,
+        "                for i in range(_N)\n                if not ((u[i] <= 0.0 and grad[i] > 0) or (u[i] >= 1.0 and grad[i] < 0))",
+        "                for i in range(_N)\n                if True",
+    ),
+    (
+        "fit: an unconverged search still gets an artefact",
+        NF,
+        "    if not result.converged:\n        status",
+        "    if False:\n        status",
+    ),
+    (
+        "fit: an undefined identifiability check is not a stop",
+        NF,
+        "    except IdentifiabilityUndefinedError:\n        return FitOutcome(STATUS_IDENTIFIABILITY_UNDEFINED, True, n_eval, log, chosen)",
+        "    except IdentifiabilityUndefinedError:\n        raise",
+    ),
+    (
+        "fit: the range edge is never reported",
+        NF,
+        "        if unit[i] <= RANGE_EDGE_TOL or unit[i] >= 1.0 - RANGE_EDGE_TOL",
+        "        if False",
+    ),
+    (
+        "fit: the artefact records the wrong number of calibration points",
+        NF,
+        '            "n_calibration_points": n_points,',
+        '            "n_calibration_points": n_points + 1,',
+    ),
+    (
+        "fit: the artefact cost is not the cost of the chosen vector",
+        NF,
+        '            "cost": chosen.objective,',
+        '            "cost": 0.0,',
+    ),
+    (
+        "fit: the best design point is the last one on a tie",
+        NF,
+        "            if r_u is not None and math.isfinite(f_u) and (best is None or f_u < best[0]):",
+        "            if r_u is not None and math.isfinite(f_u) and (best is None or f_u <= best[0]):",
+    ),
+    (
+        "fit: the B2B gate at the hashed vector is not evaluated",
+        NF,
+        "    gates = objective.gates(hashed)",
+        "    gates = {}",
+    ),
+    (
+        "fit: the design has 23 points",
+        NF,
+        "N_DESIGN = 24",
+        "N_DESIGN = 23",
+    ),
+    (
+        "holdout: another freeze record may read the holdout",
+        NH,
+        "        if held != freeze_hash:",
+        "        if False:",
+    ),
+    (
+        "holdout: an unreadable marker is not a refusal",
+        NH,
+        '            raise HoldoutAlreadyReadError("the holdout marker exists and cannot be read") from None',
+        "            return",
+    ),
+    (
+        "holdout: the record hash is not checked",
+        NH,
+        "    record = nanf_freeze.require_freeze(freeze_hash)",
+        "    record = nanf_freeze.load_freeze_record()",
+    ),
+    (
+        "holdout: the read does not ask for the holdout",
+        NH,
+        "reader(workbook_path, include_holdout=True, freeze_hash=freeze_hash)",
+        "reader(workbook_path, include_holdout=False, freeze_hash=freeze_hash)",
+    ),
+    (
+        "holdout: the read does not carry the freeze hash",
+        NH,
+        "reader(workbook_path, include_holdout=True, freeze_hash=freeze_hash)",
+        "reader(workbook_path, include_holdout=True, freeze_hash=None)",
+    ),
+    (
+        "holdout: the marker holds another hash",
+        NH,
+        'json.dumps({"freeze_hash": freeze_hash,',
+        'json.dumps({"freeze_hash": "x",',
+    ),
+    (
+        "holdout: the marker is not written",
+        NH,
+        "    marker.parent.mkdir(parents=True, exist_ok=True)\n    marker.write_text(",
+        "    marker.parent.mkdir(parents=True, exist_ok=True)\n    (marker.parent / 'unused').write_text(",
+    ),
+    (
+        "holdout: the cap of -5 dBm is -4 dBm",
+        NH,
+        "ROP_CAP_DBM = -5.0",
+        "ROP_CAP_DBM = -4.0",
+    ),
+    (
+        "holdout: the point at exactly -5 dBm is dropped",
+        NH,
+        "    return [i for i, x in enumerate(series.x) if x <= ROP_CAP_DBM]",
+        "    return [i for i, x in enumerate(series.x) if x < ROP_CAP_DBM]",
+    ),
+    (
+        "holdout: a failure reads as incomplete",
+        NH,
+        '    if failed:\n        return "failed: "',
+        '    if False:\n        return "failed: "',
+    ),
+    (
+        "holdout: an incomplete run reads as consistent",
+        NH,
+        "    return VERDICT_INCOMPLETE\n\n\n# --- the report",
+        '    return "consistent with this one experiment"\n\n\n# --- the report',
+    ),
+    (
+        "holdout: d of a lost point is computed",
+        NH,
+        "d_snr(n_snr, f_snr) if both_locked else None",
+        "d_snr(n_snr, f_snr) if True else None",
+    ),
+    (
+        "holdout: every d is discriminating",
+        NH,
+        "discriminating(d1, C1_TOL_DB)",
+        "discriminating(d1, 0.0)",
+    ),
+    (
+        "holdout: the report leaves out the sentence of G-A",
+        NH,
+        'NOT_BLIND = "The holdout is not fully blind"',
+        'NOT_BLIND = "The holdout is blind"',
+    ),
+    (
+        "holdout: the report drops the label",
+        NH,
+        'LABEL = "LITERATURE BENCHMARK / CALIBRATION ONLY"',
+        'LABEL = "LITERATURE BENCHMARK"',
+    ),
+    (
+        "holdout: C5 reads as run",
+        NH,
+        'C5_STATUS = "NOT RUN (links not declared)"',
+        'C5_STATUS = "PASS"',
+    ),
+    (
+        "holdout: the report claims a validation",
+        NH,
+        'It is no claim"\n        " of agreement',
+        'It is a validation"\n        " of agreement',
+    ),
+    (
+        "holdout: the real runner drops the link",
+        NH,
+        '        kwargs["link"] = nanf_chain.DECLARED_LINKS[task.link_key]',
+        "        pass",
+    ),
+    (
+        "holdout: the real runner uses index 0",
+        NH,
+        'kwargs: dict[str, Any] = {"point_index": task.point_index}',
+        'kwargs: dict[str, Any] = {"point_index": 0}',
+    ),
+    (
+        "holdout: the real runner does not score under the record",
+        NH,
+        "    arrays = curve_arrays([outcome])  # refuses a result that did not run under the record",
+        "    arrays = type('A', (), {'ber': [outcome.result.ber if outcome.result else 0.0], 'snr_db': [outcome.result.snr_db if outcome.result else 0.0]})()",
+    ),
+    (
+        "holdout: a second freeze is allowed",
+        NH,
+        "    if target.exists() or target.is_symlink():",
+        "    if False:",
+    ),
+    (
+        "holdout: a dirty work tree may freeze",
+        NH,
+        "    if dirty:\n        raise FreezeRefusedError",
+        "    if False:\n        raise FreezeRefusedError",
+    ),
+    (
+        "holdout: an untracked file in the identity is not seen",
+        NH,
+        '"--untracked-files=all"',
+        '"--untracked-files=no"',
+    ),
+    (
+        "holdout: a git failure reads as a clean tree",
+        NH,
+        '    if done.returncode != 0:\n        raise FreezeRefusedError("git could not report',
+        '    if False:\n        raise FreezeRefusedError("git could not report',
+    ),
+    (
+        "holdout: the plan may be dirty at the freeze",
+        NH,
+        "    files = [*nanf_freeze.identity_files(base), plan.relative_to(base).as_posix(), artifact_path]",
+        "    files = [*nanf_freeze.identity_files(base), artifact_path]",
+    ),
+    (
+        "holdout: the identity may be dirty at the freeze",
+        NH,
+        "    files = [*nanf_freeze.identity_files(base), plan.relative_to(base).as_posix(), artifact_path]",
+        "    files = [plan.relative_to(base).as_posix(), artifact_path]",
+    ),
+    (
+        "holdout: the artefact may be dirty at the freeze",
+        NH,
+        "    files = [*nanf_freeze.identity_files(base), plan.relative_to(base).as_posix(), artifact_path]",
+        "    files = [*nanf_freeze.identity_files(base), plan.relative_to(base).as_posix()]",
+    ),
+    (
+        "freeze: the holdout runner is outside the code identity",
+        FZ,
+        '    "opticps.measurement.nanf_holdout",  # the holdout runner (Amendment 11 J-G.5)\n',
+        "",
+    ),
+    (
+        "chain: the declared link table is empty",
+        CH,
+        '    "SSMF-4.53km-1550": _paper_link("SSMF", 4.53, 15.95, 1.4682),',
+        '    "SSMF-4.53km-1550": _paper_link("SSMF", 4.53, 15.9, 1.4682),',
+    ),
+    (
+        "chain: the declared indices stop at 17",
+        CH,
+        "DECLARED_POINT_INDICES: frozenset[int] = frozenset(range(19))",
+        "DECLARED_POINT_INDICES: frozenset[int] = frozenset(range(18))",
+    ),
+    (
+        "chain: the declared calibration grid has nine points per rate",
+        CH,
+        "(rate, -12.0 + k, k) for rate in (80, 100, 112) for k in range(8)",
+        "(rate, -12.0 + k, k) for rate in (80, 100, 112) for k in range(9)",
+    ),
 ]
 
 
@@ -1819,7 +2186,7 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
                 "-x",
                 "-p",
                 "no:cacheprovider",
-                *RUN_ORDER,
+                *(NEW_ORDER if mutant is None or mutant[0].startswith(NEW_PREFIXES) else RUN_ORDER),
             ],
             cwd=work,
             env=env,

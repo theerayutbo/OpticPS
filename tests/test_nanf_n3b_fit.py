@@ -355,3 +355,115 @@ def test_the_number_of_workers_is_one_to_six():
     for n in (0, 7):
         with pytest.raises(ValueError, match="workers"):
             nfit.CalibrationObjective(stub_data(), stub_runner, workers=n)
+
+
+# --- the guards that need a case of their own -------------------------------------------------
+
+
+def test_the_ber_and_snr_axes_of_a_rate_must_be_the_same_axis():
+    def series(kind, x):
+        return NanfSeries(
+            series_key("Fig.4", f"{kind}@80", f"B2B-80-{kind}"), "Fig.4", kind, "1", "ROP", "dBm",
+            tuple(x), tuple([1.0] * len(x)), tuple([PointFlag.OK] * len(x)), DataRole.CALIBRATION,
+            ProvenanceCategory.MEASURED, "synthetic",
+        )  # fmt: skip
+
+    axis = [-12.0 + k for k in range(11)]
+    with pytest.raises(nfit.FitRefusedError, match="axes of B2B 80 Gb/s differ"):
+        nfit._rate_data(80, series("BER", axis), series("SNR", [x + 0.01 for x in axis]))
+
+
+def test_a_vector_is_clamped_into_its_range_and_never_widened():
+    top = nfit.to_vector(np.ones(6))
+    bottom = nfit.to_vector(np.zeros(6))
+    for spec in nc.B4_PARAMETERS:
+        assert top[spec.name] == spec.high and bottom[spec.name] == spec.low
+    over = nfit.clamp_vector({**top, "bias_fraction": 0.6000000000000001})
+    assert over["bias_fraction"] == 0.6
+    nc.TxRxParameters(**over)  # a clamped vector is always a legal vector
+
+
+def test_an_undefined_identifiability_check_stops_the_calibration_without_an_artefact(
+    tmp_path, monkeypatch
+):
+    def undefined(*args, **kwargs):
+        raise nfit.IdentifiabilityUndefinedError("a lost-lock point at a finite-difference step")
+
+    monkeypatch.setattr(nfit, "identifiability_check", undefined)
+    out = run_fit(tmp_path)
+    assert out.status == nfit.STATUS_IDENTIFIABILITY_UNDEFINED and out.artefact is None
+    assert out.chosen is not None and out.converged
+
+
+def test_a_selected_coordinate_on_a_range_edge_is_reported_and_the_range_is_kept(
+    tmp_path, monkeypatch
+):
+    import dataclasses
+
+    import nanf_fit_stub as stub
+
+    target = stub.TARGET.copy()
+    target[4] = 1.3  # the stub's optimum for bias_fraction lies beyond the upper edge
+    monkeypatch.setattr(stub, "TARGET", target)
+    real = nfit.identifiability_check
+
+    def nothing_flagged(residuals, optimum, *args, **kwargs):
+        done = real(residuals, optimum, *args, **kwargs)
+        return dataclasses.replace(done, flagged=(), vector=dict(optimum))  # keep the optimum
+
+    monkeypatch.setattr(nfit, "identifiability_check", nothing_flagged)
+    out = run_fit(tmp_path)
+    assert out.status == nfit.STATUS_OK
+    assert out.at_range_edge == ("bias_fraction",)
+    assert json.loads(out.artefact)["parameters"]["bias_fraction"] == 0.6  # the range was kept
+
+
+def test_a_jacobian_point_that_loses_lock_ends_the_search_as_not_converged():
+    calls = []
+
+    def evaluate_u(u):
+        calls.append(u)
+        if len(calls) <= 25:  # prior and design: finite
+            f = 10.0 + len(calls)
+            return f, np.array([math.sqrt(f)])
+        return math.inf, None  # every Jacobian point loses lock
+
+    result = nfit.run_optimiser(evaluate_u)
+    assert not result.converged and result.n_evaluations == 26
+    assert result.stopped == "a Jacobian point lost lock"
+
+
+def test_a_point_pushed_outward_at_every_range_edge_is_stationary_and_converged():
+    def evaluate_u(u):
+        r = u + 0.001  # the cost grows with u: the minimum is the lower edge, with a nonzero slope
+        return float(r @ r), r
+
+    result = nfit.run_optimiser(evaluate_u)
+    assert result.converged and result.n_evaluations < 70
+    assert result.stopped in ("stationary on the range edges", "stop tolerances met")
+
+
+def test_both_stop_tolerances_must_hold_and_a_search_that_never_stalls_runs_to_the_budget(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(nfit, "X_TOL", 0.0)  # the step tolerance can never be met
+    monkeypatch.setattr(nfit, "F_TOL", 1e9)  # the gain tolerance is always met
+    out = run_fit(tmp_path)
+    assert (
+        out.status == nfit.STATUS_NOT_CONVERGED and out.n_evaluations in (70,) or not out.converged
+    )
+    assert not out.converged
+
+
+def test_equal_costs_at_the_start_keep_the_first_point_the_prior():
+    calls = []
+
+    def evaluate_u(u):
+        calls.append(u.copy())
+        return 5.0, np.array([math.sqrt(5.0)])  # every cost is equal: ties by evaluation order
+
+    nfit.run_optimiser(evaluate_u, budget=26)
+    prior = np.array([(s.prior - s.low) / (s.high - s.low) for s in nc.B4_PARAMETERS])
+    first_difference = calls[25] - prior
+    assert first_difference[0] == pytest.approx(nfit.LM_FD_STEP)
+    assert np.allclose(first_difference[1:], 0.0)
