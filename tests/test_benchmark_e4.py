@@ -17,13 +17,16 @@ from typing import Any
 
 import pytest
 
+from opticps import __version__
 from opticps.benchmarks import e4_matrix as m
 from opticps.benchmarks.e4_figures import (
     BUILDERS,
     FIGURE_DIR,
+    SPEC_KEY,
     Panel,
     build_figures,
     check_series_label,
+    read_png_text,
     save_figures,
 )
 from opticps.benchmarks.provenance import BenchmarkError
@@ -99,7 +102,7 @@ def test_every_row_has_legal_status_label_and_existing_paths(
 ) -> None:
     for row in committed:
         assert row["status"] in m.LEGAL_STATUSES
-        assert row["evidence_label"] in m.LEGAL_LABELS
+        assert row["evidence_label"] in m.ROW_LABELS
         assert row["source_label"] is None or row["source_label"] in m.LEGAL_LABELS
         assert row["evidence_paths"]
         for rel in row["evidence_paths"]:
@@ -137,6 +140,93 @@ def test_teriphic_rows_equal_the_committed_records(committed: list[dict[str, Any
 
 def test_rendered_file_equals_the_committed_file(committed: list[dict[str, Any]]) -> None:
     assert m.dump_matrix(committed) == (ROOT / m.MATRIX_PATH).read_text(encoding="utf-8")
+
+
+def test_evidence_label_rule(by_id: dict[str, dict[str, Any]]) -> None:
+    """Captures only: EXTERNAL RAW CAPTURE. Simulated scenario against a capture: both words."""
+    assert m.COMBINED_LABEL == "SIMULATED vs EXTERNAL RAW CAPTURE"
+    assert m.ROW_LABELS == (*m.LEGAL_LABELS, m.COMBINED_LABEL)
+    assert by_id["T-2KM"]["evidence_label"] == m.COMBINED_LABEL
+    for key in ("T-B2B-M1", "T-B2B-M2", "T-B2B-M3", "T-B2B-M4", "T-E2C-A2", "T-PRBS-B2B"):
+        assert by_id[key]["evidence_label"] == "EXTERNAL RAW CAPTURE", key
+    for row in by_id.values():
+        if row["id"][0] in "WR":
+            assert row["evidence_label"] in ("SIMULATED", "UNKNOWN"), row["id"]
+
+
+# ----------------------------------------------------------------------------- provenance fields
+def test_every_row_carries_code_version_output_hash_and_uncertainty(
+    committed: list[dict[str, Any]],
+) -> None:
+    for row in committed:
+        assert re.fullmatch(r"[0-9a-f]{64}", row["output_hash"]), row["id"]
+        assert row["output_hash"] == m.output_hash(row), row["id"]
+        for name in ("code_version", "uncertainty"):
+            assert set(row[name]) == {"value", "unit", "basis"}, (row["id"], name)
+            assert row[name]["basis"].strip()
+            if row[name]["value"] is None:
+                assert row[name]["unit"] is None
+                assert row[name]["basis"].startswith("null:"), (row["id"], name)
+
+
+def test_code_version_is_what_the_record_states_or_the_package_version(
+    by_id: dict[str, dict[str, Any]],
+) -> None:
+    two_km = json.loads((ROOT / "docs/benchmarks/teriphic_e2/two_km_result.json").read_text())
+    assert by_id["T-2KM"]["code_version"]["value"] == two_km["head_commit"]
+    for key, row in by_id.items():
+        value = row["code_version"]["value"]
+        if key[0] in "WR":
+            assert value == f"opticps {__version__}", key
+            assert "--check" in row["code_version"]["basis"]
+        if value is not None and key[0] == "T":
+            assert re.fullmatch(r"[0-9a-f]{40}", value), key
+    for key in ("T-B2B-M1", "T-10KM", "T-BER"):
+        assert by_id[key]["code_version"]["value"] is None
+
+
+def test_uncertainty_is_only_a_bound_a_record_states(by_id: dict[str, dict[str, Any]]) -> None:
+    prereg = m._load_yaml(ROOT, m._PREREG)
+    for key, name in (("T-B2B-M1", "M1_level_spacing"), ("T-B2B-M4", "M4_log_spectral_distance")):
+        assert by_id[key]["uncertainty"]["value"] == prereg["b2b_window_spread"][name]
+        assert "not a confidence interval" in by_id[key]["uncertainty"]["basis"]
+    stated = [k for k, v in by_id.items() if v["uncertainty"]["value"] is not None]
+    assert sorted(stated) == ["T-B2B-M1", "T-B2B-M2", "T-B2B-M3", "T-B2B-M4"]
+
+
+def test_output_hash_is_canonical_and_tracks_every_reported_value(
+    good_row: dict[str, Any],
+) -> None:
+    again = copy.deepcopy(good_row)
+    again["our_value"] = good_row["our_value"] * (1 + 1e-9)  # below 6 significant digits
+    assert m.output_hash(again) == good_row["output_hash"]
+    for name, value in (
+        ("our_value", good_row["our_value"] * 1.001),
+        ("status", "MISMATCH"),
+        ("evidence_label", "SIMULATED"),
+        ("unit", "other"),
+        ("id", "X"),
+    ):
+        changed = copy.deepcopy(good_row)
+        changed[name] = value
+        assert m.output_hash(changed) != good_row["output_hash"], name
+
+
+def test_a_hand_edited_value_or_provenance_is_rejected(good_row: dict[str, Any]) -> None:
+    with pytest.raises(BenchmarkError, match="output_hash"):
+        m.validate_row(_bad(good_row, our_value=good_row["our_value"] * 1.5), ROOT)
+    with pytest.raises(BenchmarkError, match="output_hash"):
+        m.validate_row(_bad(good_row, output_hash="0" * 64), ROOT)
+    with pytest.raises(BenchmarkError, match="code_version"):
+        m.validate_row(_bad(good_row, code_version="abc"), ROOT)
+    with pytest.raises(BenchmarkError, match="uncertainty"):
+        m.validate_row(_bad(good_row, uncertainty={"value": 1.0}), ROOT)
+    with pytest.raises(BenchmarkError, match="unit"):
+        m.validate_row(_bad(good_row, uncertainty={"value": 1.0, "unit": None, "basis": "x"}), ROOT)
+    with pytest.raises(BenchmarkError, match="legal"):
+        m.validate_row(_bad(good_row, evidence_label="SIMULATED vs PUBLISHED DATA"), ROOT)
+    with pytest.raises(BenchmarkError, match="not allowed"):
+        m.validate_row(_bad(good_row, evidence_label="DIGITIZED"), ROOT)
 
 
 # ----------------------------------------------------------------------------- recorded values
@@ -255,9 +345,60 @@ def specs() -> list[Any]:
 
 def test_figure_set_matches_the_committed_images(specs: list[Any]) -> None:
     names = sorted(s.name for s in specs)
-    assert len(names) == len(BUILDERS) == 4
+    assert len(names) == len(BUILDERS) == 5
     committed = sorted(p.stem for p in (ROOT / FIGURE_DIR).glob("*.png"))
     assert committed == names
+
+
+def test_committed_images_carry_the_hash_of_the_current_specification(specs: list[Any]) -> None:
+    """Binds each committed PNG to the code's labels and plotted numbers without pixel equality."""
+    for spec in specs:
+        text = read_png_text(ROOT / FIGURE_DIR / f"{spec.name}.png")
+        assert text.get(SPEC_KEY) == spec.specification_hash(), spec.name
+
+
+def test_saved_png_carries_the_specification_hash(specs: list[Any], tmp_path: Path) -> None:
+    for spec, path in zip(specs, save_figures(specs, tmp_path), strict=True):
+        assert read_png_text(path)[SPEC_KEY] == spec.specification_hash()
+
+
+def test_specification_changes_with_a_label_a_number_or_the_title(specs: list[Any]) -> None:
+    spec = next(s for s in specs if s.name == "teriphic_two_km_ratios")
+    base = spec.specification_hash()
+    series = spec.panels[0].series[1]
+    old_label, old_y = series.label, list(series.y)
+    series.label = "SIMULATED | B2B copy vs 2 km capture"
+    assert spec.specification_hash() != base
+    series.label = old_label
+    series.y[0] = "9.9"
+    assert spec.specification_hash() != base
+    series.y[:] = old_y
+    assert spec.specification_hash() == base
+    spec.panels[0].ax.set_title("other")
+    assert spec.specification_hash() != base
+
+
+def test_every_series_label_agrees_with_the_matrix_cell_it_stands_for(
+    specs: list[Any], by_id: dict[str, dict[str, Any]]
+) -> None:
+    bound = 0
+    for spec in specs:
+        for panel in spec.panels:
+            for series in panel.series:
+                for row_id, name in series.matrix_refs:
+                    assert by_id[row_id][name] == series.evidence_label, (spec.name, row_id, name)
+                    bound += 1
+    assert bound == 3 + 3 + 2 + 1  # W1-W3 ours, W1-W3 text, R4 twice, T-2KM once
+
+
+def test_teriphic_series_follow_the_evidence_label_rule(specs: list[Any]) -> None:
+    labels = {
+        s.name: [series.evidence_label for p in s.panels for series in p.series] for s in specs
+    }
+    assert labels["teriphic_two_km_ratios"] == [m.COMBINED_LABEL, "EXTERNAL RAW CAPTURE"]
+    fibre = labels["teriphic_fibre_sensitivity"]
+    assert fibre.count(m.COMBINED_LABEL) == 6 and fibre[-1] == "EXTERNAL RAW CAPTURE"
+    assert len(fibre) == 7
 
 
 def test_every_series_has_exactly_one_legal_label(specs: list[Any]) -> None:
@@ -298,6 +439,17 @@ def test_wiegart_published_points_are_the_three_running_text_numbers(specs: list
     assert ys == [0.63, 0.71, 0.83]
 
 
+def test_fibre_sensitivity_covers_all_scenarios_and_shows_the_failure(specs: list[Any]) -> None:
+    spec = next(s for s in specs if s.name == "teriphic_fibre_sensitivity")
+    panel = spec.panels[0]
+    record = json.loads((ROOT / "docs/benchmarks/teriphic_e2/two_km_result.json").read_text())
+    scenario_lines = [ln for ln in panel.ax.get_lines() if ln.get_label().startswith("SIMULATED")]
+    assert sum(len(ln.get_xdata()) for ln in scenario_lines) == record["scenarios_scored"] == 123
+    assert min(float(v) for ln in scenario_lines for v in ln.get_ydata()) > 1.0
+    assert "PARTIAL/FAILED" in panel.ax.get_title() and "not a fit" in panel.ax.get_title()
+    assert record["survivors"] == []
+
+
 def test_saved_images_are_small_png(specs: list[Any], tmp_path: Path) -> None:
     for path in save_figures(specs, tmp_path):
         assert path.read_bytes()[:8] == b"\x89PNG\r\n\x1a\n"
@@ -319,6 +471,19 @@ def test_unlabelled_or_illegal_series_are_rejected() -> None:
     with pytest.raises(BenchmarkError, match="not allowed"):
         panel.points([0], [0], "DIGITIZED")
     assert check_series_label("DIGITIZED | x") == "DIGITIZED"  # legal word; figures forbid it
+    combined = "SIMULATED vs EXTERNAL RAW CAPTURE | best scenario"
+    assert check_series_label(combined) == m.COMBINED_LABEL
+    assert check_series_label("EXTERNAL RAW CAPTURE | B2B copy") == "EXTERNAL RAW CAPTURE"
+    for bad in (
+        "SIMULATED vs PUBLISHED DATA | x",
+        "EXTERNAL RAW CAPTURE vs SIMULATED | x",
+        "SIMULATED vs EXTERNAL RAW CAPTURE | UNKNOWN",
+        "SIMULATED vs EXTERNAL RAW CAPTURE vs DIGITIZED",
+    ):
+        with pytest.raises(BenchmarkError):
+            check_series_label(bad)
+    with pytest.raises(BenchmarkError, match="not allowed"):
+        check_series_label("DIGITIZED | x", ("DIGITIZED",))
 
 
 # ----------------------------------------------------------------------------- report
@@ -384,6 +549,49 @@ def test_report_status_table_is_the_matrix_and_no_refused_row_says_match(
     rows = _final_rows(text)
     for source in ("TERIPHIC", "Ran 2025"):
         assert not re.search(r"(?<![A-Z_])MATCH\b", rows[source]), source
+
+
+def test_report_figure_table_carries_each_figures_evidence_labels(specs: list[Any]) -> None:
+    text = REPORT.read_text(encoding="utf-8")
+    rows = {
+        re.search(r"`([a-z_]+)\.png`", line).group(1): line  # type: ignore[union-attr]
+        for line in text.splitlines()
+        if re.match(r"\| `[a-z_]+\.png` ", line)
+    }
+    assert sorted(rows) == sorted(s.name for s in specs)
+    for spec in specs:
+        heads = {series.evidence_label for p in spec.panels for series in p.series}
+        for head in heads:
+            assert head in rows[spec.name], (spec.name, head)
+        # a combined label may not be reduced to its SIMULATED half in the table
+        if m.COMBINED_LABEL in heads:
+            assert "SIMULATED vs EXTERNAL RAW CAPTURE" in rows[spec.name]
+
+
+def test_report_and_reproduce_state_the_corrected_facts() -> None:
+    flat = " ".join(REPORT.read_text(encoding="utf-8").split())
+    assert "need captures to be read again" not in flat
+    assert "the words of the underlying record" not in flat
+    assert "`CALIBRATION` is this report's own word" in flat
+    assert 'the records\' lowercase "unspent"' in flat
+    assert "scored against the holdout" in flat and "FIT_HOLDOUT_PLAN.md` line 937" in flat
+    assert "no aligned prediction passed" in flat and "must not be read" in flat
+    assert "PARTIAL/FAILED" in flat and "not a fit" in flat
+    assert "--check" in flat and "whichever commit holds it" in flat
+    repro = REPRODUCE.read_text(encoding="utf-8")
+    meta = repro.index("inspect-format --metadata-only")
+    assert meta < repro.index("## 2. What needs")
+    assert "exit 0" in repro[meta : meta + 400]
+    section2 = repro[repro.index("## 2. What needs") : repro.index("## 3.")]
+    assert "--metadata-only`) |" not in section2  # no table row of section 2 lists it
+
+
+def test_ten_km_row_states_what_the_record_says() -> None:
+    row = {r["id"]: r for r in m.load_matrix(ROOT / m.MATRIX_PATH)}["T-10KM"]
+    assert "no audit hook opened the file" not in row["conditions"]
+    assert "audit hook recorded 0 opens or spawns of the 10 km file" in row["conditions"]
+    record = (ROOT / "docs/orchestration/opticps-v2/handoff/E2b_2km_qa.md").read_text()
+    assert "The hook recorded 0 opens or spawns of the 10 km" in record
 
 
 def test_every_repo_path_named_in_the_docs_exists() -> None:

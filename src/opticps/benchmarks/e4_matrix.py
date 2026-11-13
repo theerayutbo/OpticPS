@@ -11,9 +11,23 @@ The matrix is a YAML file, `docs/benchmarks/EVIDENCE_MATRIX.yaml`, written by
   and nothing re-runs a fit or a holdout score. The 10 km capture is not named by any read path
   in this module; its row is `UNSPENT` with null values.
 
-A status is either one the comparison layer returns or the exact word the underlying record uses
-(`FAILED`, `FIT_INVALID`, `INFERRED_REFERENCE`, `REFERENCE_SEQUENCE_MISSING`, `UNSPENT`).
-`CALIBRATION` marks a number from the training partition: it carries no pass or fail claim.
+A status is either one the comparison layer returns or a word taken from the underlying record
+(`FAILED`, `FIT_INVALID`, `INFERRED_REFERENCE`, `REFERENCE_SEQUENCE_MISSING`; `UNSPENT` is the
+records' lowercase "unspent" written as a status). `CALIBRATION` is this module's own word for a
+number from the training partition: it carries no pass or fail claim.
+
+Evidence label rule, applied here and in `e4_figures`: a statistic computed from captures only
+carries `EXTERNAL RAW CAPTURE`; a statistic that compares a simulated scenario with a capture
+carries `SIMULATED vs EXTERNAL RAW CAPTURE` (the only two-word label); anything else carries one
+of the five legend words.
+
+Every row also carries `code_version`, `output_hash` and `uncertainty`. `output_hash` is the
+SHA-256 of a canonical serialisation of the row's reported values (floats to 6 significant
+digits), so it does not depend on the platform or on file bytes. `code_version` is what the source
+record itself states about the code that produced the value, or the package version for rows
+the E3 modules compute (`--check` proves the matrix equals the code at the commit that holds
+it); otherwise null with a reason. `uncertainty` is a bound only where a committed record states
+one; otherwise null with a reason. Nothing is estimated here.
 
 Authored independently for this repository.
 """
@@ -22,13 +36,16 @@ Authored independently for this repository.
 from __future__ import annotations
 
 import functools
+import hashlib
 import json
 import math
+import re
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from opticps import __version__
 from opticps.benchmarks.comparison import Row
 from opticps.benchmarks.provenance import BenchmarkError, check_text
 
@@ -53,6 +70,9 @@ LEGAL_LABELS = (
     "DIGITIZED",
     "UNKNOWN",
 )
+# A statistic that compares a simulated scenario with a capture names both (rule in the docstring).
+COMBINED_LABEL = "SIMULATED vs EXTERNAL RAW CAPTURE"
+ROW_LABELS = (*LEGAL_LABELS, COMBINED_LABEL)
 # No row of this repository may carry a digitised value (licence of the figures is unverified).
 FORBIDDEN_LABELS = ("DIGITIZED",)
 ROW_FIELDS = (
@@ -71,6 +91,20 @@ ROW_FIELDS = (
     "evidence_label",
     "source_label",
     "evidence_paths",
+    "code_version",
+    "output_hash",
+    "uncertainty",
+)
+HASHED_FIELDS = (
+    "id",
+    "our_value",
+    "source_value",
+    "unit",
+    "deviation",
+    "tolerance",
+    "status",
+    "evidence_label",
+    "source_label",
 )
 
 _TERIPHIC = "TERIPHIC (Zenodo 7886498, PD1 PAM4)"
@@ -102,11 +136,35 @@ _COMPUTED_WITHOUT_VALUE = frozenset({"W5", "R4"})
 _SOURCE_TEXT_WITHOUT_VALUE = frozenset({"W5"})
 
 
+def _canonical(value: object) -> object:
+    if isinstance(value, float):
+        return format(value, ".6g")
+    return value
+
+
+def output_hash(row: dict[str, Any]) -> str:
+    """SHA-256 of the row's reported values, serialised canonically (platform independent)."""
+    payload = {name: _canonical(row[name]) for name in HASHED_FIELDS}
+    text = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(text.encode("ascii")).hexdigest()
+
+
+def _stated(value: object, unit: str | None, basis: str) -> dict[str, Any]:
+    return {"value": value, "unit": unit, "basis": basis}
+
+
+def _no_bound(basis: str) -> dict[str, Any]:
+    return _stated(None, None, basis)
+
+
 def _row(**fields: Any) -> dict[str, Any]:
-    missing = [name for name in ROW_FIELDS if name not in fields]
+    wanted = [name for name in ROW_FIELDS if name != "output_hash"]
+    missing = [name for name in wanted if name not in fields]
     if missing:
         raise BenchmarkError(f"row {fields.get('id')!r} lacks fields {missing}")
-    return {name: fields[name] for name in ROW_FIELDS}
+    row = {name: fields[name] for name in wanted}
+    row["output_hash"] = output_hash(row)
+    return {name: row[name] for name in ROW_FIELDS}
 
 
 def _module_row(row: Row, source: str, paths: list[str]) -> dict[str, Any]:
@@ -129,6 +187,16 @@ def _module_row(row: Row, source: str, paths: list[str]) -> dict[str, Any]:
         evidence_label="SIMULATED" if computed else "UNKNOWN",
         source_label="PUBLISHED DATA" if published else None,
         evidence_paths=list(paths),
+        code_version=_stated(
+            f"opticps {__version__}",
+            None,
+            "package version; scripts/build_evidence_matrix.py --check proves the matrix equals "
+            "the code at whichever commit holds it",
+        ),
+        uncertainty=_no_bound(
+            "null: the E3 record states no uncertainty for this row; its tolerance is a "
+            "comparison tolerance, not an uncertainty of either value"
+        ),
     )
 
 
@@ -202,6 +270,17 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 evidence_label="EXTERNAL RAW CAPTURE",
                 source_label=None,
                 evidence_paths=list(_E2_RECORD_PATHS),
+                code_version=_no_bound(
+                    "null: the pre-registration record states a model hash but no commit or "
+                    "code version"
+                ),
+                uncertainty=_stated(
+                    float(prereg["b2b_window_spread"][key]),
+                    "normalized (plan R13 metric)",
+                    "b2b_window_spread of this metric in preregistered_predictions.yaml: the "
+                    "spread over the B2B spread windows as the record states it; it is a spread, "
+                    "not a confidence interval",
+                ),
             )
         )
     rows.append(
@@ -230,6 +309,13 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 _E2_CLOSING,
                 _REGISTER,
             ],
+            code_version=_stated(
+                str(law_v2["head_commit"]),
+                None,
+                "head_commit field of law_model_v2.yaml (the commit the record states it was "
+                "produced at)",
+            ),
+            uncertainty=_no_bound("null: the record states no uncertainty for the fit objective"),
         )
     )
     rows.append(
@@ -253,9 +339,16 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             tolerance=1.0,
             status="FAILED",
             reason=f"record outcome {two_km['outcome']}, verdict {two_km['verdict']}, claim none",
-            evidence_label="EXTERNAL RAW CAPTURE",
+            evidence_label=COMBINED_LABEL,
             source_label=None,
             evidence_paths=[_TWO_KM, _PREREG, _E2_CLOSING, _E2_NOTICE, _REGISTER],
+            code_version=_stated(
+                str(two_km["head_commit"]),
+                None,
+                "head_commit field of two_km_result.json (the commit the record states it was "
+                "produced at)",
+            ),
+            uncertainty=_no_bound("null: the record states no uncertainty for psi"),
         )
     )
     rows.append(
@@ -265,7 +358,8 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             partition="holdout reserved: 10 km, never read",
             quantity="10 km held-out metrics",
             conditions="stop rule D4 after the 2 km FAIL; reserved once for a differently "
-            "designed hypothesis (H3) that does not exist yet; no audit hook opened the file",
+            "designed hypothesis (H3) that does not exist yet; the E2b QA record states that an "
+            "audit hook recorded 0 opens or spawns of the 10 km file",
             our_value=None,
             source_value=None,
             unit=None,
@@ -275,7 +369,14 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             reason="the 10 km capture is unspent and unread",
             evidence_label="UNKNOWN",
             source_label=None,
-            evidence_paths=[_E2_CLOSING, _TWO_KM, _REGISTER],
+            evidence_paths=[
+                _E2_CLOSING,
+                _TWO_KM,
+                _REGISTER,
+                "docs/orchestration/opticps-v2/handoff/E2b_2km_qa.md",
+            ],
+            code_version=_no_bound("null: no value was computed for the unspent capture"),
+            uncertainty=_no_bound("null: no value exists, so there is nothing to bound"),
         )
     )
     rows.append(
@@ -295,6 +396,8 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
             evidence_label="UNKNOWN",
             source_label=None,
             evidence_paths=[_E2_CLOSING, "docs/benchmarks/MISSING_PARAMETERS.md", _REGISTER],
+            code_version=_no_bound("null: no value was computed"),
+            uncertainty=_no_bound("null: no value exists, so there is nothing to bound"),
         )
     )
     rows.append(
@@ -319,6 +422,13 @@ def teriphic_rows(root: Path = Path(".")) -> list[dict[str, Any]]:
                 "docs/benchmarks/teriphic_prbs/prbs_search_result.md",
                 _REGISTER,
             ],
+            code_version=_stated(
+                str(prbs["head_commit"]),
+                None,
+                "head_commit field of b2b_sequence_candidate.yaml (the commit the record states "
+                "it was produced at)",
+            ),
+            uncertainty=_no_bound("null: the record states no uncertainty for the mismatch rate"),
         )
     )
     return rows
@@ -353,6 +463,25 @@ def _check_number(value: object, where: str) -> None:
         raise BenchmarkError(f"{where}: must be a finite number or null, got {value!r}")
 
 
+def _validate_provenance(row: dict[str, Any], where: str) -> None:
+    version, bound = row["code_version"], row["uncertainty"]
+    if not isinstance(version, dict) or set(version) != {"value", "unit", "basis"}:
+        raise BenchmarkError(f"{where}: code_version must be a value/unit/basis mapping")
+    if version["value"] is not None:
+        check_text(version["value"], f"{where} code_version value")
+    check_text(version["basis"], f"{where} code_version basis")
+    if not isinstance(bound, dict) or set(bound) != {"value", "unit", "basis"}:
+        raise BenchmarkError(f"{where}: uncertainty must be a value/unit/basis mapping")
+    _check_number(bound["value"], f"{where} uncertainty value")
+    check_text(bound["basis"], f"{where} uncertainty basis")
+    if bound["value"] is None and bound["unit"] is not None:
+        raise BenchmarkError(f"{where}: a null uncertainty carries no unit")
+    if bound["value"] is not None and bound["unit"] is None:
+        raise BenchmarkError(f"{where}: an uncertainty bound needs a unit")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(row["output_hash"])):
+        raise BenchmarkError(f"{where}: output_hash must be a SHA-256 hex digest")
+
+
 def validate_row(row: dict[str, Any], root: Path) -> None:
     """Refuse a row with an unknown status or label, a missing field or a missing path."""
     where = f"row {row.get('id')!r}"
@@ -364,12 +493,12 @@ def validate_row(row: dict[str, Any], root: Path) -> None:
         check_text(row[name], f"{where} {name}")
     if row["status"] not in LEGAL_STATUSES:
         raise BenchmarkError(f"{where}: status {row['status']!r} is not one of {LEGAL_STATUSES}")
-    if row["evidence_label"] not in LEGAL_LABELS:
+    if row["evidence_label"] not in ROW_LABELS:
         raise BenchmarkError(f"{where}: evidence_label {row['evidence_label']!r} is not legal")
-    if row["source_label"] is not None and row["source_label"] not in LEGAL_LABELS:
+    if row["source_label"] is not None and row["source_label"] not in ROW_LABELS:
         raise BenchmarkError(f"{where}: source_label {row['source_label']!r} is not legal")
     for label in (row["evidence_label"], row["source_label"]):
-        if label in FORBIDDEN_LABELS:
+        if label is not None and any(word in label for word in FORBIDDEN_LABELS):
             raise BenchmarkError(f"{where}: label {label!r} is not allowed in this repository")
     for name in ("our_value", "source_value", "deviation", "tolerance"):
         _check_number(row[name], f"{where} {name}")
@@ -387,6 +516,9 @@ def validate_row(row: dict[str, Any], root: Path) -> None:
             raise BenchmarkError(f"{where}: evidence path {rel!r} points into data/external")
         if not (root / rel).exists():
             raise BenchmarkError(f"{where}: evidence path {rel!r} does not exist")
+    _validate_provenance(row, where)
+    if row["output_hash"] != output_hash(row):
+        raise BenchmarkError(f"{where}: output_hash differs from the row's reported values")
 
 
 def validate_matrix(rows: list[dict[str, Any]], root: Path = Path(".")) -> None:
