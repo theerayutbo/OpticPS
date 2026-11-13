@@ -33,7 +33,15 @@ import numpy as np
 from numpy.typing import NDArray
 
 from opticps.modulation.pam import label_bits, pam_levels
-from opticps.optical_channel.fiber import FiberProfile, ResolvedFiber, resolve_profile
+from opticps.optical_channel.fiber import (
+    UNSUPPORTED_EFFECTS,
+    FiberProfile,
+    ParameterProvenance,
+    ProfileValue,
+    ProvenanceCategory,
+    ResolvedFiber,
+    resolve_profile,
+)
 from opticps.optical_channel.link import (
     ELEMENTARY_CHARGE,
     MAX_MATCHED_LASER_POWER_W,
@@ -481,12 +489,64 @@ class NotScorableError(ValueError):
 # Plan Amendment 8 G-C: after a freeze the fibre and the noise index are not free. Only a link in
 # this table and a point index in this set can give a scorable result; part b declares both, in this
 # file (it is part of the code identity). Until then no run after a freeze is scorable.
-DECLARED_LINKS: dict[str, LinkSpec] = {}
-DECLARED_POINT_INDICES: frozenset[int] = frozenset()
+# Plan Amendment 11 J-E: the two links of Fig.4 at 1550 nm (the paper's numerical fibre, loss zero
+# because the received power is matched) and the point indices 0 to 18 of the published axes.
+_PAPER_CITATION = (
+    "Hong et al. 2021, J. Lightwave Technol. 39(19) 6167, Sec. II and Fig. 1 (manuscript p.2-3)"
+)
+_PAPER_BAND_NM = (1400.0, 1625.0)
+
+
+def _paper_link(name: str, length_km: float, d_ps_per_nm_km: float, group_index: float) -> LinkSpec:
+    """The same profile as `nanf_benchmark.numerical_profile(name, d_ps_per_nm_km=...)`; a test
+    checks they are equal. Built here because `nanf_benchmark` imports this module indirectly."""
+    category = ProvenanceCategory.PUBLISHED_NUMERICAL_ASSUMPTION
+
+    def known(value: float, unit: str, **prov: Any) -> ProfileValue:
+        return ProfileValue(value, unit, ParameterProvenance(category, _PAPER_CITATION, **prov))
+
+    zero = known(0.0, "dB", validity_range_nm=_PAPER_BAND_NM)
+    unknown = ParameterProvenance(ProvenanceCategory.UNKNOWN, "none")
+    return LinkSpec(
+        FiberProfile(
+            profile_id=f"HONG-2021-FIG1-{name}",
+            fiber_type=f"{name} as assumed in the paper's numerical comparison (Fig. 1)",
+            sample_id=None,
+            length_km=known(length_km, "km"),
+            reference_wavelength_nm=known(1550.0, "nm"),
+            attenuation_db_per_km=known(
+                0.0, "dB/km", measurement_wavelength_nm=1550.0, validity_range_nm=_PAPER_BAND_NM
+            ),
+            connector_loss_db=zero,
+            pigtail_loss_db=zero,
+            splice_loss_db=zero,
+            dispersion_ps_per_nm_km=known(
+                d_ps_per_nm_km,
+                "ps/(nm km)",
+                measurement_wavelength_nm=1550.0,
+                validity_range_nm=_PAPER_BAND_NM,
+            ),
+            dispersion_slope_ps_per_nm2_km=ProfileValue(None, "ps/(nm^2 km)", unknown),
+            group_index=known(group_index, "1"),
+            gamma_per_w_km=ProfileValue(None, "1/(W km)", unknown),
+            effects={k: "off" for k in UNSUPPORTED_EFFECTS},
+            dispersion_table=None,
+        ),
+        1550.0,
+    )
+
+
+DECLARED_LINKS: dict[str, LinkSpec] = {
+    "NANF-4.76km-1550": _paper_link("NANF", 4.76, 2.04, 1.003),
+    "SSMF-4.53km-1550": _paper_link("SSMF", 4.53, 15.95, 1.4682),
+}
+DECLARED_POINT_INDICES: frozenset[int] = frozenset(range(19))
 # Plan Amendment 9 H-A: the Fig.4 B2B calibration grid, as (rate_gbps, rop_dbm, point_index). Only
 # results at these points, back-to-back, can enter `curve_arrays(calibration=True)`; the calibration
-# step declares them in this file (part of the code identity). Empty until then.
-DECLARED_CALIBRATION_POINTS: frozenset[tuple[int, float, int]] = frozenset()
+# step declares them in this file (part of the code identity): Amendment 11 J-E.1.
+DECLARED_CALIBRATION_POINTS: frozenset[tuple[int, float, int]] = frozenset(
+    (rate, -12.0 + k, k) for rate in (80, 100, 112) for k in range(8)
+)
 
 
 class FrozenOverrideError(ValueError):
