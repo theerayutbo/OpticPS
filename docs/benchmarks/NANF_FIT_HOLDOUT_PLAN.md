@@ -1211,3 +1211,33 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
 Amendments 7 and 8 except as corrected above, C6 pre-registered as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule
 that no criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 10 (2026-11-13, Gate N3 part a, fourth review: residual (a) stated)
+
+Previous SHA-256 of this file, pinned until now (Amendment 9, commit 784ad2c):
+`2ad3c7af660d836cb4d31238a6658b2dff9623d858ef415a9999e776422301f5`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration and before any holdout scoring: no fit
+has run, no freeze record or calibration artefact exists, and no value of any holdout series was read for it. It changes no
+tolerance, threshold, label, split or criterion, and no source behaviour. The evidence is the fourth review
+(`handoff/N3a_qa4.md`, new finding 3 and residual (a)) and its repros on synthetic data.
+
+### H-F, item 6 (added to the list of stated residuals of H-F)
+
+6. The fields of a `PointResult` can be forged inside the process, for example with `dataclasses.replace`. Two consequences,
+   both reproduced on synthetic data: a pre-freeze retuned NANF result stamped with the public freeze record hash is accepted
+   by `curve_arrays` for scoring, and a NANF result relabelled as back-to-back (its `link` field replaced) passes the
+   calibration check of `curve_arrays(calibration=True)` at a declared calibration point. The code does not detect either. This
+   is a limit, not a repair. The score functions take bare arrays by design (G-C), so a forged `PointResult` opens no route
+   that a hand-built array does not already open. The guard for the holdout is `require_freeze` at the read of the holdout
+   series, not the fields of a result. Someone who edits a result inside the process can also monkeypatch the freeze
+   functions or the declared sets; the checks of `curve_arrays` bind an honest caller who types a wrong flag, not an owner who
+   tampers.
+
+### H-Z. Unchanged
+
+Everything in H-Z of Amendment 9 stands: the label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and
+holdout split, "no per-fibre retuning", the 6-parameter cap, every tolerance and threshold of section 4, the trace cap pin of
+G1 at 1e10, C6 as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added
+after a number is seen except by a dated amendment with a new pin.
