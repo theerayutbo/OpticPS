@@ -24,3 +24,14 @@ Base 784ad2c. Commits c8e08fd, 4c9861a, 2ba2244, plus this handoff (tip SHA in t
 - W4 metric unstated in the paper; both reported. Paper values are rounded (tolerance is rounding-bound).
 - Locations are arXiv v2 numbering, JLT numbering unchecked. The tolerance declaration is by file order in a single working session, not by an external timestamp.
 - Concurrent report-only clone created `handoff/N3a_dev4.md` here; left untracked.
+
+## Fix round (reviewer FAIL: 1 MAJOR, 4 MINOR)
+1. MAJOR W4a/W4b: the published point for P_X(0) = 0.4 now has `rate_definition=None`; `compare` refuses it (`NOT COMPARABLE: rate_definition is null on the published side`). The 0.05 tolerance and its text are removed; `compare` still needs a tolerance argument, so the refused rows pass `TOL_P0_UNUSED = 0.01` (never used to accept or reject; documented). Both optima (0.3982 SMD, 0.3958 BMD) shown as information only. Tests: rows refused for that reason; no W4-style row can be MATCH with a null rate definition (five model values, both metrics). Earlier summary "W4 MATCH" in Results above is superseded.
+2. MINOR location: the fixed PMF is in the Sec. II running text after Fig. 2 (checked in the manuscript; the figure tick labels repeat it, the Fig. 4b caption does not). Corrected in code and report.
+3. MINOR Gray caveat: report limitations now say the paper names Gray, all two-bit Gray labellings give identical BMD rates, a natural binary label gives 2.16 dB for the Gray-optimal PMF (computed, not hard-coded) so W2/W3 would be MISMATCH. Test computes it and two other Gray labellings.
+4. MINOR licence: W5 source text rewritten neutrally; the `TOL_P0_WHY` clause is gone with the tolerance. A 4-gram overlap scan of my touched files against the manuscript text finds only numbers, notation and short technical terms (the config's pre-existing field texts and the paper title are bibliographic, untouched).
+5. MINOR boundary: closed window documented (`|dev| <= tol` is MATCH); tests with exact binary fractions at the edge, inside, 1.125x, 1.5x and 2x tolerance, both signs.
+6. Hardening: wavelength and baud rate must be positive and finite, fibre length not negative and finite (tests for both point classes). `ComparisonResult` carries `published_evidence` and `model_evidence`; one test; report limitations say MATCH against a measurement is agreement, not validation. Disclosed that tolerances share a commit with the computed rows.
+
+New statuses: W1 MATCH, W2 MATCH, W3 MATCH, W4a NOT COMPARABLE, W4b NOT COMPARABLE, W5 MATCH, W6 to W9 NOT COMPARABLE; R1, R2 NOT COMPARABLE, R3 BLOCKED, R4 NOT COMPARABLE (unchanged). Numbers of W1-W3, W5, Ran untouched.
+Tests: `test_benchmark_e3.py` 131 collected; e3 + provenance + e2_freeze together 504 passed, 0 failed. ruff check, ruff format --check (touched files), mypy: clean. Full suite not run (orchestrator).
