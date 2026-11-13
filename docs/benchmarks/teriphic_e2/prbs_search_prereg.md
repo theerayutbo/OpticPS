@@ -39,11 +39,11 @@ P3 Timing and decisions. spp0 = fs / baud = 40.96 samples. The squared, mean-rem
 
 P4 Candidates and syndrome test. Generators, as lag sets of a[m] = XOR a[m-l]: PRBS7 {7,6}, PRBS9
    {9,5}, PRBS11 {11,9}, PRBS13 {13,12,2,1} (also the PRBS13Q bit source), PRBS15 {15,14}, PRBS20
-   {20,3}, PRBS23 {23,18}, PRBS31 {31,28}, each also as its reciprocal (lags {n} U {n-l}). PRBS31Q uses the
+   {20,3}, PRBS23 {23,18}, PRBS31 {31,28} (A1.2: no reciprocals). PRBS31Q uses the
    PRBS31 bit source and SSPRQ is covered by P2. Mappings of symbol to (hi, lo) bits: Gray 00,01,11,10;
    natural 00,01,10,11; swapped 00,10,01,11; each with normal or inverted level order (s -> 3-s): 6 maps.
    Modes: serial (hi, lo interleaved, one LFSR) and lanes (hi and lo each a separate stream of the same
-   generator; the lane syndrome is the mean of the two and is independent of the lane delay; the delay
+   generator; the lane syndrome is the larger of the two (A1.1) and is independent of the lane delay; the delay
    0 to 64 is reported if the two regenerated lanes are exact shifts of each other). Syndrome = fraction
    of positions violating the recurrence. Every candidate is scored on both windows and the whole table
    is reported. The periodic candidate of P5 enters only if no LFSR or BM candidate has an
@@ -70,3 +70,20 @@ P7 Output `docs/benchmarks/teriphic_e2/b2b_sequence_candidate.yaml`. Status `INF
    if verified, otherwise `REFERENCE_SEQUENCE_NOT_RECOVERED` (the P2 scan, the P4 table and the failing
    conditions, nothing else). Provenance of a recovered pattern is INFERRED. The proxy has its own name,
    `symbol_mismatch_vs_inferred_sequence`; it is not a BER.
+
+## Amendment A1 (2026-11-13), committed before any search code read the B2B capture
+
+Found while testing the code on synthetic PRBS15 streams (no capture read). Thresholds are untouched.
+The first draft above made P6 (c) unsatisfiable for a clean true PRBS, for structural reasons:
+
+- A1.1 The lane syndrome is the larger of the hi and lo lane syndromes, not their mean. With the mean, a
+  wrong mapping that shares one lane with the truth scored 0.25.
+- A1.2 Reciprocal generators are removed from the candidate list (Fable's list has none; with them,
+  "PRBS7-reciprocal, swapped, serial" scored 0.25 on a true PRBS7 Gray stream). Berlekamp-Massey (P5)
+  still finds a recurrence in any convention up to complexity 31.
+- A1.3 "Every other candidate" in P6 (c) excludes candidates that describe the same symbol sequence: a
+  candidate whose recurrence the winner's own regenerated sequence satisfies (syndrome < 0.01 on the
+  whole record, under that candidate's mapping and mode) is an equivalent description, because a serial
+  PRBS also satisfies its own lane test, a squared polynomial, and a Berlekamp-Massey multiple. They are
+  listed under `equivalent_descriptions` and are not counted against uniqueness. Two inequivalent
+  candidates below 0.1 is still NOT_UNIQUE.
