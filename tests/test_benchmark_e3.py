@@ -236,6 +236,55 @@ def test_refuse_builds_only_the_two_unrunnable_statuses():
     assert [m.value for m in ComparisonStatus] == ["MATCH", "MISMATCH", "NOT COMPARABLE", "BLOCKED"]
 
 
+@pytest.mark.parametrize("sign", [1.0, -1.0])
+def test_the_match_window_is_closed_and_not_wider_than_the_tolerance(sign):
+    # all values are exact binary fractions, so no rounding decides these cases
+    base, tol = 1.0, 0.5
+    edge = run(published(value=base), ours(value=base + sign * tol), tolerance=tol)
+    assert edge.deviation == sign * tol and edge.status is ComparisonStatus.MATCH
+    inside = run(published(value=base), ours(value=base + sign * 0.375), tolerance=tol)
+    assert inside.status is ComparisonStatus.MATCH
+    just_outside = run(published(value=base), ours(value=base + sign * 0.5625), tolerance=tol)
+    assert just_outside.status is ComparisonStatus.MISMATCH
+    one_and_a_half = run(published(value=base), ours(value=base + sign * 0.75), tolerance=tol)
+    assert one_and_a_half.status is ComparisonStatus.MISMATCH
+    doubled = run(published(value=base), ours(value=base + sign * 1.0), tolerance=tol)
+    assert doubled.status is ComparisonStatus.MISMATCH
+
+
+@pytest.mark.parametrize("field", ["wavelength_nm", "baud_bd"])
+@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+def test_a_non_positive_or_non_finite_wavelength_or_baud_is_rejected(field, bad):
+    with pytest.raises(BenchmarkError):
+        published(**{field: bad})
+    with pytest.raises(BenchmarkError):
+        ours(**{field: bad})
+
+
+@pytest.mark.parametrize("bad", [-0.001, float("nan"), float("inf")])
+def test_a_negative_or_non_finite_fibre_length_is_rejected(bad):
+    with pytest.raises(BenchmarkError):
+        published(fibre_length_km=bad)
+    with pytest.raises(BenchmarkError):
+        ours(fibre_length_km=bad)
+
+
+def test_a_zero_length_fibre_is_a_valid_back_to_back_condition():
+    assert published(fibre_length_km=0.0).fibre_length_km == 0.0
+
+
+def test_the_result_carries_both_evidence_labels_and_does_not_forbid_the_pairing():
+    result = run(
+        published(evidence=EvidenceLabel.MEASURED), ours(evidence=EvidenceLabel.ANALYTICAL)
+    )
+    assert result.status is ComparisonStatus.MATCH
+    assert result.published_evidence is EvidenceLabel.MEASURED
+    assert result.model_evidence is EvidenceLabel.ANALYTICAL
+    refused = run(published(unit="W", evidence=EvidenceLabel.MEASURED), ours())
+    assert refused.published_evidence is EvidenceLabel.MEASURED
+    assert refused.model_evidence is EvidenceLabel.SIMULATED
+
+
 # ------------------------------------------------------------------ Wiegart: definitions
 @pytest.mark.parametrize("psnr_db", [5.0, 10.0, 13.7, 25.0])
 def test_psnr_definition_is_max_x_squared_over_sigma_squared(psnr_db):
@@ -349,27 +398,80 @@ def wiegart_rows():
     return {row.row_id: row for row in e3_wiegart.wiegart_rows()}
 
 
-def test_the_tolerances_were_fixed_before_the_deviations_were_computed():
-    assert e3_wiegart.TOL_GAIN_DB == 0.01 and e3_wiegart.TOL_P0 == 0.05
+def test_the_gain_tolerance_is_the_declared_one_and_no_p0_match_window_exists():
+    assert e3_wiegart.TOL_GAIN_DB == 0.01
+    assert not hasattr(e3_wiegart, "TOL_P0")
+    # the placeholder used by the refused P_X(0) rows is below the 0.05 gap between 0.40 and 0.35
+    assert e3_wiegart.TOL_P0_UNUSED < 0.05
 
 
 def test_wiegart_row_statuses(wiegart_rows):
     statuses = {k: r.result.status.value for k, r in wiegart_rows.items()}
     assert statuses == {
-        "W1": "MATCH", "W2": "MATCH", "W3": "MATCH", "W4a": "MATCH", "W4b": "MATCH",
-        "W5": "MATCH", "W6": "NOT COMPARABLE", "W7": "NOT COMPARABLE",
+        "W1": "MATCH", "W2": "MATCH", "W3": "MATCH",
+        "W4a": "NOT COMPARABLE", "W4b": "NOT COMPARABLE", "W5": "MATCH", "W6": "NOT COMPARABLE", "W7": "NOT COMPARABLE",
         "W8": "NOT COMPARABLE", "W9": "NOT COMPARABLE",
     }  # fmt: skip
 
 
 def test_wiegart_deviations_are_inside_their_declared_tolerance(wiegart_rows):
-    for key, tolerance in (("W1", 0.01), ("W2", 0.01), ("W3", 0.01), ("W4a", 0.05), ("W4b", 0.05)):
+    for key in ("W1", "W2", "W3"):
         result = wiegart_rows[key].result
-        assert result.tolerance == tolerance and abs(result.deviation) <= tolerance
+        assert result.tolerance == 0.01 and abs(result.deviation) <= 0.01
     # recomputed here with the second method, independent of the row code
     uniform = e3_wiegart.required_psnr_db_grid(UNIFORM_PMF, 1.0, "bmd")
     fixed = e3_wiegart.required_psnr_db_grid(FIXED_PMF, 1.0, "bmd")
     assert wiegart_rows["W3"].result.model_value == pytest.approx(uniform - fixed, abs=2e-4)
+
+
+@pytest.mark.parametrize("key", ["W4a", "W4b"])
+def test_the_p0_rows_are_refused_because_the_source_states_no_rate_definition(wiegart_rows, key):
+    result = wiegart_rows[key].result
+    assert result.status is ComparisonStatus.NOT_COMPARABLE
+    assert result.code is ErrorCode.NOT_COMPARABLE
+    assert "rate_definition is null on the published side" in result.reason
+    assert result.deviation is None
+    assert "no match claim" in wiegart_rows[key].our_text
+
+
+@pytest.mark.parametrize("model_value", [0.4, 0.3982, 0.3958, 0.35, 0.351])
+def test_no_p0_row_can_match_while_the_rate_definition_is_none(model_value):
+    point = e3_wiegart._published(
+        "loc", "optimal P_X(0)", 0.4, "probability", None, "decoder metric not stated"
+    )
+    assert point.rate_definition is None
+    for rate_def in (e3_wiegart.RATE_SMD, e3_wiegart.RATE_BMD):
+        model = e3_wiegart._ours("optimal P_X(0)", model_value, "probability", rate_def, "test")
+        result = compare(
+            point,
+            model,
+            tolerance=e3_wiegart.TOL_P0_UNUSED,
+            tolerance_justification="test",
+            not_applicable=e3_wiegart.NOT_APPLICABLE,
+        )
+        assert result.status is ComparisonStatus.NOT_COMPARABLE
+        assert "rate_definition is null" in result.reason
+
+
+def test_the_label_decides_match_or_mismatch_for_the_bit_metric_gains(monkeypatch):
+    shaped = symmetric_pmf(e3_wiegart.best_symmetric(1.0, "bmd").p0)
+
+    def bmd_gain():
+        return e3_wiegart.required_psnr_db_grid(
+            UNIFORM_PMF, 1.0, "bmd"
+        ) - e3_wiegart.required_psnr_db_grid(shaped, 1.0, "bmd")
+
+    gray = bmd_gain()
+    assert abs(gray - 0.71) <= e3_wiegart.TOL_GAIN_DB
+    # other Gray labellings (bit swap; bit complement with swap) give the same rates
+    for other in (((0, 0), (1, 0), (1, 1), (0, 1)), ((0, 1), (1, 1), (1, 0), (0, 0))):
+        monkeypatch.setattr(e3_wiegart, "_BITS", other)
+        assert bmd_gain() == pytest.approx(gray, abs=1e-6)
+    # a natural binary label is not Gray and moves the gain far outside the tolerance
+    monkeypatch.setattr(e3_wiegart, "_BITS", ((0, 0), (0, 1), (1, 0), (1, 1)))
+    natural = bmd_gain()
+    assert abs(natural - gray) > 10 * e3_wiegart.TOL_GAIN_DB
+    assert abs(natural - 0.71) > e3_wiegart.TOL_GAIN_DB  # W2 would be a MISMATCH
 
 
 def test_figure_rows_name_the_figure_and_the_axes(wiegart_rows):

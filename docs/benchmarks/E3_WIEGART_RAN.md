@@ -9,7 +9,7 @@ Configs: `configs/benchmarks/wiegart_2021_peak_pam4.yaml` (technical fields now 
 * Wiegart et al. (JLT 39(2), 400-405, 2021, DOI 10.1109/JLT.2020.3029371): reuse terms **UNVERIFIED**. No figure, no digitised or re-plotted point, no copied equation image and no copied or closely paraphrased sentence is in this repository. Numbers below are values the author manuscript states in its running text; a published point cannot be built from a figure (`ReadFrom` has no figure member). Where a figure would be needed the row says `NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED)` and names the figure and axes.
 * Ran et al. (Nat. Commun. 16, 6268, 2025, DOI 10.1038/s41467-025-61408-7): article CC BY-NC-ND 4.0, incompatible with this MIT repository. Only bibliographic strings and cited numeric facts (wavelength, measured dispersion, the two link lengths and lane rates, FEC thresholds) are used. Nothing of the article was read again for this gate.
 * Locations for Wiegart refer to the numbering of the author manuscript `2005.12428v2.pdf` (local file, ignored by git, SHA-256 starts `3a49c2f8`). Whether the JLT numbering is identical was not checked.
-* No parameter was adjusted to improve agreement. Tolerances were written into `e3_wiegart.py` before any deviation was computed and are pinned by a test.
+* No parameter was adjusted to improve agreement. The gain tolerance was written into `e3_wiegart.py` in the same commit as the computed rows, so the commit history cannot prove it was fixed before the deviations were seen; the order is the Dev's statement only. It is pinned by a test.
 
 ## Part 1. Wiegart: fixed-peak constrained PAM4
 
@@ -25,7 +25,7 @@ Our notation: transmit levels a_i = i (i = 0..3, unit spacing), PMF pi, channel 
 | Distribution family | symmetric about the mean, one free parameter P_X(0) in [0, 0.5], P_X(3) = P_X(0), P_X(1) = P_X(2) = (1 - 2 P_X(0)) / 2 (Sec. II, after Eq. 5) | `symmetric_pmf(p)`; p = 0.5 is on-off keying, p = 0.25 uniform |
 | Symbol-metric rate | R_SMD = I(X;Y) (Eq. 6) | R_S = I(X;Y), bits per channel use |
 | Bit-metric rate | R_BMD = [H(X) - sum_k H(B_k given Y)]^+ (Eq. 7), two-bit binary reflected Gray label | R_B with b(x) = x XOR (x >> 1): 0 to 00, 1 to 01, 2 to 11, 3 to 10. The paper names the code but prints no table; this is the standard four-point code and is our reading |
-| Fixed experimental PMF | (0.35, 0.15, 0.15, 0.35) (Sec. II and Fig. 4b caption text) | `FIXED_PMF` |
+| Fixed experimental PMF | (0.35, 0.15, 0.15, 0.35) (Sec. II running text after Fig. 2; the figure's tick labels repeat the numbers, the Fig. 4b caption does not) | `FIXED_PMF` |
 | Real or simulated | Eq. 3 results are numerical (information-theoretic); Sec. III results are measured, with a 5-tap (back-to-back) or 11-tap (fibre) FFE and an estimated rate | the compared rows are numerical only; measured rows are refused |
 
 The compared quantity is the **PSNR gain in dB**: PSNR a uniform 4-PAM needs to reach the target rate minus the PSNR the shaped PMF needs for the same rate, same peak, same noise.
@@ -40,7 +40,7 @@ The compared quantity is the **PSNR gain in dB**: PSNR a uniform 4-PAM needs to 
 ### Tolerances (fixed before the deviations were computed)
 
 * Gains in dB: **0.01 dB**. The paper prints two decimals (rounding alone is 0.005 dB); a further 0.005 dB allows for the line-search resolution and rate estimator it does not report. Our two methods agree far below this.
-* Optimal P_X(0): **0.05**. One printed decimal (rounding 0.05), and the paper itself says the nearby fixed PMF performs close to optimal over a wide range, so the optimum is flat and cannot be resolved finer than the printed digit.
+* Optimal P_X(0): **no match window**. The paper states no decoder metric for its value 0.4, so the comparison layer refuses the row (see W4a, W4b). A rounding-bound window of 0.05 was removed because it could not separate 0.40 from the paper's own fixed PMF value 0.35. `compare` still requires a tolerance argument; the refused rows pass the placeholder `TOL_P0_UNUSED = 0.01`, which is never used to accept or reject a number and must be decided again if the metric is ever stated.
 
 ### Matched-comparison table, Wiegart
 
@@ -51,9 +51,9 @@ Target rate 1.0 bit per channel use unless stated. "Dev" is ours minus the paper
 | W1 | Sec. II, text after Fig. 2 | PSNR gain of optimal PS over uniform 4-PAM, SMD, peak constraint, 1.0 bpcu: 0.83 dB | same, best symmetric PMF found by line search (p = 0.3982); uniform needs 13.6916 dB, shaped 12.8589 dB | 0.8328 dB | +0.0028 | 0.01 | MATCH |
 | W2 | Sec. II, text after Fig. 2 | same with BMD: 0.71 dB | same, best symmetric PMF (p = 0.3958); uniform 13.8538 dB, shaped 13.1441 dB | 0.7097 dB | -0.0003 | 0.01 | MATCH |
 | W3 | Sec. II, text after Fig. 2 | gain of the fixed PMF (0.35, 0.15, 0.15, 0.35), BMD, 1.0 bpcu: 0.63 dB | same PMF, same metric; fixed PMF needs 13.2270 dB | 0.6268 dB | -0.0032 | 0.01 | MATCH |
-| W4a | Sec. III, text on the dispersion-less optimum | optimal P_X(0) for the AWGN model at 1 bpcu: 0.4 (metric not stated) | SMD: least PSNR for 1.0 bpcu over p | 0.3982 | -0.0018 | 0.05 | MATCH |
-| W4b | Sec. III, same text | same value, metric not stated | BMD | 0.3958 | -0.0041 | 0.05 | MATCH |
-| W5 | Sec. II, text after Fig. 1 (qualitative) | the PSNR range where on-off keying is the optimal PMF is wider for BMD than for SMD | on-off keying stops being optimal at 10.70 dB (SMD) and 12.05 dB (BMD), 0.05 dB grid | ordering reproduced | n/a | n/a (ordering) | MATCH |
+| W4a | Sec. III, text on the dispersion-less optimum | optimal P_X(0) for the AWGN model at 1 bpcu: 0.4 (decoder metric not stated, so the published rate definition is null) | SMD optimum, least PSNR for 1.0 bpcu over p; information only, no match claim | 0.3982 | n/a | n/a | NOT COMPARABLE: rate_definition is null on the published side |
+| W4b | Sec. III, same text | same value, metric not stated | BMD optimum; information only, no match claim | 0.3958 | n/a | n/a | NOT COMPARABLE: rate_definition is null on the published side |
+| W5 | Sec. II, text after Fig. 1 (qualitative) | remark after Fig. 1, ordering only: BMD keeps two-level signalling optimal up to a higher PSNR than SMD | on-off keying stops being optimal at 10.70 dB (SMD) and 12.05 dB (BMD), 0.05 dB grid | ordering reproduced | n/a | n/a (ordering) | MATCH |
 | W6 | Fig. 1 | optimal P_X(0) against PSNR, SMD and BMD curves | not computed against the source | n/a | n/a | n/a | NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 1, x: PSNR [dB], y: P_X(0), both curves |
 | W7 | Fig. 2a, 2b | rate curves and the dB and bit gap annotations on them | not computed against the source | n/a | n/a | n/a | NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED). Needed: Fig. 2a (BMD) and 2b (SMD), x: PSNR [dB], y: rate [bit/channel use], curves and annotations |
 | W8 | Sec. II, text on the coded simulation | gain at a frame error rate of 1e-3 for a protograph LDPC code with PAS and CCDM | not computed | n/a | n/a | n/a | NOT COMPARABLE |
@@ -65,7 +65,7 @@ Other facts for the owner: the same theory also gives a rate gain at fixed PSNR;
 
 ### Honest reading
 
-All five numerical rows agree within the pre-declared tolerance. This is agreement of the information-theoretic AWGN model with the paper's own numbers. It does not validate any hardware, it does not say anything about the measured experiments (W9), and it is not evidence that OpticPS's adaptive policy achieves a measured shaping gain.
+Three numerical rows (W1 to W3) agree within the declared gain tolerance and the qualitative ordering (W5) is reproduced; W4a and W4b are refused. Both of our computed optima (0.3982 SMD, 0.3958 BMD) round to 0.4 at the paper's printed precision. That is an observation, not a match: the paper names no metric for 0.4, and the comparison layer refuses a row whose published rate definition is null. This is agreement of the information-theoretic AWGN model with the paper's own numbers. It does not validate any hardware, it does not say anything about the measured experiments (W9), and it is not evidence that OpticPS's adaptive policy achieves a measured shaping gain.
 
 ## Part 2. Ran: what can and cannot be said
 
@@ -104,14 +104,16 @@ Checks: explicit arithmetic in the test; agreement to 1e-12 with the existing li
 
 ## Comparison layer
 
-`published_points.py`: `PublishedPoint` (source id, location, quantity, value, unit, rate definition, wavelength, fibre length, constraint peak or average, baud rate, BER definition, FEC threshold, DSP stage, optical or electrical drive, evidence label simulated/mock/measured/analytical, read-from) and `ModelPoint`. `comparison.py`: `compare` refuses with `NOT COMPARABLE` and a reason when quantity, unit, rate definition, constraint, wavelength, fibre length, baud rate, BER definition, FEC threshold, DSP stage or drive differ, or when a field is null on either side (a field that really does not apply must be declared, and then both sides must leave it null). It never converts a unit. The tolerance and its written justification are required arguments. Tests show each refusal (wavelength, unit, rate definition, constraint, null field) and an accepted matched comparison.
+`published_points.py`: `PublishedPoint` (source id, location, quantity, value, unit, rate definition, wavelength, fibre length, constraint peak or average, baud rate, BER definition, FEC threshold, DSP stage, optical or electrical drive, evidence label simulated/mock/measured/analytical, read-from) and `ModelPoint`. `comparison.py`: `compare` refuses with `NOT COMPARABLE` and a reason when quantity, unit, rate definition, constraint, wavelength, fibre length, baud rate, BER definition, FEC threshold, DSP stage or drive differ, or when a field is null on either side (a field that really does not apply must be declared, and then both sides must leave it null). It never converts a unit. The tolerance and its written justification are required arguments; a deviation exactly equal to the tolerance counts as MATCH (closed window), and the result carries both evidence labels. A wavelength or baud rate that is zero, negative or not finite, or a fibre length below zero, cannot be put in a point. Tests show each refusal (wavelength, unit, rate definition, constraint, null field) and an accepted matched comparison.
 
 ## Limitations
 
 * Only numbers stated in running text were used. The figures carry the most informative content (curves, annotated gaps) and are untouched until the owner decides on the reuse terms; no figure was digitised.
-* The Gray label table is our reading of "binary reflected Gray code" for four points. The BMD rows depend on it; the SMD rows and on-off keying do not.
-* W1 to W4 compare against numbers the paper rounds to two decimals or one decimal; the tolerance reflects that, so these rows cannot distinguish differences below it. The paper's own gain annotation on the figure was not used and may differ from the text value in the last digit.
-* The metric for the 0.4 optimum (W4) is not stated; both are reported and both fall inside the tolerance.
+* The Gray label table is our reading of "binary reflected Gray code" for four points. The BMD rows depend on it; the SMD rows and on-off keying do not. The paper names Gray labelling, and every two-bit Gray labelling of 4-PAM gives the same BMD rates (tested with two other Gray labellings), so the reading is forced by that word and not a free choice. A natural binary label gives a clearly different BMD gain (2.16 dB for the Gray-optimal PMF, computed in a test) and the BMD rows W2 and W3 would then be MISMATCH. The label therefore decides MATCH or MISMATCH for W2 and W3.
+* W1 to W3 compare against numbers the paper rounds to two decimals; the tolerance reflects that, so these rows cannot distinguish differences below it. The paper's own gain annotation on the figure was not used and may differ from the text value in the last digit.
+* The metric for the 0.4 optimum (W4) is not stated, so W4a and W4b are NOT COMPARABLE. Both computed optima are shown for information only.
+* The tolerances were committed together with the computed rows; there is no earlier commit that fixes them, so "declared before the deviations" rests on the Dev's statement.
+* `compare` does not forbid a model point being compared with a measured published point. The result carries both evidence labels. A MATCH against a measured value is agreement of a model with a measurement under the stated conditions, not validation of the model. The E3 Wiegart rows compare analytical model values with numbers that are themselves numerical.
 * The manuscript is the arXiv v2 author version, which contains leftover draft text; whether the JLT version differs in numbers or numbering was not checked.
 * The Ran subcase is chirp-free, small-signal and ignores the fibre slope, the receiver response and all DSP; it is a bound on one mechanism, not a model of the link.
 * Numerical agreement with theory does not validate any hardware.

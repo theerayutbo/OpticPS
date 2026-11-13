@@ -55,7 +55,12 @@ from opticps.optimization.rates import achievable_rates, psnr_for_rate
 SOURCE_ID = "wiegart_2021_jlt"
 PEAK = 3.0
 UNIFORM_PMF = (0.25, 0.25, 0.25, 0.25)
-FIXED_PMF = (0.35, 0.15, 0.15, 0.35)  # the source's fixed experimental distribution (Sec. II)
+FIXED_PMF = (
+    0.35,
+    0.15,
+    0.15,
+    0.35,
+)  # the source's fixed experimental distribution (Sec. II running text)
 TARGET_RATE_BPCU = 1.0
 _LABELS = tuple(x ^ (x >> 1) for x in range(4))  # binary reflected Gray: 0, 1, 3, 2
 _BITS = tuple(((lab >> 1) & 1, lab & 1) for lab in _LABELS)  # (b1, b2) of each x
@@ -74,11 +79,16 @@ TOL_GAIN_WHY = (
     "0.005 dB is allowed for the line-search resolution and rate estimator the source does not "
     "report. Our two numerical methods agree to far better than this (tests)."
 )
-TOL_P0 = 0.05
-TOL_P0_WHY = (
-    "The source prints the optimal probability with one decimal (+-0.05 rounding), and says the "
-    "fixed distribution at 0.35 stays close to optimal over a wide range, so the optimum is flat "
-    "and cannot be resolved finer than the printed digit."
+# The optimal P_X(0) the source prints (0.4) has no decoder metric stated, so the published point
+# below carries rate_definition=None and `compare` refuses it before any deviation exists. The
+# tolerance argument of `compare` is still required; this value is never evaluated. It is below
+# the 0.05 gap between 0.4 and the source's fixed PMF value 0.35, so that it could not hide that
+# difference if the metric were ever stated. It is not a statement about the source's rounding.
+TOL_P0_UNUSED = 0.01
+TOL_P0_UNUSED_WHY = (
+    "Placeholder required by the comparison call. The published value has no stated decoder "
+    "metric, so the row is refused before a deviation is formed; this tolerance is never used "
+    "to accept or reject a number and must be decided again if the metric is ever stated."
 )
 
 
@@ -233,7 +243,7 @@ def _published(
     quantity: str,
     value: float,
     unit: str,
-    rate_definition: str,
+    rate_definition: str | None,
     note: str,
 ) -> PublishedPoint:
     return PublishedPoint(
@@ -308,20 +318,31 @@ def _gain_row(
 
 
 def _p0_row(row_id: str, metric: str) -> Row:
+    """Printed optimum P_X(0) = 0.4: the source states no decoder metric, so it stays None."""
     location = "Sec. III, running text on the dispersion-less model optimum"
     quantity = f"optimal P_X(0) of the symmetric family at R = {TARGET_RATE_BPCU:.1f} bpcu"
-    rate_def = RATE_SMD if metric == "smd" else RATE_BMD
     ours = best_symmetric(TARGET_RATE_BPCU, metric).p0
     result = compare(
-        _published(
-            location, quantity, 0.4, "probability", rate_def, "metric not stated for this value"
+        _published(location, quantity, 0.4, "probability", None, "decoder metric not stated"),
+        _ours(
+            quantity,
+            ours,
+            "probability",
+            RATE_SMD if metric == "smd" else RATE_BMD,
+            "line search over p, least PSNR for 1 bpcu",
         ),
-        _ours(quantity, ours, "probability", rate_def, "line search over p, least PSNR for 1 bpcu"),
-        tolerance=TOL_P0,
-        tolerance_justification=TOL_P0_WHY,
+        tolerance=TOL_P0_UNUSED,
+        tolerance_justification=TOL_P0_UNUSED_WHY,
         not_applicable=NOT_APPLICABLE,
     )
-    return Row(row_id, location, f"{quantity}: 0.4", f"{metric.upper()}: {ours:.4f}", result)
+    return Row(
+        row_id,
+        location,
+        f"{quantity}: 0.4 (decoder metric not stated)",
+        f"{metric.upper()} optimum {ours:.4f}, information only, no match claim "
+        "(it rounds to 0.4 at the source's printed precision)",
+        result,
+    )
 
 
 def wiegart_rows() -> list[Row]:
@@ -364,7 +385,8 @@ def wiegart_rows() -> list[Row]:
         Row(
             "W5",
             "Sec. II, running text after Fig. 1 (qualitative)",
-            "operation range of on-off keying is larger for BMD than for SMD",
+            "remark after Fig. 1, ordering only: BMD keeps two-level signalling optimal up to a "
+            "higher PSNR than SMD",
             f"OOK stops being optimal at {smd_t:.2f} dB (SMD) and {bmd_t:.2f} dB (BMD), "
             "0.05 dB grid",
             ComparisonResult(

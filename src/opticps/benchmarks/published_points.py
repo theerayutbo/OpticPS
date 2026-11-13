@@ -68,6 +68,8 @@ CONDITION_FIELDS = (
     "drive",
 )
 NUMERIC_CONDITIONS = frozenset({"wavelength_nm", "fibre_length_km", "baud_bd", "fec_threshold_ber"})
+# Numeric conditions that must be strictly positive (a zero wavelength or baud rate is no value).
+POSITIVE_CONDITIONS = frozenset({"wavelength_nm", "baud_bd"})
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -108,6 +110,8 @@ class Conditions:
                 raise BenchmarkError(f"{name} must be a number, got {value!r}")
             if not math.isfinite(value) or value < 0:
                 raise BenchmarkError(f"{name} must be finite and not negative, got {value!r}")
+            if name in POSITIVE_CONDITIONS and value == 0:
+                raise BenchmarkError(f"{name} must be positive, got {value!r}")
 
 
 def _check_value(value: float | None) -> None:

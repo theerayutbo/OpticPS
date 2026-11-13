@@ -8,7 +8,13 @@ conversion factor exists. A condition that really does not apply (an information
 has no wavelength) must be declared in `not_applicable`, and then both sides must leave it null.
 
 The tolerance and its justification are arguments, so they are written down before the
-deviation is looked at; the result records both.
+deviation is looked at; the result records both. A deviation exactly equal to the tolerance
+counts as MATCH (the window is closed: |deviation| <= tolerance); the deviation is formed in
+floating point, so a caller who needs a decision at the edge must not rely on rounding.
+
+The evidence labels of both points are carried into the result. They are not a condition: a model
+may be compared with a measurement. A MATCH then means agreement of the model with that
+measurement under the stated conditions, not validation of the model.
 
 Authored independently for this repository. It encodes no external software.
 """
@@ -25,6 +31,7 @@ from opticps.benchmarks.provenance import BenchmarkError, ErrorCode, check_text
 from opticps.benchmarks.published_points import (
     CONDITION_FIELDS,
     NUMERIC_CONDITIONS,
+    EvidenceLabel,
     ModelPoint,
     PublishedPoint,
 )
@@ -51,6 +58,8 @@ class ComparisonResult:
     tolerance: float | None = None
     tolerance_justification: str | None = None
     unit: str | None = None
+    published_evidence: EvidenceLabel | None = None
+    model_evidence: EvidenceLabel | None = None
 
     @property
     def code(self) -> ErrorCode | None:
@@ -133,6 +142,8 @@ def compare(
             tolerance=tolerance,
             tolerance_justification=justification,
             unit=published.unit,
+            published_evidence=published.evidence,
+            model_evidence=model.evidence,
         )
     assert published.value is not None and model.value is not None
     deviation = model.value - published.value
@@ -146,4 +157,6 @@ def compare(
         tolerance=tolerance,
         tolerance_justification=justification,
         unit=published.unit,
+        published_evidence=published.evidence,
+        model_evidence=model.evidence,
     )
