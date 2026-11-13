@@ -26,7 +26,7 @@ Read status of each external fact is in `SOURCE_REGISTER.md` (`verified` = raw r
 | BER definition, FEC threshold | n/a | n/a | thresholds K (2.4e-2, 3.8e-3); BER definition U | n/a |
 | Gross vs net rate | n/a | n/a | **U** | n/a |
 | Acquisition time, repeat structure | U (one file per length) | K repeated runs `v1..v3` at different time indices | n/a | n/a |
-| Distribution family, noise definition, AIR definition | n/a | n/a | n/a | U (not read in E0) |
+| Distribution family, noise definition, AIR definition | n/a | n/a | n/a | **K since E3** (symmetric PMF family, real AWGN with peak SNR 9/sigma^2, SMD and BMD rates; locations in `configs/benchmarks/wiegart_2021_peak_pam4.yaml` and `E3_WIEGART_RAN.md`); BMD label table not printed (our reading: binary reflected Gray) |
 | Source-data licence | n/a | n/a | **UNVERIFIED** | n/a |
 | Article licence | none identified | none identified | CC BY-NC-ND 4.0 | UNVERIFIED |
 | Local file present, hash verified | files present and hashed by the orchestrator 2026-10-31 (values in SOURCE_REGISTER.md); not verified by repository code until E1 runs `verify_local_asset`; unread | no | n/a | arXiv PDF in repo, hash recorded |
@@ -44,7 +44,7 @@ Read status of each external fact is in `SOURCE_REGISTER.md` (`verified` = raw r
 | G.652.D at 1271 nm preset | wavelength-aware dispersion model | n/a | Source 3: wavelength and dispersion K; OpticPS default is 1550 nm and must not be reused |
 | Ran headline rates (4x256, 4x200) | chirp model, drive, power, DSP, rate definition | n/a | **MODEL_GAP: CHIRP**; gross/net U; headline rates not reproducible; subcases only |
 | Ran published points | Source Data XLSX with usable licence | n/a | file not fetched, licence UNVERIFIED: analysis of numbers as publication data only after rights review |
-| Wiegart analytic curves | the paper's equations (E3) | n/a | possible from independent derivation; comparison with digitised figures needs the label `FIGURE-DIGITIZED / APPROXIMATE` and a rights review before publishing |
+| Wiegart analytic curves | the paper's equations (E3) | n/a | **done in E3** (`docs/benchmarks/E3_WIEGART_RAN.md`): comparison against numbers in running text only; figure values stay `NOT COMPARABLE: FIGURE VALUES NOT REDISTRIBUTABLE (LICENCE UNVERIFIED)`, nothing digitised |
 | Public release of derived data | licence | TERIPHIC derived statistics allowed under CC-BY with attribution; captures themselves stay out of Git | Ran data and Wiegart figures: not until resolved |
 | Validation of the adaptive shaping policy | shaped transmission | **NOT POSSIBLE** from uniform PAM4 data | not provided by any source |
 
