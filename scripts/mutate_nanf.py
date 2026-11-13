@@ -1769,6 +1769,18 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "    rop: Sequence[float] | FloatArray,\n    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,\n) -> B2bGate:",
         "    rop: Sequence[float] | FloatArray | None = None,\n    simulated_valid: Sequence[bool] | NDArray[np.bool_] | None = None,\n) -> B2bGate:",
     ),
+    (
+        "chain: calibration B2B check ignores the wavelength",
+        CH,
+        "            if r.link != LinkSpec() or r.frozen_record_hash is not None:",
+        "            if r.link.profile is not None or r.frozen_record_hash is not None:",
+    ),
+    (
+        "freeze: a dangling symlink record is not present",
+        FZ,
+        "    return FREEZE_RECORD_PATH.exists() or FREEZE_RECORD_PATH.is_symlink()",
+        "    return FREEZE_RECORD_PATH.is_file()",
+    ),
 ]
 
 

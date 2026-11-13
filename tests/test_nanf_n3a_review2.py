@@ -652,3 +652,33 @@ def test_a_declared_calibration_point_still_needs_a_scorable_run_without_a_recor
         nc.curve_arrays([nc.PointOutcome("s", -6.0, stamped)], calibration=True)
     clean = nc.PointOutcome("c", -6.0, scorable_result())
     assert nc.curve_arrays([clean], calibration=True).valid.tolist() == [True]
+
+
+def test_a_back_to_back_point_at_another_wavelength_is_not_a_calibration_point(monkeypatch):
+    """Review 4 finding 1: the wavelength half of the back-to-back check (profile None, 1460 nm)."""
+    monkeypatch.setattr(nc, "DECLARED_CALIBRATION_POINTS", frozenset({(100, -6.0, 0)}))
+    off = nc.LinkSpec(wavelength_nm=1460.0)
+    assert off.profile is None and off != nc.LinkSpec()
+    other = nc.PointOutcome("w", -6.0, scorable_result(link=off))
+    with pytest.raises(nc.NotScorableError, match="back-to-back"):
+        nc.curve_arrays([other], calibration=True)
+    clean = nc.PointOutcome("c", -6.0, scorable_result())
+    assert nc.curve_arrays([clean], calibration=True).valid.tolist() == [True]
+
+
+@pytest.mark.parametrize("kind", ["garbage", "dangling_symlink"])
+def test_calibration_is_refused_while_a_broken_record_exists(kind, tmp_path, monkeypatch):
+    """Review 4 finding 2: a garbage file or a dangling symlink at the record path counts."""
+    monkeypatch.setattr(nc, "DECLARED_CALIBRATION_POINTS", frozenset({(100, -6.0, 0)}))
+    clean = nc.PointOutcome("c", -6.0, scorable_result())
+    assert nc.curve_arrays([clean], calibration=True).valid.tolist() == [True]
+    record = tmp_path / "NANF_FREEZE_RECORD.json"
+    if kind == "garbage":
+        record.write_text("not json {{{")
+    else:
+        record.symlink_to(tmp_path / "missing_target.json")
+        assert not record.exists()
+    monkeypatch.setattr(nf, "FREEZE_RECORD_PATH", record)
+    assert nf.freeze_record_present()
+    with pytest.raises(nc.NotScorableError, match="once a freeze record exists"):
+        nc.curve_arrays([clean], calibration=True)
