@@ -99,7 +99,7 @@ table with the matrix.
 | T-B2B-M3 | CALIBRATION | EXTERNAL RAW CAPTURE |
 | T-B2B-M4 | CALIBRATION | EXTERNAL RAW CAPTURE |
 | T-E2C-A2 | FIT_INVALID | EXTERNAL RAW CAPTURE |
-| T-2KM | FAILED | EXTERNAL RAW CAPTURE |
+| T-2KM | FAILED | SIMULATED vs EXTERNAL RAW CAPTURE |
 | T-10KM | UNSPENT | UNKNOWN |
 | T-BER | REFERENCE_SEQUENCE_MISSING | UNKNOWN |
 | T-PRBS-B2B | INFERRED_REFERENCE | EXTERNAL RAW CAPTURE |
@@ -118,27 +118,75 @@ table with the matrix.
 | R3 | BLOCKED | UNKNOWN |
 | R4 | NOT COMPARABLE | SIMULATED |
 
-`CALIBRATION` marks a training-partition number: it carries no pass or fail claim. The other
-statuses are the words of the underlying record or of the comparison layer.
+`CALIBRATION` is this report's own word for a training-partition number: it carries no pass or fail
+claim. `UNSPENT` is the records' lowercase "unspent" (`E2_CLOSING_RECORD.md`) written as a status.
+`FAILED`, `FIT_INVALID`, `INFERRED_REFERENCE` and `REFERENCE_SEQUENCE_MISSING` are the records'
+exact words; `MATCH`, `NOT COMPARABLE`, `BLOCKED` come from the comparison layer.
+
+### Evidence label rule
+
+Only the five legend words `PUBLISHED DATA`, `EXTERNAL RAW CAPTURE`, `SIMULATED`, `DIGITIZED`,
+`UNKNOWN` are used, in one rule for the matrix, the figure legends and the table below:
+
+* a statistic computed from captures only carries `EXTERNAL RAW CAPTURE`;
+* a statistic that compares a simulated scenario with a capture names both, written
+  `SIMULATED vs EXTERNAL RAW CAPTURE` (the only combined label; the matrix and the figure checks
+  accept it and nothing else beyond the five words).
+
+Applied to TERIPHIC: row `T-2KM` and the "best of 123 scenarios" series are the psi of the best of
+123 simulated fibre scenarios scored against the 2 km capture, so they carry
+`SIMULATED vs EXTERNAL RAW CAPTURE`. The "B2B copy" series is the B2B capture's evaluation window
+scored against the 2 km capture with the same four metrics and limits (the comparator of
+`docs/benchmarks/FIT_HOLDOUT_PLAN.md` line 937, "The B2B evaluation window, normalised as above,
+scored against the holdout"; recorded as `b2b_copy` in `docs/benchmarks/teriphic_e2/two_km_result.json`).
+No simulation is involved, so it carries `EXTERNAL RAW CAPTURE`. The B2B misfit rows, the E2c row and
+the pattern-search row are statistics of captures only and carry `EXTERNAL RAW CAPTURE`. The first
+version of the figure labelled both series `SIMULATED`; that was wrong for the copy and is
+corrected here.
+
+### Code version, output hash and uncertainty
+
+Every matrix row carries three further fields.
+
+* `output_hash`: SHA-256 of a canonical serialisation of the row's reported values (id, our and
+  source value, unit, deviation, tolerance, status, labels; floats to 6 significant digits), so it
+  does not depend on the platform or on file bytes. The validator recomputes it, so a hand-edited
+  value is refused.
+* `code_version`: for the TERIPHIC rows computed in earlier gates, the commit that the source record
+  itself states (`head_commit` of `two_km_result.json`, of `law_model_v2.yaml`, of
+  `b2b_sequence_candidate.yaml`); a commit cannot name the file that holds it, so no commit of this
+  gate is written. The B2B misfit rows (the pre-registration states a model hash, no commit), `T-10KM`
+  and `T-BER` carry `null` with the reason. For the Wiegart and Ran rows, which the E3 modules
+  compute, it is the package version `opticps 1.2.0`;
+  `python scripts/build_evidence_matrix.py --check` proves the matrix equals the code at whichever
+  commit holds it.
+* `uncertainty`: a bound only where a committed record states one. The four B2B rows carry the
+  record's `b2b_window_spread` of the same metric (a spread over B2B windows, not a confidence
+  interval). All other rows carry `null` and the reason (the record states none, or no value
+  exists). No uncertainty was estimated for this report.
 
 ## Figures
 
-`scripts/make_benchmark_figures.py` regenerates all four; every plotted series has one legend label
-from `PUBLISHED DATA`, `EXTERNAL RAW CAPTURE`, `SIMULATED`, `DIGITIZED`, `UNKNOWN`, written as
-`<LABEL> | detail`. No series is `DIGITIZED`.
+`scripts/make_benchmark_figures.py` regenerates all five; every plotted series has one legend label
+following the rule above, written as `<LABEL> | detail`. No series is `DIGITIZED`. Each PNG holds
+a SHA-256 of its specification (series labels, evidence labels, title and the plotted numbers to
+5 significant digits) in the text chunk `OpticPS-figure-spec-sha256`; a test compares it with the
+code, so a relabelled series or a changed number fails without any pixel comparison.
 
 | File (`docs/benchmarks/figures/`) | Content | Series |
 |---|---|---|
 | `wiegart_gain_check.png` | W1 to W3: our gains and the numbers in the paper's running text, single points | SIMULATED, PUBLISHED DATA |
 | `wiegart_required_psnr.png` | our own required peak SNR against target rate, uniform and best symmetric PMF | SIMULATED |
 | `ran_chirp_free_response.png` | analytical chirp-free response at 5 and 10 km, no measured point | SIMULATED |
-| `teriphic_two_km_ratios.png` | 2 km metrics over their limits, from the committed scoring record | SIMULATED |
+| `teriphic_two_km_ratios.png` | 2 km metrics over their limits, from the committed scoring record; outcome FAILED | SIMULATED vs EXTERNAL RAW CAPTURE (best of 123 scenarios), EXTERNAL RAW CAPTURE (B2B copy) |
+| `teriphic_fibre_sensitivity.png` | psi of all 123 assumed fibre scenarios against assumed dispersion, from the committed scoring record and scenario list; titled PARTIAL/FAILED, 0 of 123 passed, not a fit | SIMULATED vs EXTERNAL RAW CAPTURE (six scenario families), EXTERNAL RAW CAPTURE (B2B copy) |
 
 Rights decision for the TERIPHIC figure: `SOURCE_REGISTER.md` records CC-BY-4.0 for the dataset at
 record level (verified in the Zenodo JSON and DataCite) and records public redistribution of derived
 data as allowed with attribution; its caution about vendoring applies to captures. The figure is
-drawn only from the committed 2 km scoring record (statistics derived from the captures, no
-samples) and carries the attribution line, so it is committed. No capture is opened by the figure
+drawn only from the committed 2 km scoring record and its scenario list (statistics derived from the
+captures, no samples) and carries the attribution line, so it is committed; the same holds for the
+fibre-sensitivity figure. No capture is opened by the figure
 script and the 10 km capture is not plotted. The Wiegart figures hold only our own curves and
 numbers from the running text; the Ran figure holds only the analytical curve.
 
@@ -150,8 +198,10 @@ numbers from the running text; the Ran figure holds only the analytical curve.
   UNVERIFIED)`.
 * Chirped-modulator model: `MODEL GAP: CHIRP`.
 * Wiegart figure values (W6, W7): not compared, licence unverified; nothing digitised.
-* Fibre-model sensitivity figure and measured-versus-predicted overlays from the roadmap: not made;
-  they need captures to be read again (the 2 km capture is no longer a holdout but its re-reading
-  was not part of E4) and no prediction aligned with the 10 km capture exists.
-* Per-row code version and output hash from the roadmap's matrix description: not recorded in the
-  matrix; the commit that holds the matrix identifies the code.
+* Measured-versus-predicted overlay: not made, because no aligned prediction passed (0 of 123
+  scenarios within the criterion at 2 km) and the 10 km capture is unspent and must not be read.
+* B2B, 2 km and 10 km capture-metric figure: not made, because the 10 km capture is unspent and
+  must not be read; the 2 km and B2B numbers appear in `teriphic_two_km_ratios.png`.
+* The fibre-sensitivity figure from the roadmap exists as `teriphic_fibre_sensitivity.png`, built
+  from the committed record only; it is a view of a failed holdout, not a fit.
+* Uncertainty: `null` for every row but the four B2B rows, because no committed record states one.
