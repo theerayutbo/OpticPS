@@ -1,0 +1,698 @@
+b2b_sequence_candidate_version: 1
+declared: B2B-only search for the transmitted pattern (plan R.2 characterisation), run once under prbs_search_prereg.md
+  (with amendment A1). The 2 km and 10 km files were not used, opened, hashed or linked. The sequence
+  is not stored.
+file: 50G_PAM4_PD1_B2B_Subassembly1.bin
+sha256: b9c5968ae4cac4ea53b6bbda62c7255b3ecfa2ff530985c1e4ae0f4e55b9e0b2
+samples: 40959993
+windows:
+  identification:
+  - 0
+  - 8388608
+  verification:
+  - 8388608
+  - 40959993
+normalisation:
+  c0: -0.00018433985085895875
+  g0: 0.006999456322514625
+  source: teriphic_e2/b2b_model.yaml (R13)
+head_commit: 13bbf492dd098fbaedf1fdfb795f62e991e506bc
+prereg_sha256: f234d4e5d4ee132348d86cd23a66ccf267461c1d8ce4041746c78e7d827fa961
+code_identity:
+  src/opticps/benchmarks/prbs_search.py: fa725849a8ecde963ec0fdd370db5fa8b510a59cdebdc765972a21895e30d63e
+  scripts/prbs_search_b2b.py: 057e805277853c6500e7171e7328d17148dc777090446b94d7c093e5178a5728
+seconds: 21.7
+status: INFERRED_REFERENCE (B2B only)
+provenance: INFERRED
+reference_sequence: REFERENCE_SEQUENCE_MISSING
+ber_and_ser: REFERENCE_SEQUENCE_MISSING
+proxy_name: symbol_mismatch_vs_inferred_sequence
+p2_period_scan:
+  period_symbols: 8128
+  lag_samples: 332922
+  r_at_period: 0.98049
+  largest_r: 0.98049
+  largest_r_lag_samples: 332922
+  lags_searched_samples:
+  - 4096
+  - 20479996
+  rule: smallest local maximum with r/r0 >= 0.5
+p3_timing:
+  spp_nominal: 40.959999999999994
+  spp_fitted: 40.959844690854766
+  offset_samples: 2.75
+  line_strength: 0.126584
+  symbols_total: 1000002
+  symbols_identification: 204800
+  symbols_verification: 795202
+  verification_line_phase_rms_symbols: 0.010735
+p3_decision_error_estimate:
+  estimate: 0.016205
+  means:
+  - -1.587462
+  - -0.505988
+  - 0.496964
+  - 1.571829
+  sigmas:
+  - 0.248205
+  - 0.222051
+  - 0.191436
+  - 0.287351
+  shares:
+  - 0.248928
+  - 0.245322
+  - 0.247616
+  - 0.258134
+p5_bm_candidates: []
+p6:
+  verified: true
+  a_mismatch_rate_within_limits: true
+  b_mismatches_at_low_margin: true
+  c_winner_syndrome_below_0.1: true
+  c_every_other_syndrome_above_0.4: true
+  not_unique: false
+  mismatch_rate: 0.013839
+  decision_error_estimate: 0.016205
+  mismatch_limit_2x_estimate: 0.03241
+  other_candidates_lowest_verification_syndrome: 0.491301
+  stats:
+    symbols: 795202
+    mismatches: 11005
+    mismatch_rate: 0.013839
+    low_margin_cutoff: 0.275832
+    mismatches_in_lowest_20pct_margin: 10919
+    share_in_lowest_20pct_margin: 0.992185
+    median_margin_of_mismatches: 0.050597
+  thresholds:
+    mismatch_factor: 2.0
+    mismatch_max: 0.1
+    low_margin_quantile: 0.2
+    low_margin_share: 0.9
+    winner_syndrome_max: 0.1
+    other_syndrome_min: 0.4
+winner:
+  kind: periodic
+  period_symbols: 8128
+  syndrome_verification: 0.021087723622425496
+  periodic_syndrome_is: fraction of symbols differing from the symbol P earlier
+p4_table:
+- candidate: PRBS7|gray|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.497267
+  syndrome_verification: 0.497288
+- candidate: PRBS7|gray|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.497502
+  syndrome_verification: 0.49738
+- candidate: PRBS7|gray-inv|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.508446
+  syndrome_verification: 0.508037
+- candidate: PRBS7|gray-inv|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.502498
+  syndrome_verification: 0.50262
+- candidate: PRBS7|natural|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.505556
+  syndrome_verification: 0.505807
+- candidate: PRBS7|natural|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.497659
+  syndrome_verification: 0.49738
+- candidate: PRBS7|natural-inv|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.494444
+  syndrome_verification: 0.494193
+- candidate: PRBS7|natural-inv|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.502498
+  syndrome_verification: 0.50284
+- candidate: PRBS7|swapped|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.499918
+  syndrome_verification: 0.500053
+- candidate: PRBS7|swapped|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.497659
+  syndrome_verification: 0.49738
+- candidate: PRBS7|swapped-inv|serial
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.500082
+  syndrome_verification: 0.499947
+- candidate: PRBS7|swapped-inv|lanes
+  lags:
+  - 7
+  - 6
+  syndrome_identification: 0.502498
+  syndrome_verification: 0.50284
+- candidate: PRBS9|gray|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.499237
+  syndrome_verification: 0.49905
+- candidate: PRBS9|gray|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.503972
+  syndrome_verification: 0.503811
+- candidate: PRBS9|gray-inv|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.495441
+  syndrome_verification: 0.495399
+- candidate: PRBS9|gray-inv|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.508059
+  syndrome_verification: 0.50798
+- candidate: PRBS9|natural|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.498705
+  syndrome_verification: 0.498445
+- candidate: PRBS9|natural|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.49301
+  syndrome_verification: 0.493976
+- candidate: PRBS9|natural-inv|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.501295
+  syndrome_verification: 0.501555
+- candidate: PRBS9|natural-inv|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.508059
+  syndrome_verification: 0.50798
+- candidate: PRBS9|swapped|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.498295
+  syndrome_verification: 0.498511
+- candidate: PRBS9|swapped|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.49301
+  syndrome_verification: 0.493976
+- candidate: PRBS9|swapped-inv|serial
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.501705
+  syndrome_verification: 0.501489
+- candidate: PRBS9|swapped-inv|lanes
+  lags:
+  - 9
+  - 5
+  syndrome_identification: 0.508059
+  syndrome_verification: 0.50798
+- candidate: PRBS11|gray|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.502924
+  syndrome_verification: 0.503404
+- candidate: PRBS11|gray|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.503753
+  syndrome_verification: 0.503497
+- candidate: PRBS11|gray-inv|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.499071
+  syndrome_verification: 0.49916
+- candidate: PRBS11|gray-inv|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.503753
+  syndrome_verification: 0.503497
+- candidate: PRBS11|natural|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.492755
+  syndrome_verification: 0.493281
+- candidate: PRBS11|natural|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.501082
+  syndrome_verification: 0.501349
+- candidate: PRBS11|natural-inv|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.507245
+  syndrome_verification: 0.506719
+- candidate: PRBS11|natural-inv|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.505789
+  syndrome_verification: 0.506232
+- candidate: PRBS11|swapped|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.494623
+  syndrome_verification: 0.494595
+- candidate: PRBS11|swapped|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.501082
+  syndrome_verification: 0.501349
+- candidate: PRBS11|swapped-inv|serial
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.505377
+  syndrome_verification: 0.505405
+- candidate: PRBS11|swapped-inv|lanes
+  lags:
+  - 11
+  - 9
+  syndrome_identification: 0.505789
+  syndrome_verification: 0.506232
+- candidate: PRBS13|gray|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.501034
+  syndrome_verification: 0.500665
+- candidate: PRBS13|gray|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.500339
+  syndrome_verification: 0.500368
+- candidate: PRBS13|gray-inv|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.509923
+  syndrome_verification: 0.509357
+- candidate: PRBS13|gray-inv|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.499661
+  syndrome_verification: 0.499632
+- candidate: PRBS13|natural|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.496796
+  syndrome_verification: 0.497355
+- candidate: PRBS13|natural|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.500662
+  syndrome_verification: 0.500471
+- candidate: PRBS13|natural-inv|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.503204
+  syndrome_verification: 0.502645
+- candidate: PRBS13|natural-inv|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.499661
+  syndrome_verification: 0.499632
+- candidate: PRBS13|swapped|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.501971
+  syndrome_verification: 0.501421
+- candidate: PRBS13|swapped|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.500662
+  syndrome_verification: 0.500471
+- candidate: PRBS13|swapped-inv|serial
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.498029
+  syndrome_verification: 0.498579
+- candidate: PRBS13|swapped-inv|lanes
+  lags:
+  - 13
+  - 12
+  - 2
+  - 1
+  syndrome_identification: 0.499661
+  syndrome_verification: 0.499632
+- candidate: PRBS15|gray|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.503681
+  syndrome_verification: 0.503871
+- candidate: PRBS15|gray|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.502869
+  syndrome_verification: 0.502694
+- candidate: PRBS15|gray-inv|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.502374
+  syndrome_verification: 0.502522
+- candidate: PRBS15|gray-inv|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.504851
+  syndrome_verification: 0.504918
+- candidate: PRBS15|natural|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.492916
+  syndrome_verification: 0.492707
+- candidate: PRBS15|natural|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.501565
+  syndrome_verification: 0.501179
+- candidate: PRBS15|natural-inv|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.507084
+  syndrome_verification: 0.507293
+- candidate: PRBS15|natural-inv|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.504851
+  syndrome_verification: 0.504918
+- candidate: PRBS15|swapped|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.499452
+  syndrome_verification: 0.499276
+- candidate: PRBS15|swapped|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.501565
+  syndrome_verification: 0.501179
+- candidate: PRBS15|swapped-inv|serial
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.500548
+  syndrome_verification: 0.500724
+- candidate: PRBS15|swapped-inv|lanes
+  lags:
+  - 15
+  - 14
+  syndrome_identification: 0.504851
+  syndrome_verification: 0.504918
+- candidate: PRBS20|gray|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.500154
+  syndrome_verification: 0.500146
+- candidate: PRBS20|gray|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.503072
+  syndrome_verification: 0.503198
+- candidate: PRBS20|gray-inv|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.499978
+  syndrome_verification: 0.50027
+- candidate: PRBS20|gray-inv|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.50188
+  syndrome_verification: 0.502046
+- candidate: PRBS20|natural|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.493427
+  syndrome_verification: 0.493034
+- candidate: PRBS20|natural|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.503072
+  syndrome_verification: 0.503198
+- candidate: PRBS20|natural-inv|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.506573
+  syndrome_verification: 0.506966
+- candidate: PRBS20|natural-inv|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.498008
+  syndrome_verification: 0.498216
+- candidate: PRBS20|swapped|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.497265
+  syndrome_verification: 0.497447
+- candidate: PRBS20|swapped|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.503072
+  syndrome_verification: 0.503198
+- candidate: PRBS20|swapped-inv|serial
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.502735
+  syndrome_verification: 0.502553
+- candidate: PRBS20|swapped-inv|lanes
+  lags:
+  - 20
+  - 3
+  syndrome_identification: 0.498008
+  syndrome_verification: 0.498216
+- candidate: PRBS23|gray|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.501161
+  syndrome_verification: 0.50129
+- candidate: PRBS23|gray|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.502327
+  syndrome_verification: 0.502137
+- candidate: PRBS23|gray-inv|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.499445
+  syndrome_verification: 0.499266
+- candidate: PRBS23|gray-inv|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.502327
+  syndrome_verification: 0.502522
+- candidate: PRBS23|natural|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.495746
+  syndrome_verification: 0.495981
+- candidate: PRBS23|natural|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.497693
+  syndrome_verification: 0.497478
+- candidate: PRBS23|natural-inv|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.504254
+  syndrome_verification: 0.504019
+- candidate: PRBS23|natural-inv|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.504588
+  syndrome_verification: 0.504153
+- candidate: PRBS23|swapped|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.502074
+  syndrome_verification: 0.502266
+- candidate: PRBS23|swapped|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.497693
+  syndrome_verification: 0.497478
+- candidate: PRBS23|swapped-inv|serial
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.497926
+  syndrome_verification: 0.497734
+- candidate: PRBS23|swapped-inv|lanes
+  lags:
+  - 23
+  - 18
+  syndrome_identification: 0.504588
+  syndrome_verification: 0.504153
+- candidate: PRBS31|gray|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.493223
+  syndrome_verification: 0.493126
+- candidate: PRBS31|gray|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.500061
+  syndrome_verification: 0.500218
+- candidate: PRBS31|gray-inv|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.498275
+  syndrome_verification: 0.498021
+- candidate: PRBS31|gray-inv|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.499939
+  syndrome_verification: 0.499782
+- candidate: PRBS31|natural|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.498727
+  syndrome_verification: 0.498652
+- candidate: PRBS31|natural|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.504505
+  syndrome_verification: 0.504322
+- candidate: PRBS31|natural-inv|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.501273
+  syndrome_verification: 0.501348
+- candidate: PRBS31|natural-inv|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.499939
+  syndrome_verification: 0.499782
+- candidate: PRBS31|swapped|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.508295
+  syndrome_verification: 0.508699
+- candidate: PRBS31|swapped|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.504505
+  syndrome_verification: 0.504322
+- candidate: PRBS31|swapped-inv|serial
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.491705
+  syndrome_verification: 0.491301
+- candidate: PRBS31|swapped-inv|lanes
+  lags:
+  - 31
+  - 28
+  syndrome_identification: 0.499939
+  syndrome_verification: 0.499782
