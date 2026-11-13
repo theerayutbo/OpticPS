@@ -1,5 +1,8 @@
 # Benchmark source: Wiegart et al., JLT 39(2), 400-405 (2021). Bibliographic data re-read 2026-10-31 as raw Crossref JSON.
-# The IEEE page was not readable; the paper body was NOT read in gate E0, so every technical field is null.
+# The IEEE page was not readable. Gate E0 did not read the paper body, so its technical fields were null.
+# Gate E3 read the author manuscript (arXiv 2005.12428v2, local file, SHA-256 starting 3a49c2f8) and
+# filled the fields below from it; source_ref locations are the numbering of that manuscript
+# (the published JLT numbering was not checked). A field the manuscript does not state stays null.
 benchmark_config_version: 1
 source:
   source_id: wiegart_2021_jlt
@@ -22,6 +25,14 @@ source:
   parameters:
     modulation_order: {value: 4, provenance: PUBLISHED_MEASUREMENT, source_ref: "title: 4-PAM", read_how: verified}
     constraint: {value: "peak power constraint", provenance: PUBLISHED_MEASUREMENT, source_ref: "title", read_how: verified}
-    distribution_family: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
-    noise_definition: {value: null, provenance: UNKNOWN, as_stated: "not read in E0; to be taken from the paper in E3"}
+    distribution_family: {value: "symmetric about its mean: P(0)=P(3)=p, P(1)=P(2)=(1-2p)/2, p=P_X(0) in [0, 0.5] (p=0.5 is on-off keying, p=0.25 uniform)", provenance: PUBLISHED_MODEL_ASSUMPTION, source_ref: "arXiv v2 Sec. II, text after Eq. (5)", read_how: verified}
+    noise_definition: {value: "real additive white Gaussian noise, zero mean, variance sigma^2, in the electrical domain: Y=|X|+N_el; peak SNR (PSNR) = max{X}^2/sigma^2 = 9/sigma^2", provenance: PUBLISHED_MODEL_ASSUMPTION, source_ref: "arXiv v2 Sec. II, Eq. (3) and Eq. (4)", read_how: verified}
+    rate_definition: {value: "R_SMD = I(X;Y) (Eq. 6) and R_BMD = [H(X) - sum_k H(B_k|Y)]^+ (Eq. 7), bits per channel use; two-bit binary reflected Gray labels (the label table is not printed); experiments report estimates of the same two rates", provenance: PUBLISHED_MODEL_ASSUMPTION, source_ref: "arXiv v2 Sec. II, Eq. (5) to Eq. (7); Sec. III for the estimates", read_how: verified}
+    wavelength_nm: {value: 1550, provenance: PUBLISHED_MEASUREMENT, unit: nm, source_ref: "arXiv v2 Sec. III, experimental setup (external cavity laser); applies to the experiments only, the AWGN theory has no wavelength", read_how: verified}
+    dispersion_ps_per_nm_km: {value: 17, provenance: PUBLISHED_MEASUREMENT, unit: "ps/(nm km)", as_stated: "D = 17 ps/(nm km) for the standard single-mode fibre of the experiment", source_ref: "arXiv v2 Sec. III, experimental setup; a stated fibre parameter, not a measured one", read_how: verified}
+    equalizer: {value: "linear feed-forward equalizer, 5 taps for back-to-back, 11 taps for fibre transmission", provenance: PUBLISHED_MEASUREMENT, source_ref: "arXiv v2 Sec. III, offline DSP", read_how: verified}
+    transmitter_type: {value: "arbitrary waveform generator driving a Mach-Zehnder modulator in its linear regime, same peak-to-peak drive for all constellations", provenance: PUBLISHED_MEASUREMENT, source_ref: "arXiv v2 Sec. II (equal drive) and Sec. III (setup)", read_how: verified}
+    detector: {value: "45 GHz photodetector followed by a low-noise electrical amplifier", provenance: PUBLISHED_MEASUREMENT, source_ref: "arXiv v2 Sec. III, experimental setup", read_how: verified}
+    baud_bd: {value: null, provenance: UNKNOWN, as_stated: "a range of symbol rates (8 to 32 GBd) is stated, not a single baud rate; recorded per point instead"}
+    fibre_length_km: {value: null, provenance: UNKNOWN, as_stated: "several lengths are swept; recorded per point instead"}
     reference_sequence: {value: null, provenance: UNKNOWN, as_stated: "not applicable until experimental data are identified"}

@@ -1,6 +1,7 @@
 # Benchmark source: Ran et al., Nature Communications 16, 6268 (2025). Publication only; no source-data file fetched.
 # Re-read 2026-10-31 as raw Europe PMC full-text XML (PMC12234763) and Crossref JSON; the nature.com
 # article page itself was not readable (cookie handshake redirect). Unknown fields stay null.
+# Gate E3 (2026-11): Source Data XLSX still not obtained; chirp status stays MODEL_GAP; no value added here.
 benchmark_config_version: 1
 source:
   source_id: ran_2025_nature_comms
@@ -39,3 +40,4 @@ source:
     rate_definition: {value: null, provenance: UNKNOWN, as_stated: "gross versus net not stated: no occurrence of gross, net or overhead in the raw Europe PMC full-text XML"}
     ber_definition: {value: null, provenance: UNKNOWN, as_stated: "no formal BER definition found by keyword search of the raw Europe PMC full-text XML"}
     chirp_model_status: {value: "MODEL_GAP", provenance: INFERRED, source_ref: "OpticPS MZM model is chirp-free; paper controls chirp in a silicon MZM"}
+    fibre_length_km: {value: null, provenance: UNKNOWN, as_stated: "two lengths (5 km and 10 km) are reported with different lane rates; they are carried per comparison row in src/opticps/benchmarks/e3_ran.py, not as one value"}
