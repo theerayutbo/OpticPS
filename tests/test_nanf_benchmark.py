@@ -40,7 +40,7 @@ DATA_DIR = Path("data/external/nanf_hong2021")
 PLAN_SHA256_ORIGINAL = "c4771dc125c3daeaf28b429de2f31f3ca25a5d3645a6f59e1d8dd9b9bf0bef22"
 # Pin after Amendment 1 (commit 843d223); replaced at Amendment 2 (Gate N1), then at Amendment 3
 # (N1 fix round), then at Amendment 4 (N2 fix round), then at Amendment 5 (Gate N3 step 1), then at
-# Amendment 6 (N3 part a fix round), then at Amendment 7 (lost-lock runs), then at Amendment 8 (second review), then at Amendment 9 (closing review), then at Amendment 10 (fourth review).
+# Amendment 6 (N3 part a fix round), then at Amendment 7 (lost-lock runs), then at Amendment 8 (second review), then at Amendment 9 (closing review), then at Amendment 10 (fourth review), then at Amendment 11 (N3 part b).
 PLAN_SHA256_AMENDMENT1 = "92b20966c409958729946f31243216b49fe796d7b9f4ac22f33f30c854dce5c0"
 PLAN_SHA256_AMENDMENT2 = "ec0f325a118fcc8162e21de2b6acf1662b6d3ea6db14bfed0c3a507ff2827aa5"
 PLAN_SHA256_AMENDMENT3 = "0a3897ad0b22acca7710faf61acc40d97f846c6829eb6fc26e1ece3f7ff4f2c4"
@@ -50,7 +50,8 @@ PLAN_SHA256_AMENDMENT6 = "2127d883702715a3432cb8d25ed2f5a970a8910b46368ad2ed50cb
 PLAN_SHA256_AMENDMENT7 = "34a06373755c25167453da35225ab7b01dbc48af373344706e7bb000f736c623"
 PLAN_SHA256_AMENDMENT8 = "2f56696f0398bd5bbd8f306bde536657bb380f4b886929e63d605e0cbcabf4c6"
 PLAN_SHA256_AMENDMENT9 = "2ad3c7af660d836cb4d31238a6658b2dff9623d858ef415a9999e776422301f5"
-PLAN_SHA256 = "d350fe85b125c7a5d726c8456f89fed182532188e6a22ce59b44b935f5f159c6"
+PLAN_SHA256_AMENDMENT10 = "d350fe85b125c7a5d726c8456f89fed182532188e6a22ce59b44b935f5f159c6"
+PLAN_SHA256 = "3ed57c6ea77f094e29a39d2e2bbd304cd5585eb5a2742983e99c22c47988514d"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -378,6 +379,41 @@ def test_plan_text_before_amendment_10_is_unchanged_and_amendment_10_states_resi
         "is a limit, not a repair",
         "`require_freeze` at the read",
         "no source behaviour",
+    ):
+        assert needle in amendment, needle
+    assert LABEL in amendment and "expected FAIL at 2.0 GHz" in amendment.split("### H-Z")[1]
+    assert raw.startswith(prefix) and len(raw) > len(prefix)  # append-only
+
+
+def test_plan_text_before_amendment_11_is_unchanged_and_amendment_11_fixes_the_fit() -> None:
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 11")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT10
+    text = raw.decode()
+    amendment = text.split("## Amendment 11")[1]
+    assert PLAN_SHA256_AMENDMENT10 in amendment and PLAN_SHA256 not in text
+    assert "2026-11-13" in amendment.splitlines()[0] and text.count("## Amendment 11") == 1
+    for needle in (
+        "before any calibration fit and before any holdout scoring",
+        "the sum of the squares of that vector, unweighted",
+        "costs +infinity",
+        "SeedSequence([20261101, 4101])",
+        "at most 70 cost evaluations",
+        "1 + 24 + at most 45",
+        "`converged` means that the stop tolerances were met before the budget ended",
+        "`CALIBRATION NOT CONVERGED`",
+        "no extra budget without a new amendment",
+        "lowest finite cost in the whole log",
+        "refuses to start if a log exists",
+        "never restarts",
+        "`DECLARED_CALIBRATION_POINTS`",
+        "`DECLARED_POINT_INDICES`: 0 to 18",
+        "`DECLARED_LINKS`",
+        "`NOT RUN (links not declared)`",
+        "`NOT BUILT`",
+        "The holdout is not fully blind",
+        "is added to the entry modules of the code identity",
+        "Amendments 7 and 8 except as corrected by Amendment 9",
     ):
         assert needle in amendment, needle
     assert LABEL in amendment and "expected FAIL at 2.0 GHz" in amendment.split("### H-Z")[1]

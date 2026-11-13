@@ -1241,3 +1241,136 @@ Everything in H-Z of Amendment 9 stands: the label (**`LITERATURE BENCHMARK / CA
 holdout split, "no per-fibre retuning", the 6-parameter cap, every tolerance and threshold of section 4, the trace cap pin of
 G1 at 1e10, C6 as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no criterion is dropped, relaxed or added
 after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 11 (2026-11-13, Gate N3 part b: the fit, the declared sets and the holdout run, fixed before any fit)
+
+Previous SHA-256 of this file, pinned until now (Amendment 10, commit 0ecfe45):
+`d350fe85b125c7a5d726c8456f89fed182532188e6a22ce59b44b935f5f159c6`. The new pin is in
+`tests/test_nanf_benchmark.py`. The text above this heading is unchanged (append-only; this amendment adds lines and
+removes none, and a test checks that the text before this heading hashes to the previous pin). Where this amendment and
+anything above differ, this amendment governs. It was made before any calibration fit and before any holdout scoring: no fit
+has run, no freeze record or calibration artefact exists, the workbook was not opened for it, and no value of any series was
+read for it. It changes no tolerance, threshold, label, split or criterion. The plan was silent on the items below: the
+reduction of the residual vector to one number, the optimiser with its start, seeds, budget and stop rule, the point indices
+and links of the holdout, and the holdout run itself. They are fixed here so that the fit cannot be tuned by rerunning it.
+Evidence: the scout record of N3 (`handoff/N3_scout.md`, section 7, items 1 to 4 and 8).
+
+### J-A. The cost (completes B4.2 and G-D)
+
+1. The residual vector holds, for each rate 80, 100 and 112 Gb/s in that order, over the B2B points with ROP at most -5 dBm (A4)
+   in axis order: the SNR residual (simulated minus published, in dB); then, for each of those points whose published BER is not
+   censored (A4, the censoring rule of `is_censored` for published values), the residual (log10 of the simulated BER minus log10
+   of the published BER) divided by 0.5. A simulated run with zero errors enters as the BER 1/N_b, with N_b = 2 x (655200 - 8192)
+   = 1 294 016 bits, the resolution of the capture (F2, F7.3). The simulated BER at a published censored cell is a diagnostic and
+   never a term.
+2. The cost is the sum of the squares of that vector, unweighted. There are 24 SNR terms and one BER term for every uncensored
+   published cell among the 24 points.
+3. A vector for which any of the 24 points loses lock (H1) costs +infinity (H4). All 24 points of an evaluation are run, so that
+   every lost point is listed. Such a vector is logged and is never selected.
+
+### J-B. The optimiser, deterministic, at most 70 cost evaluations
+
+All six parameters are scaled to u in [0, 1] as in B4.2. No evaluation leaves the box; a trial point outside it is clipped to the
+edge, and no range is widened. The cost of J-A is a sum of squares, so the search uses the residual vector it already has.
+
+1. Start point: the B4 priors (one evaluation).
+2. Design: 24 points, a Latin hypercube in u, drawn from `numpy.random.default_rng(numpy.random.SeedSequence([20261101, 4101]))`.
+   For each parameter in the order of the table of B4.1, one `permutation(24)` and then one `random(24)` are drawn, and the
+   coordinate of point k is (permutation[k] + random[k]) / 24. The 24 points are evaluated in the order k = 0 to 23.
+3. Local search: a bounded damped Gauss-Newton search (Levenberg-Marquardt with Marquardt scaling) from the lowest finite cost
+   among the 25 points above (ties by evaluation order). If no cost is finite, N3 stops with `NO VALID FIT` and goes to the
+   owner. The Jacobian of the residual vector with respect to u is formed by forward differences of 0.03 (backward at the upper
+   edge): six evaluations, each of them an evaluation of the log. A Jacobian point that loses lock ends the search as not
+   converged. The damping starts at 1; a trial step solves (J^T J + damping x diag(J^T J)) step = -J^T r on the parameters not
+   pushed outward at a range edge, and the trial point is clipped to the box. A trial that has a finite cost below the best cost
+   is accepted: the damping is halved (not below 1e-6) and the Jacobian is updated by Broyden's rank-one formula, with no new
+   evaluation. Any other trial multiplies the damping by 3. When the damping would exceed 1e4, one fresh finite-difference
+   Jacobian is formed at the current point (6 evaluations) and the damping restarts at 1; a second failure with a fresh Jacobian
+   ends the search as stalled, which is not converged.
+4. Budget: at most 70 cost evaluations in total (1 + 24 + at most 45), counted in the evaluation log. The 71st is never started;
+   a move that would need it is dropped.
+5. `converged` means that the stop tolerances were met before the budget ended: an accepted step that moves no coordinate by more
+   than 0.02 in u and lowers the cost by at most 2 percent. If every free parameter is pushed outward at a range edge, the point
+   is stationary on the edges and the search ends as converged.
+6. If the budget ends first, or the search stalls, N3 stops with `CALIBRATION NOT CONVERGED`, writes no artefact and goes to the
+   owner. There is no second optimiser, no restart, no wider range and no extra budget without a new amendment.
+7. Why this scheme, and why not a simplex search: the plan author expected a derivative-free simplex search. On a synthetic
+   smooth six-parameter test with the same box and cost (the stub chain of the tests, no real data), a bounded Nelder-Mead from
+   the same start (a simplex step of 0.10, tolerances 0.05 in u and 5 percent of the cost) needed 87 to 148 evaluations in total,
+   62 to 123 after the design, in each of 12 cases and met them inside 70 in none, so it cannot meet a stop rule inside 45. The damped Gauss-Newton search with secant updates uses one evaluation per step after the first
+   Jacobian. It reached the tolerances inside 70 evaluations on 7 of the same 12 cases (40 to 66 evaluations) and reported not converged on
+   the other five;
+   it is a local search and makes no claim to find a global minimum. The claim is only that the rule was fixed before the first
+   run.
+
+### J-C. Selection, range edges and the steps after the fit
+
+1. The selected vector is the lowest finite cost in the whole log (`select_best`), ties by evaluation order. A selected
+   coordinate within 1e-9 of a range edge in u is reported as "at range edge". A range is never widened.
+2. Then, in this order and once each: `check_chosen_fit`; the B4 identifiability check at the selected vector (the centre and
+   twelve finite-difference evaluations, outside the 70 of J-B; a lost-lock point makes it undefined and N3 stops, H4); a
+   flagged parameter is set to its prior (B4.4); the B2B gate of B3.2 per rate at the vector that is hashed (one more evaluation
+   unless no parameter was flagged); then the artefact. Worst case: 70 + 13 + 1 evaluations of 24 points, about 2000 point runs,
+   about 8 hours on one core (G9) and about 4 hours with six processes.
+3. The artefact records `fit_result` with `method` "latin-hypercube-24+damped-gauss-newton-bounded", `converged`, `n_evaluations` (the
+   number of evaluations in the log), `n_calibration_points` 24 and `cost` (of the selected vector). A gate that fails labels its
+   rate `B2B CALIBRATION POOR` (B3.2) and stops nothing.
+
+### J-D. One run only
+
+The evaluation log is a file with one header line (the plan SHA-256, the code identity, the seed and the budget) and one line per
+evaluation (its vector, cost, lost points and residual vector). The fit driver refuses to start if a log exists whose header differs from the plan, code and seed now. A log with the
+same header is a resume: the driver replays the recorded evaluations in order, checks that each recorded vector is the vector the
+optimiser asks for (any difference is a refusal), and continues; it never restarts. Up to six processes may run the 24 points of
+one evaluation; the noise streams depend only on the rate and the point index (F4.2), so the result equals the serial result.
+
+### J-E. The declared sets (F4.2, G-C, H-A)
+
+1. `DECLARED_CALIBRATION_POINTS`: the triples (rate, -12.0 + k, k) for k = 0 to 7 and the three rates, 24 points. The Fig.4 B2B
+   axis has 11 points from -12 to -2 dBm and the three points at -4, -3 and -2 lie above the cap (Sources, the N0 shape check;
+   A4), so eight points per rate are scored. The step of one dB is the reading of "11 points from -12 to -2" and is not read
+   from the workbook for this amendment. The fit driver compares the published axis with these 24 points before the first run
+   and refuses on any difference, so a wrong reading stops N3 and does not change the fit.
+2. `DECLARED_POINT_INDICES`: 0 to 18. The point index is the position of the point, counted from 0, on the published axis of the
+   series being simulated, in the order the importer returns it (ascending ROP, ascending wavelength). The counts stated in
+   committed text are 6 points for Fig.4 NANF, 11 for Fig.4 B2B and SSMF, and 19 wavelengths for Fig.5 and Fig.6 (B2). A
+   no-fibre run for d uses the index of the NANF point it accompanies (F4.2, B3.1). No count or axis was read from the workbook
+   for this.
+3. `DECLARED_LINKS`: two links at 1550 nm, built as `numerical_profile` of the benchmark module: NANF 4.76 km with D 2.04 and SSMF
+   4.53 km with D 15.95 ps/(nm km) (A1.3, Sources). Loss is zero in the profile because the received power is matched (F4.6). A
+   test checks that the declared profiles equal the benchmark module's.
+4. Not declared here: the links at the 19 wavelengths of Fig.6. They need the paper's D(wavelength) tables of Fig.1(a), which are
+   workbook values of the calibration partition and were not read for this amendment. Until a later amendment declares them, a
+   run at another wavelength is not scorable (G-C), the holdout runner reports C5 as `NOT RUN (links not declared)`, and with a
+   primary criterion not run the verdict is `INCOMPLETE: primary criterion C5 not run`, never "consistent with this one
+   experiment". Nothing is dropped or relaxed: the criterion is open.
+
+### J-F. C6 to C8
+
+The OFDM chain does not exist (F9) and is not built here. C6, C7 and C8 are reported `NOT BUILT`. C6 stays pre-registered as an
+expected FAIL at 2.0 GHz (A1.4); that is an expectation and no result. They are secondary (section 4) and never enter the primary
+verdict.
+
+### J-G. The holdout run
+
+1. Order: `require_freeze` first; then the marker; then one read of the workbook with `include_holdout=True` and the freeze
+   hash. The runner needs a record that verifies now and refuses without one.
+2. The marker is the file `docs/benchmarks/NANF_HOLDOUT_READ.json`. It is written before the read and holds the freeze hash. A later
+   run under the same hash (the same vector) is allowed; a later run under another record is refused, so no scoring follows a change
+   of parameters.
+3. Simulated, with `run_point` and `curve_arrays` (scoring mode, under the record): NANF and SSMF at 1550 nm at the points of
+   their axes with ROP at most -5 dBm, the no-fibre run (back-to-back link) at the NANF ROPs with the NANF indices, and the 24
+   B2B calibration points for the gate of B3.2. Lost points are listed (H1).
+4. Scored: C1, C2 and C3 per rate, C4 as secondary, the B2B-copy comparator (A2, D3.1), d (B3.1) and the gate. The report names the
+   label **`LITERATURE BENCHMARK / CALIBRATION ONLY`**, states in these words "The holdout is not fully blind" (G-A), says
+   "consistent with one published experiment" at most, lists C5 and C6 to C8 as in J-E.4 and J-F, and never calls the result a
+   validation. The model is not retuned after a number is seen (section 4).
+5. The module of the holdout runner is added to the entry modules of the code identity (F8, G5), so an edit to it after the freeze
+   relocks the holdout. The fit driver is not: it runs before the freeze and the vector it produces is hashed.
+
+### H-Z. Unchanged, restated in full
+
+The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and holdout split, "no per-fibre retuning", the
+6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
+Amendments 7 and 8 except as corrected by Amendment 9, C6 as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no
+criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
