@@ -9,6 +9,9 @@ mutant for the wrong reason). In a repository without the criterion they fail by
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -80,22 +83,42 @@ def test_the_power_study_is_committed_and_covers_the_stated_cases():
     assert all(case["windows"] >= 5 for case in study["cases"].values())
 
 
-def test_the_10km_stage_is_not_frozen_yet_and_no_result_exists():
-    """E2b commits the 2 km record and `selected_scenario.yaml` after the 2 km stage; until then
-    10 km is refused."""
+def test_the_10km_stage_is_refused_after_the_2km_fail_and_no_10km_result_exists():
+    """E2b committed the 2 km record with outcome FAIL: nothing is carried, no scenario is selected,
+    and the 10 km stage is refused on both declared stages; no 10 km result exists."""
     assert not (ROOT / e2_score.SELECTED_PATH).exists()
-    assert not (ROOT / e2_score.TWO_KM_RESULT_PATH).exists()
+    record_path = ROOT / e2_score.TWO_KM_RESULT_PATH
+    assert record_path.is_file()
+    committed = subprocess.run(
+        ["git", "-C", str(ROOT), "show", f"HEAD:{e2_score.TWO_KM_RESULT_PATH.as_posix()}"],
+        capture_output=True, check=True,
+        env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")},
+    ).stdout  # fmt: skip
+    assert record_path.read_bytes() == committed
+    record = json.loads(committed)
+    assert record["outcome"] == "FAIL"
+    assert record["carry_forward"] == []
     assert (ROOT / e2_score.EVALUATION_SCRIPT).is_file()
     registered = yaml.safe_load((ROOT / e2_score.PREREGISTRATION_PATH).read_bytes())
     assert registered["results"] is None
+    locked = assets()[Split.LOCKED_TEST]
     with pytest.raises(Exception, match="selected_scenario|not committed|cannot be read"):
         holdout.require_frozen_criterion(
-            assets()[Split.LOCKED_TEST],
+            locked,
             plan_path=ROOT / holdout.DEFAULT_PLAN,
             repo_root=ROOT,
-            inputs=e2_score._inputs(assets()[Split.LOCKED_TEST], ROOT),
+            inputs=e2_score._inputs(locked, ROOT),
             validation_stage=holdout.ValidationStage.NOT_FAILED,
         )
+    with pytest.raises(holdout.StageRefused, match="2 km stage FAILED"):
+        holdout.require_frozen_criterion(
+            locked,
+            plan_path=ROOT / holdout.DEFAULT_PLAN,
+            repo_root=ROOT,
+            inputs=e2_score._inputs(locked, ROOT),
+            validation_stage=holdout.ValidationStage.FAILED,
+        )
+    assert not list((ROOT / "docs/benchmarks/teriphic_e2").glob("*10km*"))
 
 
 def test_the_known_limits_say_the_guard_has_a_caller_and_the_plan_says_so_too():
