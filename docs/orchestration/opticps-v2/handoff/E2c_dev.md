@@ -49,3 +49,32 @@ ruff, format, mypy (66 files), license audit (34, 0 flagged), anchor 15 passed; 
 2 failed: (1) the E2 source scan needed e2c_calibration.py on its reader allowlist (fixed in the next commit,
 re-run passed); (2) test_benchmark_e2_freeze::test_the_10km_stage_is_not_frozen_yet... already fails at b48dc1a
 (stale since E2b committed two_km_result.json); not touched, needs an owner decision.
+
+## A2 result
+Fit by commit 861ee6b under the A2 plan f9386d7; record `docs/benchmarks/teriphic_e2c/law_model_v2.yaml` (commit 7348b9c).
+Provenance checked: its `head_commit` and the four `code_identity` hashes equal the files at 861ee6b, the plan sha256 and
+`amendment_a2_commit` match, and no file under src/, scripts/ or tests/ differs from 861ee6b except the stale test.
+
+Objectives: identity 0.191165, poly_b0 0.190892, poly_a0 0.150031, tanh 0.146819, poly 0.140582.
+
+Acceptance (result-blind, fixed before the fit):
+- AC1 nested inequality (tolerance 1e-6): HOLDS. poly <= min(poly_b0, poly_a0) <= identity, tanh <= identity.
+- AC2 reported optimum is the lowest run per profile: HOLDS for all five profiles.
+- AC3 stationarity (fresh-simplex gain from the reported optimum): HOLDS, gain 1.345e-05 against threshold 1e-4.
+- AC4 two-basin agreement (at least 2 of 11 starts end within 1e-3 of the optimum): FAILS. Only start 3 (0.140582, the
+  optimum) agrees. Start 10 ended at 0.141589, 0.0010072 above the optimum, 7.2e-6 outside the 1e-3 tolerance. The other
+  starts ended between 0.153 and 0.239.
+
+Status: FIT_INVALID, S2 not evaluable. R6 was not evaluated; `predict` refuses.
+
+Decision of record: unchanged from v1, CLOSE_PARTIAL at S2 (R6). `power_study_e2c.py decide` was run, as A2 defines for an
+INVALID fit, and wrote `power_study_e2c_v2.yaml` (commit 0b185a2) with `decision: null`, `a2_status: FIT_INVALID, S2 not
+evaluable` and `decision_of_record: CLOSE_PARTIAL, S2 (v1)`. No fit was run for it.
+
+Closing: E2 closes at PARTIAL. The 10 km holdout is unspent. H2 gets no third attempt (D15/A2). AC4 is not loosened after
+the fact: the 1e-3 tolerance stays as pre-registered, and a miss of 7.2e-6 beyond it does not change the status.
+
+Note: AC4's unit (objective units) was the Dev's pre-run choice where the advice was silent.
+
+Related records: `a2_endpoint_decomposition.md` is an owner-supplied retrospective note produced outside the Crew after the
+A2 record; it changes nothing. The stale test noted under Tests and gates was replaced per advice item 4 (commit 2e87b9e).
