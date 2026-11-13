@@ -15,7 +15,7 @@ commit 13bbf49. The 2 km and 10 km files were not used, opened, hashed or linked
 - P6, verification window (795202 symbols): mismatch of the repeated pattern against the decided
   symbols 0.013839 (limit: 2 x the independent estimate 0.016205 = 0.03241, and 0.1); 99.2 % of the
   mismatches (10919 of 11005) in the lowest 20 % of margins (limit 90 %); the period-P violation rate
-  is 0.0211 (limit 0.1), and every one of the 192 LFSR candidates is 0.491 or higher (limit 0.4).
+  is 0.0211 (limit 0.1), and every one of the 96 LFSR candidates is 0.491 or higher (limit 0.4).
 - Timing held over the verification window: 0.0107 symbol RMS line-phase residual (reported only).
 - Mapping and level order are not identified. A periodic vote needs neither, so the note makes no claim about them.
 
