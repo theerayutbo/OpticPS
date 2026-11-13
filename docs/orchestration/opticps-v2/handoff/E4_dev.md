@@ -40,4 +40,20 @@ Changes per finding (reviewer verdict `E4_qa.md`, tip ce0501c):
 5. Wording: T-10KM audit-hook sentence, status-word sentence (`CALIBRATION` is the report's word, `UNSPENT` the records' lowercase "unspent"), `inspect-format --metadata-only` moved to the section that needs no `data/external/` after running it (exit 0).
 Commits: 9624a45, c0383a3, 38acabd, 3229d94 (REPRODUCE count, handoff section), then one commit adding the gate lines. No file under `data/external/` was opened, listed or hashed; no frozen or earlier-gate file changed.
 Gate lines: all run at 3229d94: provenance whole file `368 passed in 112.92s`; e4+e3+e2_freeze `187 passed in 77.76s` (51+131+5); `build_evidence_matrix.py --check` `matches the code (23 rows)`; figures regenerated to a scratch dir, all 5 spec hashes equal to the committed PNGs; `ruff check src tests scripts` all passed; `ruff format --check` on touched files clean; `mypy` no issues in 73 files. `git diff --stat ce0501c..HEAD` lists only the E4 files and this handoff.
-Not done: full suite (orchestrator); TERIPHIC commands of REPRODUCE section 2 (need captures); no new uncertainty was estimated, so 19 rows stay null by design; matrix hash fixes 6 digits, a platform that differs beyond that would fail `--check`, not seen.
+Not done: full suite (orchestrator); TERIPHIC commands of REPRODUCE section 2 (need captures); no new uncertainty was estimated, so 19 rows stay null by design; [SUPERSEDED, wrong: the 6- and 5-digit hash rounding adds no risk or tolerance; `--check` compares the full YAML text with full-precision floats, so float drift on another platform fails it whatever the hash rounding, while pytest uses rel 1e-9.]
+
+## Fix round 3 at TIP3
+R2-1: every row now declares `evidence_kinds` (model, capture, published; empty = no number); `e4_matrix.label_from_kinds` is the only place a label is made, figure series use it (`series_label`, Panel checks head against kinds), the validator refuses a disagreeing row. Tests check the rule for all 23 rows and refuse a model-vs-capture row labelled capture-only.
+| Row or series | What is compared (path and line) | Label |
+|---|---|---|
+| T-B2B-M1..M4 | surrogate no-fibre prediction vs real B2B evaluation window (`FIT_HOLDOUT_PLAN.md` l.915); the `b2b_window_spread` uncertainty is capture only, stated in the row | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-E2C-A2 | law model fit objective vs B2B and 2 km fit windows (`law_model_v2.yaml` l.1-4) | SIMULATED vs EXTERNAL RAW CAPTURE |
+| T-2KM; fig. series "best of 123", six fibre families | simulated scenario vs 2 km capture (`two_km_result.json`, plan l.930-937) | SIMULATED vs EXTERNAL RAW CAPTURE |
+| fig. series "B2B copy" (both) | B2B evaluation window vs 2 km capture (plan l.937; `b2b_copy`) | EXTERNAL RAW CAPTURE |
+| T-PRBS-B2B | inferred pattern vs the same capture, no link model (`b2b_sequence_candidate.yaml` l.25-31) | EXTERNAL RAW CAPTURE |
+| T-10KM, T-BER, W6-W9, R1-R3 (no number) | no value reported | UNKNOWN |
+| W1-W5, R4; Wiegart ours, required-PSNR, Ran curves | our analytic computation (`E3_WIEGART_RAN.md`) | SIMULATED |
+| Wiegart text points, `source_label` of W1-W3 | numbers in the paper's running text | PUBLISHED DATA |
+R2-2: the specification hash now covers `figure_texts(fig)`: every non-empty Text artist of the figure object (title, axis labels, annotations, footer, legend) plus explicit tick labels, sorted; stable before and after drawing. Hand mutants, each restored (`git diff --stat` empty): attribution CC BY 4.0 replaced: 3 failed, 53 passed; "no scenario reaches" reversed: 3 failed, 53 passed; "not a fit" removed from footer: 3 failed, 53 passed. Matrix and 5 PNGs regenerated.
+R2-3: `code_version` is null with reason on the 7 rows that compute nothing (W6-W9, R1-R3); kept on W1-W3, W4a, W4b, W5, R4 (7 rows). R2-4: statement corrected above.
+Gate lines: GATES3
