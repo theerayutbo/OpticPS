@@ -24,8 +24,11 @@ P6 (b) (90 % in lowest 20 % margin) fails the true pattern at about 4 % Gaussian
 1. An early `ls -la` and `find` of `data/external/teriphic` listed directory metadata of all three files, the 10 km one included (name, size, mtime). Nothing was opened, hashed or read. atime unchanged by listing.
 2. The `INFERRED_CANDIDATE` name of the advice became `INFERRED_REFERENCE (B2B only)` as instructed; output file name `b2b_sequence_candidate.yaml` as in P7.
 3. A1 above. Lane delay (0 to 64) is reported only for lane winners; none applied.
-5. The new files were first put in `teriphic_e2/`; `test_real_no_r13_bound_file_changed` treats the whole folder as R13-bound and failed in the first gate run, so they were moved (git mv, contents unchanged) in the next commit.
 4. The 3 percent symbol-error fixture of P7 is not a passing fixture under (b); the positive fixture uses 0.3 percent errors, the 3.9 percent one asserts rejection.
+5. The new files were first put in `teriphic_e2/`; `test_real_no_r13_bound_file_changed` treats the whole folder as R13-bound and failed in the first gate run, so they were moved (git mv, contents unchanged) in 1df5769. The output's `code_identity` hashes are of the run-time files (13bbf49); later edits there are paths and a docstring.
 
 ## Gates
-Fresh clone of the gated tip, B2B symlinked only: see the report (appended below).
+Fresh clone of 1df5769 (the docs-only commit after it is this handoff), PYTHONPATH=clone/src, only B2B linked:
+- full pytest in 8 shards: 2070 passed, 5 skipped, 0 failed (first run at 91eaa6f failed `test_real_no_r13_bound_file_changed`, fixed by the move).
+- anchor `tests/test_pam4_anchor.py` 15 passed; ruff check, ruff format --check, mypy (67 files) clean; license audit 34 packages, 0 flagged.
+- `scripts/mutate_prbs.py`: 29 of 29 killed, unmutated copy passes (a first run had 28 of 29; a seed-selection test was added).
