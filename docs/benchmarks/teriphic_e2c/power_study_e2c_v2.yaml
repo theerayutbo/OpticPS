@@ -1,0 +1,39 @@
+# E2c power study result, amendment A2 (design D14). B2B and 2 km only.
+power_study_e2c_version: 2
+declared: The E2c power study (design D14, D19; plan). B2B and 2 km only; the 10 km file was not read. The rule
+  was fixed in STUDY_PLAN.md before any fit and applied here mechanically.
+study_plan: {path: docs/benchmarks/teriphic_e2c/STUDY_PLAN.md, sha256: be897145971b47fe8c8e7026b65aa5a0c7f40cc870c388bf8e5c6c843f66c3da,
+  commit: 70fc5998f610a803b69a063bd99c205437374843, amendment_a2_commit: f9386d7b35edbe41d8152628b33ce200f8156147}
+amendments: [A1, A2]
+prior: v1 CLOSE_PARTIAL S2, optimiser stall
+a2_disclosure: A2 was written after v1's result was seen; 10 km untouched.
+head_commit: 7348b9c05fead1ec87a4c0a2e158c027c1aed2d3
+code_identity: {src/opticps/benchmarks/e2c_calibration.py: 93a5ba102396cabb1c36c8f1ddebdeb529c9f8e0c986e23c002e9c3775caecb4,
+  src/opticps/benchmarks/e2c_model.py: 4dad7c062470d6b286f0bbcfa0a2c7c3642b01a9a1db49a3f43a9481750f3d52, src/opticps/benchmarks/e2c_study.py: 46e608a7f2809834b58c83c47de3b231c1d5c4ecc06794b97e4e8ae6be7335b3,
+  scripts/power_study_e2c.py: f0f56cfbdbd272bf50de1d5d034137851b372f0166c0e8557d3d98150eea9445}
+declarations: {a: The 2 km file was read under R13 (one window) and is read in full in E2c; it is calibration data
+    from now on and never again a holdout; its VALIDATION role in ROLE_BY_NAME and the config stays until R14 rebinds
+    it (this phase edits no bound file)., b: R13's 2 km FAIL stands as the result of the pre-registered test of
+    H1 (the B2B-calibrated small-signal surrogate transfers); H1 is refuted at 2 km and no 10 km result can rehabilitate
+    it., c: 'H2 (D1) is a different hypothesis, formed after seeing 2 km; tested at most once, on 10 km, under an
+    R14 freeze; if H2 fails, no third hypothesis gets a fresh holdout from this dataset.', d: 'Ceiling: VALIDATED
+    is never returned; a 10 km PASS, DISCRIMINATING is PARTIAL, INCONCLUSIVE, confounded by a coincident settings
+    change, a mild low-pass, chirp, wavelength, fibre type and the grid; the law''s seat stays unidentified.', e: BER
+    and SER stay REFERENCE_SEQUENCE_MISSING., f: 'Limits, scenarios and rule use B2B and 2 km only; the 10 km file
+    is not touched.', d12_spread_term: The per-scenario model-spread term of D12 is approved by Aria for this study
+    only; it is a structural change that needs explicit owner approval before any R14 freeze.}
+reference_sequence: REFERENCE_SEQUENCE_MISSING
+ten_km_file: not read, hashed, opened, stat'ed or linked
+inputs: {step0_diagnostics.yaml: 856968fbed2829b340ef0b0f9ee60e2f5d72ea26e003f640f5c2124c3d18da0d, law_model_v2.yaml: 286beaa745c0157b7c30266bbdf79e624fc2e962bd7d85ca2be6d7334890eb1b,
+  v1 power_study_e2c.yaml: c23ec3bfb3574fc53fc255affc2f085e610833298da659c464a5e94c22fd8e91}
+rule_lines: {step0_viable: true, R6: null, S3: null}
+predictions: null
+power_table: null
+power_windows: null
+power_compute_seconds: null
+decision: null
+a2_status: FIT_INVALID, S2 not evaluable
+failed_checks: [AC4_two_basin_agreement]
+stop_condition: null
+decision_of_record: CLOSE_PARTIAL, S2 (v1, power_study_e2c.yaml)
+ceiling: VALIDATED is never returned; any later 10 km PASS, DISCRIMINATING is PARTIAL (D15 d)
