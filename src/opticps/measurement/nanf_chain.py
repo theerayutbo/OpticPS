@@ -12,8 +12,9 @@ One function, `simulate_point`, maps PAM4 symbols to a BER and an SNR for one op
 
 Every choice that the paper does not state is declared in plan Amendment 5 (F1, F4, F6) with a
 label; this module follows that text. Nothing here is fitted, and no holdout series is read: the
-module takes no workbook. Governing equations are the textbook ones named in
-`docs/ALGORITHM_PROVENANCE.md`; no simulator code was consulted.
+only workbook argument is that of `declare_c5_links`, which reads the Fig.1(a) curves. Governing
+equations are the textbook ones named in `docs/ALGORITHM_PROVENANCE.md`; no simulator code was
+consulted.
 
 The symbol count must be a multiple of 140 (F1) so that every resampling step has an exact integer
 output length; a length that is not is refused, never rounded.
@@ -66,6 +67,7 @@ from opticps.transmitter.pulse import rrc_frequency_response
 
 if TYPE_CHECKING:  # nanf_freeze imports this module, so it is imported lazily at run time
     from opticps.measurement.nanf_freeze import FreezeRecord
+    from opticps.measurement.nanf_import import NanfWorkbook
 
 FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
@@ -497,9 +499,16 @@ _PAPER_CITATION = (
 _PAPER_BAND_NM = (1400.0, 1625.0)
 
 
-def _paper_link(name: str, length_km: float, d_ps_per_nm_km: float, group_index: float) -> LinkSpec:
+def _paper_link(
+    name: str,
+    length_km: float,
+    d_ps_per_nm_km: float,
+    group_index: float,
+    wavelength_nm: float = 1550.0,
+) -> LinkSpec:
     """The same profile as `nanf_benchmark.numerical_profile(name, d_ps_per_nm_km=...)`; a test
-    checks they are equal. Built here because `nanf_benchmark` imports this module indirectly."""
+    checks they are equal. Built here because `nanf_benchmark` imports this module indirectly.
+    `wavelength_nm` is the wavelength the stated D belongs to and the one the link runs at."""
     category = ProvenanceCategory.PUBLISHED_NUMERICAL_ASSUMPTION
 
     def known(value: float, unit: str, **prov: Any) -> ProfileValue:
@@ -523,7 +532,7 @@ def _paper_link(name: str, length_km: float, d_ps_per_nm_km: float, group_index:
             dispersion_ps_per_nm_km=known(
                 d_ps_per_nm_km,
                 "ps/(nm km)",
-                measurement_wavelength_nm=1550.0,
+                measurement_wavelength_nm=wavelength_nm,
                 validity_range_nm=_PAPER_BAND_NM,
             ),
             dispersion_slope_ps_per_nm2_km=ProfileValue(None, "ps/(nm^2 km)", unknown),
@@ -532,7 +541,7 @@ def _paper_link(name: str, length_km: float, d_ps_per_nm_km: float, group_index:
             effects={k: "off" for k in UNSUPPORTED_EFFECTS},
             dispersion_table=None,
         ),
-        1550.0,
+        wavelength_nm,
     )
 
 
@@ -541,6 +550,53 @@ DECLARED_LINKS: dict[str, LinkSpec] = {
     "SSMF-4.53km-1550": _paper_link("SSMF", 4.53, 15.95, 1.4682),
 }
 DECLARED_POINT_INDICES: frozenset[int] = frozenset(range(19))
+
+# Plan Amendment 13 L-B: the links of C5 are a recipe that runs at the holdout read, never values
+# in this file (rule 7). For each of the 17 wavelengths 1460 to 1620 nm (B2): a NANF link of
+# 4.76 km, an SSMF link of 4.53 km, D from the paper's Fig.1(a) curve of that fibre (linear between
+# knots, no extrapolation), everything else as in the 1550 nm links, and a back-to-back link.
+C5_WAVELENGTHS_NM: tuple[float, ...] = tuple(1460.0 + 10.0 * k for k in range(17))
+C5_LENGTH_KM = {"NANF": 4.76, "SSMF": 4.53}
+_RECIPE_LINKS: dict[str, LinkSpec] = {}  # filled only by `declare_c5_links`, from a pinned workbook
+
+
+def c5_link_key(kind: str, wavelength_nm: float) -> str:
+    """The key of a C5 link: kind "NANF", "SSMF" or "B2B", and the wavelength."""
+    return f"C5-{kind}-{wavelength_nm:g}"
+
+
+def declared_link(key: str) -> LinkSpec:
+    """A link of `DECLARED_LINKS`, or one the recipe produced in this process; else `KeyError`."""
+    if key in DECLARED_LINKS:
+        return DECLARED_LINKS[key]
+    return _RECIPE_LINKS[key]
+
+
+def declare_c5_links(wb: NanfWorkbook) -> dict[str, LinkSpec]:
+    """Build the 51 C5 links from the Fig.1(a) curves of the pinned workbook and declare them.
+
+    Refuses a workbook object whose recorded SHA-256 is not the importer's pin. Replaces any links
+    of an earlier call. Raises `OutOfValidityRangeError` if a wavelength lies outside a curve.
+    """
+    from opticps.measurement import nanf_benchmark, nanf_import  # lazy: they import this module
+
+    if wb.sha256 != nanf_import.NANF_WORKBOOK_SHA256:
+        raise nanf_import.NanfImportError(
+            nanf_import.NOT_COMPARABLE, "the C5 links are built from the pinned workbook only"
+        )
+    tables = {name: nanf_benchmark.d_table_from_workbook(wb, name) for name in C5_LENGTH_KM}
+    links: dict[str, LinkSpec] = {}
+    for wl in C5_WAVELENGTHS_NM:
+        for name, km in C5_LENGTH_KM.items():
+            d, _ = tables[name].at(wl)  # no extrapolation
+            group_index = nanf_benchmark.PAPER_ASSUMPTIONS[name][1]
+            links[c5_link_key(name, wl)] = _paper_link(name, km, d, group_index, wl)
+        links[c5_link_key("B2B", wl)] = LinkSpec(None, wl)
+    _RECIPE_LINKS.clear()
+    _RECIPE_LINKS.update(links)
+    return dict(links)
+
+
 # Plan Amendment 9 H-A: the Fig.4 B2B calibration grid, as (rate_gbps, rop_dbm, point_index). Only
 # results at these points, back-to-back, can enter `curve_arrays(calibration=True)`; the calibration
 # step declares them in this file (part of the code identity): Amendment 11 J-E.1.
@@ -679,7 +735,8 @@ def simulate_point(
         params = record.parameters
         frozen_hash = record.freeze_hash
         if spec != LinkSpec() and spec not in DECLARED_LINKS.values():
-            reasons.append("link not in the declared table (plan Amendment 8)")
+            if spec not in _RECIPE_LINKS.values():
+                reasons.append("link not in the declared table (plan Amendment 8)")
         if point_index not in DECLARED_POINT_INDICES:
             reasons.append("point_index not declared (plan Amendment 8)")
     if params is None:

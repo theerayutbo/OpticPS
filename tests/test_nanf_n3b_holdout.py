@@ -19,7 +19,13 @@ from nanf_freeze_support import (
     patch_module_paths,
     session_repo,
 )
-from nanf_holdout_stub import holdout_workbook, lose_nanf_at_minus_12, stub_point
+from nanf_holdout_stub import (
+    ROP_NANF_COLUMN,
+    ROP_SSMF_COLUMN,
+    holdout_workbook,
+    lose_nanf_at_minus_12,
+    stub_point,
+)
 from opticps.measurement import nanf_chain as nc
 from opticps.measurement import nanf_fit as nfit
 from opticps.measurement import nanf_freeze as nfz
@@ -31,6 +37,7 @@ from opticps.measurement.nanf_chain import BerReading, PointResult
 def frozen(tmp_path_factory, monkeypatch):
     repo = session_repo(tmp_path_factory)  # shared and never modified by these tests
     patch_module_paths(monkeypatch, repo)
+    monkeypatch.setattr(nc, "_RECIPE_LINKS", {})  # no C5 links carried over from a test
     return repo
 
 
@@ -129,8 +136,10 @@ def test_the_stub_run_scores_the_primary_criteria_and_never_reads_consistent(fro
         assert r.c1.passed and r.c2.passed and r.c3.passed and r.gate.passed and r.gate.label == ""
         assert not r.c1_discriminating and not r.c2_discriminating  # d is 0.3 dB: no information
         assert r.lost == ()
-    assert result.verdict == nh.VERDICT_INCOMPLETE  # C5 was not run: not a pass
-    assert "consistent" not in result.verdict
+    assert all(r.c5.passed and not r.c5.discriminating for r in result.rates.values())
+    assert result.verdict == (
+        "primary criteria pass; NANF criteria NOT DISCRIMINATING (rates 80, 100, 112 Gb/s)"
+    )  # d is 0.3 dB: the verdict is not "consistent"
 
 
 def test_a_failed_primary_criterion_is_a_failure_with_the_criterion_and_the_rate(frozen, tmp_path):
@@ -146,7 +155,7 @@ def test_a_failed_primary_criterion_is_a_failure_with_the_criterion_and_the_rate
 
     result, _ = run(frozen, tmp_path, runner=too_noisy)
     assert result.verdict.startswith("failed: ") and "C2@100" in result.verdict
-    assert "(C5 not run)" in result.verdict and "C2@80" not in result.verdict
+    assert "C2@80" not in result.verdict and "C5" not in result.verdict
 
 
 def test_a_lost_lock_point_is_listed_fails_what_needs_it_and_is_never_skipped(frozen, tmp_path):
@@ -180,10 +189,12 @@ def test_the_points_run_are_the_scored_ones_with_the_axis_index_and_a_declared_l
         return stub_point(task)
 
     run(frozen, tmp_path, runner=spy)
-    assert len(seen) == 3 * (6 + 8 + 6 + 8)  # NANF, SSMF (<= -5 dBm), no-fibre, B2B gate
+    # Fig.4: NANF, SSMF (<= -5 dBm), no-fibre, B2B gate; C5: NANF, SSMF and B2B at 17 wavelengths
+    assert len(seen) == 3 * (6 + 8 + 6 + 8) + 3 * 3 * 17
     for t in seen:
-        assert t.point_index in nc.DECLARED_POINT_INDICES and t.rop_dbm <= -5.0
-        assert t.link_key is None or t.link_key in nc.DECLARED_LINKS
+        assert t.point_index in nc.DECLARED_POINT_INDICES
+        assert t.link_key is None or nc.declared_link(t.link_key) is not None
+        assert t.link_key is not None and t.link_key.startswith("C5-") or t.rop_dbm <= -5.0
     nanf = [t for t in seen if t.link_key == nh.NANF_LINK and t.rate == 80]
     assert [t.point_index for t in nanf] == list(range(6))  # position on the published axis
     nofibre = [t for t in seen if t.label.startswith("no-fibre") and t.rate == 80]
@@ -193,6 +204,14 @@ def test_the_points_run_are_the_scored_ones_with_the_axis_index_and_a_declared_l
     assert {(t.rate, t.rop_dbm, t.point_index) for t in seen if t.label.startswith("B2B")} == (
         nc.DECLARED_CALIBRATION_POINTS
     )
+    c5 = [t for t in seen if t.label.startswith("C5-") and t.rate == 100]
+    assert len(c5) == 3 * 17 and {t.point_index for t in c5} == set(range(17))  # the axis index
+    assert {t.link_key for t in c5} == {
+        nc.c5_link_key(kind, w) for kind in ("NANF", "SSMF", "B2B") for w in nc.C5_WAVELENGTHS_NM
+    }  # 1630 and 1640 nm are never run
+    column = {"NANF": ROP_NANF_COLUMN, "B2B": ROP_NANF_COLUMN, "SSMF": ROP_SSMF_COLUMN}
+    for t in c5:
+        assert t.rop_dbm == column[t.link_key.split("-")[1]][t.point_index]  # the published ROP
 
 
 # --- the report (D5) ------------------------------------------------------------------------------
@@ -203,18 +222,19 @@ def test_the_report_has_the_label_the_required_sentence_and_what_was_not_run(fro
     text = nh.build_report(result)
     assert "LITERATURE BENCHMARK / CALIBRATION ONLY" in text
     assert "The holdout is not fully blind" in text
-    assert nh.C5_STATUS in text and "NOT RUN (links not declared)" in text
+    assert "NOT RUN" not in text and nh.C5_NOT_SIMULATED in text
     assert "C6, C7, C8: NOT BUILT" in text and "expected FAIL at 2.0 GHz" in text
     assert "LOST LOCK NANF at -12 dBm" in text
     assert "B2B-copy comparator" in text and result.freeze_hash in text
+    assert "LOST LOCK C5" not in text
     assert "validation" not in text.lower()
     assert "consistent with this one experiment" not in text
 
 
-def test_the_report_of_an_incomplete_run_does_not_claim_a_pass(frozen, tmp_path):
+def test_the_report_of_a_run_that_cannot_discriminate_does_not_claim_a_pass(frozen, tmp_path):
     result, _ = run(frozen, tmp_path)
     text = nh.build_report(result)
-    assert nh.VERDICT_INCOMPLETE in text
+    assert "primary criteria pass; NANF criteria NOT DISCRIMINATING" in text
     assert (
         "consistent with one published experiment" in text
     )  # the only permitted wording, as a limit

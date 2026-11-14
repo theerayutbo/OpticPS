@@ -44,6 +44,7 @@ FZ = "src/opticps/measurement/nanf_freeze.py"
 NF = "src/opticps/measurement/nanf_fit.py"
 NH = "src/opticps/measurement/nanf_holdout.py"
 SF = "scripts/nanf_fit.py"
+SH = "scripts/nanf_holdout.py"
 TESTS = (
     "tests/nanf_fit_stub.py",
     "tests/nanf_fit_study.py",
@@ -52,6 +53,7 @@ TESTS = (
     "tests/nanf_holdout_stub.py",
     "tests/test_nanf_n3b_fit.py",
     "tests/test_nanf_n3b_holdout.py",
+    "tests/test_nanf_n3b_c5.py",
     "tests/nanf_freeze_support.py",
     "tests/test_nanf_profiles.py",
     "tests/test_nanf_propagation.py",
@@ -102,6 +104,7 @@ NEW_PREFIXES = (
     "fit:",
     "holdout:",
     "chain: the declared",
+    "holdout script:",
     "freeze: the holdout runner",
     "freeze: the artefact checks",
     "freeze: a malformed log hash",
@@ -109,6 +112,7 @@ NEW_PREFIXES = (
 NEW_ORDER = (
     "tests/test_nanf_n3b_fit.py",
     "tests/test_nanf_n3b_fix.py",
+    "tests/test_nanf_n3b_c5.py",
     "tests/test_nanf_n3b_holdout.py",
     "tests/test_nanf_n3b_study.py",
     *RUN_ORDER,
@@ -2190,16 +2194,16 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "    return [i for i, x in enumerate(series.x) if x < ROP_CAP_DBM]",
     ),
     (
-        "holdout: a failure reads as incomplete",
+        "holdout: a failure reads as consistent",
         NH,
-        '    if failed:\n        return "failed: "',
-        '    if False:\n        return "failed: "',
+        "        verdict_of(reports),",
+        '        "consistent with this one experiment",',
     ),
     (
-        "holdout: an incomplete run reads as consistent",
+        "holdout: a run that cannot discriminate reads as consistent",
         NH,
-        "    return VERDICT_INCOMPLETE\n\n\n# --- the report",
-        '    return "consistent with this one experiment"\n\n\n# --- the report',
+        "                bool(r.c2_discriminating),\n",
+        "                True,\n",
     ),
     (
         "holdout: d of a lost point is computed",
@@ -2226,10 +2230,16 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         'LABEL = "LITERATURE BENCHMARK"',
     ),
     (
-        "holdout: C5 reads as run",
+        "holdout: C1 discriminating is assumed in the verdict",
         NH,
-        'C5_STATUS = "NOT RUN (links not declared)"',
-        'C5_STATUS = "PASS"',
+        "                bool(r.c1_discriminating),\n",
+        "                True,\n",
+    ),
+    (
+        "holdout: C5 never fails the verdict",
+        NH,
+        "                bool(r.c5.passed),\n",
+        "                True,\n",
     ),
     (
         "holdout: the report claims a validation",
@@ -2240,7 +2250,7 @@ MUTANTS: list[tuple[str, str, str, str]] = [
     (
         "holdout: the real runner drops the link",
         NH,
-        '        kwargs["link"] = nanf_chain.DECLARED_LINKS[task.link_key]',
+        '        kwargs["link"] = nanf_chain.declared_link(task.link_key)',
         "        pass",
     ),
     (
@@ -2321,6 +2331,241 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "(rate, -12.0 + k, k) for rate in (80, 100, 112) for k in range(8)",
         "(rate, -12.0 + k, k) for rate in (80, 100, 112) for k in range(9)",
     ),
+    # N3b-2b: the C5 recipe, its link check, C5 in the runner, the verdict, the copy and the marker rule
+    (
+        "chain: the declared C5 links are never accepted",
+        CH,
+        "            if spec not in _RECIPE_LINKS.values():\n                reasons.append(",
+        "            if True:\n                reasons.append(",
+    ),
+    (
+        "chain: the declared C5 check accepts any link",
+        CH,
+        "            if spec not in _RECIPE_LINKS.values():\n                reasons.append(",
+        "            if False:\n                reasons.append(",
+    ),
+    (
+        "chain: the declared C5 recipe does not check the workbook hash",
+        CH,
+        "    if wb.sha256 != nanf_import.NANF_WORKBOOK_SHA256:",
+        "    if False:",
+    ),
+    (
+        "chain: the declared C5 recipe extrapolates D",
+        CH,
+        "            d, _ = tables[name].at(wl)  # no extrapolation",
+        "            d, _ = tables[name].at(wl, allow_extrapolation=True)",
+    ),
+    (
+        "chain: the declared C5 recipe takes D of the other fibre",
+        CH,
+        "            d, _ = tables[name].at(wl)  # no extrapolation",
+        '            d, _ = tables["SSMF" if name == "NANF" else "NANF"].at(wl)',
+    ),
+    (
+        "chain: the declared C5 recipe leaves the wavelength at 1550 nm",
+        CH,
+        "            links[c5_link_key(name, wl)] = _paper_link(name, km, d, group_index, wl)",
+        "            links[c5_link_key(name, wl)] = _paper_link(name, km, d, group_index)",
+    ),
+    (
+        "chain: the declared C5 recipe has no back-to-back links",
+        CH,
+        '        links[c5_link_key("B2B", wl)] = LinkSpec(None, wl)',
+        '        links[c5_link_key("B2B", wl)] = LinkSpec()',
+    ),
+    (
+        "chain: the declared C5 recipe has 18 wavelengths",
+        CH,
+        "C5_WAVELENGTHS_NM: tuple[float, ...] = tuple(1460.0 + 10.0 * k for k in range(17))",
+        "C5_WAVELENGTHS_NM: tuple[float, ...] = tuple(1460.0 + 10.0 * k for k in range(18))",
+    ),
+    (
+        "chain: the declared C5 recipe has the lengths swapped",
+        CH,
+        'C5_LENGTH_KM = {"NANF": 4.76, "SSMF": 4.53}',
+        'C5_LENGTH_KM = {"NANF": 4.53, "SSMF": 4.76}',
+    ),
+    (
+        "chain: the declared C5 recipe takes the wrong group index",
+        CH,
+        "            group_index = nanf_benchmark.PAPER_ASSUMPTIONS[name][1]",
+        "            group_index = nanf_benchmark.PAPER_ASSUMPTIONS[name][0]",
+    ),
+    (
+        "chain: the declared link lookup ignores the recipe",
+        CH,
+        "    return _RECIPE_LINKS[key]",
+        "    raise KeyError(key)",
+    ),
+    (
+        "chain: the declared C5 recipe keeps the stated D at 1550 nm",
+        CH,
+        "                measurement_wavelength_nm=wavelength_nm,\n                validity_range_nm=_PAPER_BAND_NM,\n            ),\n            dispersion_slope",
+        "                measurement_wavelength_nm=1550.0,\n                validity_range_nm=_PAPER_BAND_NM,\n            ),\n            dispersion_slope",
+    ),
+    (
+        "holdout: the C5 links are not declared before the run",
+        NH,
+        "    nanf_chain.declare_c5_links(wb)\n",
+        "",
+    ),
+    (
+        "holdout: the SSMF C5 run takes the NANF ROP column",
+        NH,
+        '("NANF", "NANF"), ("SSMF", "SSMF"), ("B2B", "NANF")',
+        '("NANF", "NANF"), ("SSMF", "NANF"), ("B2B", "NANF")',
+    ),
+    (
+        "holdout: the B2B C5 run takes the SSMF ROP column",
+        NH,
+        '("NANF", "NANF"), ("SSMF", "SSMF"), ("B2B", "NANF")',
+        '("NANF", "NANF"), ("SSMF", "SSMF"), ("B2B", "SSMF")',
+    ),
+    (
+        "holdout: the C5 point index is off by one",
+        NH,
+        "                    rop[column].y[k],\n                    k,\n",
+        "                    rop[column].y[k],\n                    k + 1,\n",
+    ),
+    (
+        "holdout: the C5 axis is not checked",
+        NH,
+        "    if len(series.x) != 19 or not np.allclose(series.x[: len(wl)], wl, atol=1e-6):",
+        "    if False:",
+    ),
+    (
+        "holdout: C5 SSMF is scored with the NANF tolerance",
+        NH,
+        'ssmf = score_c5("ssmf", wl,',
+        'ssmf = score_c5("nanf", wl,',
+    ),
+    (
+        "holdout: C5 B2B is scored as SSMF",
+        NH,
+        'b2b = score_c5("b2b", wl,',
+        'b2b = score_c5("ssmf", wl,',
+    ),
+    (
+        "holdout: the C5 copy is the model B2B run",
+        NH,
+        'copy = score_c5("nanf", wl, pub_snr["B2B"], pub_snr["NANF"])',
+        'copy = score_c5("nanf", wl, snr["B2B"], pub_snr["NANF"])',
+    ),
+    (
+        "holdout: d of C5 is zero",
+        NH,
+        'd = d_snr(snr["NANF"], snr["B2B"]) if',
+        'd = d_snr(snr["NANF"], snr["NANF"]) if',
+    ),
+    (
+        "holdout: d of C5 is computed at a lost point",
+        NH,
+        '    d = d_snr(snr["NANF"], snr["B2B"]) if ok["NANF"].all() and ok["B2B"].all() else None',
+        '    d = d_snr(np.nan_to_num(snr["NANF"]), np.nan_to_num(snr["B2B"]))',
+    ),
+    (
+        "holdout: C5 discriminates at a poor B2B gate",
+        NH,
+        '        discriminating(d, C5_TOL_DB["nanf"]) and gate_passed,',
+        '        discriminating(d, C5_TOL_DB["nanf"]),',
+    ),
+    (
+        "holdout: C1 discriminates at a poor B2B gate",
+        NH,
+        "            discriminating(d1, C1_TOL_DB) and gate.passed,",
+        "            discriminating(d1, C1_TOL_DB),",
+    ),
+    (
+        "holdout: C2 discriminates at a poor B2B gate",
+        NH,
+        "            discriminating(d2, C2_MEAN_DB) and gate.passed,",
+        "            discriminating(d2, C2_MEAN_DB),",
+    ),
+    (
+        "holdout: the poor B2B flag is not passed to the verdict",
+        NH,
+        "                b2b_poor=not r.gate.passed,",
+        "                b2b_poor=False,",
+    ),
+    (
+        "holdout: C5 passes without its B2B link",
+        NH,
+        "        return bool(self.nanf.passed and self.ssmf.passed and self.b2b.passed)",
+        "        return bool(self.nanf.passed and self.ssmf.passed)",
+    ),
+    (
+        "holdout: C5 passes without its SSMF link",
+        NH,
+        "        return bool(self.nanf.passed and self.ssmf.passed and self.b2b.passed)",
+        "        return bool(self.nanf.passed and self.b2b.passed)",
+    ),
+    (
+        "holdout: C5 passes without its NANF link",
+        NH,
+        "        return bool(self.nanf.passed and self.ssmf.passed and self.b2b.passed)",
+        "        return bool(self.ssmf.passed and self.b2b.passed)",
+    ),
+    (
+        "holdout: a lost C5 point is not listed with its rate",
+        NH,
+        "        lost += list(c5.lost)\n",
+        "",
+    ),
+    (
+        "holdout: the copy C2 is not scored",
+        NH,
+        "            if bracketed.any()\n",
+        "            if False\n",
+    ),
+    (
+        "holdout: the copy C2 scores a ROP with no bracket",
+        NH,
+        "            score_c2(n_rop[bracketed], copy.snr_db[bracketed], pub_n_snr[bracketed])",
+        "            score_c2(n_rop, np.nan_to_num(copy.snr_db), pub_n_snr)",
+    ),
+    (
+        "holdout: the SSMF points above the cap are counted on the NANF column",
+        NH,
+        '        sum(1 for r in rop["SSMF"].y[: len(wl)] if r > ROP_CAP_DBM),',
+        '        sum(1 for r in rop["NANF"].y[: len(wl)] if r > ROP_CAP_DBM),',
+    ),
+    (
+        "holdout: the report does not say 1630 and 1640 nm were not simulated",
+        NH,
+        '    lines += ["", C5_NOT_SIMULATED + ".", ""]',
+        '    lines += [""]',
+    ),
+    (
+        "holdout: a pass that cannot discriminate prints as a plain pass",
+        NH,
+        '    return "PASS" if discriminating else "PASS, NOT DISCRIMINATING"',
+        '    return "PASS"',
+    ),
+    (
+        "holdout script: the marker rule is not printed",
+        SH,
+        "            print(nanf_holdout.MARKER_RULE)",
+        "            pass",
+    ),
+    (
+        "holdout script: the marker rule is printed after a refusal",
+        SH,
+        "        if not refused:",
+        "        if True:",
+    ),
+    (
+        "holdout script: a refusal is not noticed",
+        SH,
+        "        refused = True\n",
+        "        refused = False\n",
+    ),
+    (
+        "holdout script: the rule is dropped when a later error ends the run",
+        SH,
+        "    finally:\n        if not refused:",
+        "    else:\n        if not refused:",
+    ),
 ]
 
 
@@ -2335,6 +2580,7 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
             shutil.copy(ROOT / name, work / name)
         (work / "scripts").mkdir()
         shutil.copy(ROOT / SF, work / "scripts")
+        shutil.copy(ROOT / SH, work / "scripts")
         (work / "tests").mkdir()
         shutil.copy(ROOT / "tests/nanf_profile_helpers.py", work / "tests")
         for test in TESTS:
