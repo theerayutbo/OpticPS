@@ -1515,3 +1515,114 @@ trace cap pin of G1 at 1e10, the rules of Amendments 7 and 8 except as corrected
 chirp unfitted, the cost of J-A and its zero-error floor of 1/N_b, the start, the seeded design, the selection rule of J-C.1 (the
 lowest finite cost of the whole log, ties by evaluation order), the steps after the fit in J-C.2, the declared sets of J-E, J-F and
 J-G, and the rule that no criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 13 (2026-11-14, Gate N3 fix round, second half: the links of C5, the verdict, the B2B copy and the marker, before any fit)
+
+Previous SHA-256 of this file, pinned until now (Amendment 12, commit c8c6d8c):
+`f89c3f21dbb804b17103583b17ae61962fcc7d5a87660f35177aaef36aee9249`. The new pin is in `tests/test_nanf_benchmark.py`. The text
+above this heading is unchanged (append-only; a test checks that the text before this heading hashes to the previous pin).
+Where this amendment and anything above differ, this amendment governs. It was made before any calibration fit: no fit has
+run, no freeze record, calibration artefact, evaluation log or holdout marker exists, the workbook was not opened for it, and
+no value of any series was read for it. It changes no tolerance, threshold, label, split or criterion of section 4. It answers
+findings 3, 4, 5 and 9 of the independent review of Amendment 11 (`handoff/N3b_qa.md`), which Amendment 12 left open. The reason
+for doing it before the fit: every file the holdout run uses is inside the code identity of the freeze record, so a declaration
+of the C5 links made after the freeze would relock the record, and C5, a primary criterion, would be lost. It is settled here, in
+plan and code, before the fit starts.
+
+### L-A. The Fig.1 row (amends the table of section 2 and the use of Fig.1 in rule 3 and B2)
+
+The row "Cross-check only, no fit | Fig. 1" is replaced by: "Cross-check, and a fibre input of the C5 links | Fig. 1(a): the
+dispersion curve of each fibre sets the D of the C5 links at the 17 wavelengths of B2; it is set from the paper and never
+fitted (rule 3). Fig. 1 is not holdout: it stays in the calibration partition of G4, its importer role stays `cross_check`, and
+it is not a measurement". B2 already names Fig.1(a) as the only dispersion source of the paper and drops 1630 and 1640 nm
+because those curves end at 1625 nm; this row says the same thing in the table.
+
+Consequence, stated here so that nobody reads more into a pass than it holds: for the C5 links, the dispersion of the simulation
+is the Fig.1(a) curve itself. A comparison of the simulated dispersion with Fig.1(a) at those wavelengths is therefore not
+independent evidence, and no agreement of that kind is claimed. Fig.1 stays a check of the arithmetic (nulls, bandwidth,
+latency) as before. The C5 criterion compares SNR with the Fig.6 SNR, which is a holdout series and is not an input of anything.
+
+### L-B. The C5 links: a recipe that runs at the holdout read (replaces J-E.4)
+
+1. The links are not committed as values (rule 7). `nanf_chain.py` holds a recipe that builds them at run time from the workbook
+   of the run, which the importer compared with its pinned SHA-256 before parsing. The recipe refuses a workbook object whose
+   recorded hash is not that pin, and it reads the two Fig.1(a) series by their importer keys (block `a-CD`, headers `NANF` and
+   `SSMF`), which must have the role `cross_check`. The axis of those series is in micrometre and is converted to nm.
+2. For each of the 17 wavelengths lambda_k = 1460 + 10 k nm, k = 0 to 16 (B2): a NANF link of 4.76 km, an SSMF link of 4.53 km
+   (A1.3) and a back-to-back link. D of a fibre at lambda_k is the value of its Fig.1(a) curve at lambda_k by the existing
+   `WavelengthTable` rule: linear interpolation between the knots of the curve, and no extrapolation (a wavelength outside the
+   knots is an error, never a clamp). It is placed as the stated D of the profile at lambda_k, with no slope applied.
+3. Every other property is that of the two links of J-E.3: loss zero because the received power is matched (F4.6; the NANF loss
+   column of Fig.5 is not a simulation input), the group index 1.003 and 1.4682, slope unknown, every unsupported effect off. The
+   existing model makes nothing else wavelength dependent: the zero loss and the stated D lie inside the validity band
+   1400 to 1625 nm of the profile, and D is the only property that changes between two wavelengths.
+4. The back-to-back link of lambda_k is `LinkSpec(None, lambda_k)`. The back-to-back model does not use the wavelength, so the
+   run is the same chain as the no-fibre output of B3.1; the link exists because a back-to-back link with another wavelength field
+   is not equal to the default one, and the check of G-C compares links by value.
+5. ROP and point index. The NANF link and the back-to-back link run at the ROP of the `ROP@NANF` column of Fig.5 (A3; it also
+   sets the B2B ROP) and the SSMF link at the `ROP@SSMF` column, each as published, with no rounding and no cap (D1). The point
+   index is k, the position of the wavelength on the 19-point axis of Fig.5 and Fig.6 (J-E.2); the runner checks that the first
+   17 values of both axes are the 17 wavelengths of the recipe and that the axes have 19 points. The no-fibre output of d at
+   lambda_k is the back-to-back run of lambda_k: one simulation serves both, since F4.2 gives them the same noise.
+6. 1630 and 1640 nm are not simulated. The report says "not simulated (B2)". B2 allows the B2B at the 19 points as an unscored
+   extra and does not require it; it is not run.
+7. The check of G-C. After a freeze, `simulate_point` gives a scorable result for: back-to-back at the default link, the two
+   links of J-E.3, and a link equal by value to one the recipe produced in this process. Before the recipe has run, none of the
+   C5 links is scorable. A link of another D, length, wavelength or fibre, and any wavelength other than the 17, is not scorable.
+   Nothing else about the check changes, and every input that was scorable or not before this amendment still is.
+8. What the check does not stop, in the class of H-F: a caller who builds a workbook object by hand and gives it the pinned hash
+   is outside the guarantee, as a caller who builds score arrays by hand is outside G-C. The recipe checks the hash that the
+   object carries and the series it reads; it cannot know how the object was made.
+9. The holdout run therefore has, at the axes stated in committed text, the points of J-G.3 plus 3 rates x 17 wavelengths x 3 runs
+   (NANF, SSMF, back-to-back) = 153. With the counts of J-E.2 (6, 8, 6 and 8 points per rate for the Fig.4 curves, the no-fibre
+   run and the B2B gate) this is 84 + 153 = 237 points. The count of the Fig.4 side comes from the published axes at the run.
+
+### L-C. C5, the B2B copy and the verdict (completes J-G.3 and J-G.4; replaces the `NOT RUN (links not declared)` wording)
+
+1. C5 is scored per rate and link by the C5 scoring function: the model NANF SNR against the Fig.6 NANF SNR (2.0 dB), the model
+   SSMF SNR against the Fig.6 SMF SNR (3.0 dB) and the model back-to-back SNR at the ROP of `ROP@NANF` against the Fig.6 B2B SNR
+   (2.0 dB), over the 17 wavelengths. C5 of a rate passes only if the three pass. A lost-lock run at any of the 17 fails that link
+   with the count of invalid points and is listed (H1, H3); nothing is substituted or interpolated. Wavelengths outside
+   the calibrated ROP range (below -12 dBm or above -5 dBm) are included and reported apart, with the six SSMF points of D1.
+2. The NANF part of C5 has d (D3.2): the mean absolute difference over the 17 wavelengths of the model NANF SNR and the model
+   back-to-back SNR at the same ROP; it is undefined if a point of either is lost. A pass with d at most 2.0 dB reads
+   `PASS, NOT DISCRIMINATING`, and so does a pass at a rate whose B2B gate failed (B3.2). The B2B copy of that part is, as D3.1
+   says, the published Fig.6 B2B SNR taken as the prediction of the NANF SNR at the same wavelengths, scored by the same C5 rule
+   and tolerance. d of C5 is reported and labelled; A2 and B3.3 name C1 and C2 for the verdict, so the verdict does not use it.
+3. The verdict is made by `overall_verdict` of the scoring module and by nothing else. For each rate the runner builds the
+   primary results: C1, C2, C3 and C5 as passed or failed, `c1_discriminating` and `c2_discriminating` true only if d is strictly
+   above the tolerance and the B2B gate of that rate passed, and the B2B-poor flag from the gate. The text is the one of that
+   function: a failure names its criteria and rates; all pass with a rate that is not discriminating or whose calibration is poor
+   gives "primary criteria pass; NANF criteria NOT DISCRIMINATING" naming the rates; only otherwise "consistent with this one
+   experiment". The report may say at most "consistent with one published experiment" and never calls the result a validation. A
+   C5 with a missing point is a failure and cannot read consistent. The wording `INCOMPLETE: primary criterion C5 not run` is
+   withdrawn: C5 is run.
+4. The B2B-copy C2 (D3.1) is scored by the C2 function, by the same rules as the model: at each scored NANF ROP with a B2B bracket
+   the error of the copy SNR against the published NANF SNR, mean at most 1.5 dB and no single error above 3.0 dB. The report
+   gives its mean, its maximum and its pass. A NANF ROP with no B2B bracket is listed and not scored. A copy with no bracketed
+   ROP at all has nothing to score and does not pass. The copy of C1 is as before, and the copy of C5 is as in item 2. The copy
+   never enters d.
+5. The report keeps the label, the sentence "The holdout is not fully blind" with its G-A text, C6 to C8 as `NOT BUILT` (J-F) and
+   the lost points of H1, and says that 1630 and 1640 nm were not simulated. The model is not retuned after a number is seen.
+
+### L-D. The marker is committed straight after the run (completes J-G.2; finding 9)
+
+The marker is written before the read (J-G.2) and holds the freeze hash. A process rule is added: the moment a run ends, with a
+score or with an error, the marker `docs/benchmarks/NANF_HOLDOUT_READ.json` and the report are added to Git by explicit path and
+committed, before the report is read for another purpose and before any other change. The script prints this rule when it ends. It
+is a process requirement and the code does not check it, as the commit of the freeze record before the read is one (G4).
+
+What the rule stops: a second scoring under another record after the marker is deleted or replaced, because the first marker is
+then in the history and the deletion is a visible change against it; and a score with no trace of when the holdout was read. What
+it cannot stop: a marker deleted before it was committed; a history that is rewritten; a commit made after the fact; and anyone who
+controls the repository. This is the limit of `docs/benchmarks/FREEZE_GUARD_KNOWN_LIMITS.md` and it is not widened here.
+
+### L-Z. Unchanged
+
+Everything in H-Z of Amendment 11 and before, and in H-Z of Amendment 12, stands: the label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**),
+the calibration and holdout split, "no per-fibre retuning", the 6-parameter cap, every tolerance and threshold of section 4, A2, A3
+and B1 to B3, the censoring of A3, the exclusion of 1630 and 1640 nm (B2), D1, the trace cap pin of G1 at 1e10, the rules of
+Amendments 7 and 8 except as corrected by Amendment 9, C6 as an expected FAIL at 2.0 GHz, chirp unfitted, the cost of J-A, the
+optimiser, `converged` and the budget of Amendment 12, the evaluation log, the declared calibration points, point indices and
+the two links at 1550 nm of J-E.1 to J-E.3, J-F, the order of the run and the entry modules of J-G, and the rule that no
+criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
