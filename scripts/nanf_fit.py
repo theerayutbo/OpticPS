@@ -1,11 +1,15 @@
-"""N3c: run the one calibration fit of plan Amendment 11 on the Fig.4 B2B series.
+"""N3c: run the one calibration fit of plan Amendments 11 and 12 on the Fig.4 B2B series.
 
-    python scripts/nanf_fit.py --workbook PATH [--log PATH] [--artifact PATH] [--workers N]
+    python scripts/nanf_fit.py --workbook PATH [--artifact PATH] [--workers N]
 
 Reads the workbook WITHOUT the holdout, runs `nanf_fit.fit` (a second run is refused, a log of the
 same run is resumed) and, only if the fit converged and every check ran, writes the bytes of the
-calibration artefact. Prints the status and summary numbers, never a series value. Exit code 0 only
+calibration artefact. The evaluation log is always `docs/benchmarks/NANF_FIT_EVALUATION_LOG.jsonl`
+(Amendment 12 K-E). Prints the status and summary numbers, never a series value. Exit code 0 only
 for `CALIBRATED`.
+
+The read is the default read of the importer, which parses all 69 series in this process (the
+G-E.5 class of exception, named in Amendment 12); the fit takes the Fig.4 back-to-back series only.
 """
 
 # SPDX-License-Identifier: MIT
@@ -23,7 +27,6 @@ DEFAULT_ARTIFACT = nanf_freeze.ROOT / "docs/benchmarks/NANF_CALIBRATION_RESULT.j
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--workbook", required=True, type=Path)
-    parser.add_argument("--log", type=Path, default=nanf_fit.DEFAULT_LOG_PATH)
     parser.add_argument("--artifact", type=Path, default=DEFAULT_ARTIFACT)
     parser.add_argument("--workers", type=int, default=1)
     args = parser.parse_args()
@@ -34,11 +37,12 @@ def main() -> int:
     with nanf_fit.CalibrationObjective(data, workers=args.workers) as objective:
         out = nanf_fit.fit(
             objective,
-            log_path=args.log,
+            log_path=nanf_fit.DEFAULT_LOG_PATH,
             plan_sha256=nanf_freeze.plan_sha256(),
             code_identity=nanf_freeze.code_identity(),
         )
     print(f"{out.status}: {out.n_evaluations} evaluations, {out.log.n_worst_case} lost-lock")
+    print(f"RULE: commit {nanf_fit.DEFAULT_LOG_PATH.name} with the artefact, in the same commit")
     for line in out.lines:
         print(line)
     if out.artefact is None:

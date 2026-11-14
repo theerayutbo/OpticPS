@@ -1,15 +1,17 @@
-"""N3 part b: the calibration objective, the optimiser of plan Amendment 11 and the fit driver.
+"""N3 part b: the calibration objective, the optimiser of plan Amendment 12 and the fit driver.
 
-Nothing here runs by itself. `fit` runs the optimiser of Amendment 11 J-B on the Fig.4 B2B series
-(the only data a Tx/Rx fit may see, plan section 2) through `evaluate`, writes an evaluation log
-as it goes (J-D), then runs `check_chosen_fit`, the B4 identifiability check, the B2B gate per rate
-and builds the bytes of the calibration artefact. The point runner is injected, so tests use a
+Nothing here runs by itself. `fit` runs the optimiser of Amendment 12 K-B (a library search and the
+certificate S1 to S4) on the Fig.4 B2B series (the only data a Tx/Rx fit may see, plan section 2)
+through `evaluate`, writes an evaluation log as it goes (J-D, K-E), evaluates the selected vector
+once more, then runs `check_chosen_fit`, the B4 identifiability check, the B2B gate per rate and
+builds the bytes of the calibration artefact. The point runner is injected, so tests use a
 stub chain; the real one is `simulate_calibration_point`.
 """
 
 # SPDX-License-Identifier: MIT
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 from collections.abc import Callable, Mapping, Sequence
@@ -20,7 +22,9 @@ from types import TracebackType
 from typing import Any
 
 import numpy as np
+import scipy
 from numpy.typing import NDArray
+from scipy.optimize import least_squares
 
 from opticps.measurement import nanf_chain, nanf_freeze
 from opticps.measurement.nanf_chain import B4_PARAMETERS, TxRxParameters, run_point
@@ -52,15 +56,18 @@ FloatArray = NDArray[np.float64]
 
 FIT_SEED = (20261101, 4101)  # Amendment 11 J-B.2
 N_DESIGN = 24
-BUDGET = 70  # prior + design + local search, together (J-B.4)
-LM_FD_STEP = 0.03  # forward difference step of the Jacobian, in u
-LM_DAMPING_START, LM_DAMPING_MIN, LM_DAMPING_MAX = 1.0, 1e-6, 1e4
-LM_DAMPING_UP, LM_DAMPING_DOWN = 3.0, 2.0
-X_TOL = 0.02  # J-B.5: largest step of an accepted move, in u
-F_TOL = 0.02  # J-B.5: relative decrease of the cost by that move
-RANGE_EDGE_TOL = 1e-9  # J-C.1
+BUDGET = 140  # every cost evaluation of a run, the final re-evaluation included (Amendment 12)
+SEARCH_BUDGET = BUDGET - 1  # prior + design + local search; one is kept for the final re-evaluation
+FD_STEP = 0.01  # forward difference step of every Jacobian, in u
+LM_DAMPING_MIN = 1e-6  # the first damping tried for the step that S2 tests
+N_DAMPING = 13  # dampings 1e-6, 1e-5, ..., 1e6 (times the largest diagonal of J^T J)
+RHO = 0.15  # S2: largest coordinate move of the step that S2 and S3 test, in u
+TAU = 0.05  # S2 to S4: the relative decrease of the cost that still counts as no progress
+LIBRARY_TOL = 0.01  # ftol, xtol and gtol of the library search
+LOST_RESIDUAL = 1e3  # what the library is told at a lost-lock vector (the log records +inf)
+RANGE_EDGE_TOL = 0.01  # Amendment 12 J-C.1: the library keeps its iterates strictly inside the box
 BER_RESIDUAL_SCALE = 0.5  # B4.2
-FIT_METHOD = "latin-hypercube-24+damped-gauss-newton-bounded"
+FIT_METHOD = "latin-hypercube-24+scipy-trf-least-squares+certificate-s1-s4"
 DEFAULT_LOG_PATH = nanf_freeze.ROOT / "docs/benchmarks/NANF_FIT_EVALUATION_LOG.jsonl"
 STATUS_NOT_CONVERGED = "CALIBRATION NOT CONVERGED"
 STATUS_NO_VALID_FIT = "NO VALID FIT"
@@ -280,6 +287,12 @@ class CalibrationObjective:
         r = self.residuals(vector)
         return float(np.sum(r * r))
 
+    def fresh_cost(self, vector: Mapping[str, float]) -> float:
+        """The cost with every point run again: nothing kept from an earlier call is used."""
+        clamped = clamp_vector(vector)
+        self._memo.pop(tuple(clamped[n] for n in _NAMES), None)
+        return self.cost(clamped)
+
     def gates(self, vector: Mapping[str, float]) -> dict[int, B2bGate]:
         """The B2B fit-quality gate of B3.2 per rate at the vector (a lost point fails it, H3)."""
         per = self.points(vector)
@@ -345,88 +358,125 @@ def latin_hypercube(n: int = N_DESIGN, dim: int = _N, seed: Sequence[int] = FIT_
     return np.stack(cols, axis=1)
 
 
-def run_optimiser(
-    evaluate_u: Callable[[FloatArray], Evaluated], *, budget: int = BUDGET
-) -> OptimiserResult:
-    """Prior, Latin hypercube, then a bounded damped Gauss-Newton search from the best point (J-B).
+def _lowest(
+    seen: Sequence[tuple[float, FloatArray, FloatArray]],
+) -> tuple[float, FloatArray, FloatArray]:
+    """The lowest finite cost of the evaluations so far, ties by evaluation order (J-C.1)."""
+    return min(seen, key=lambda e: e[0])
 
-    At most `budget` calls of `evaluate_u` (u in [0, 1]^6). Deterministic: no randomness besides the
-    seeded design. Every call is an evaluation of the log; the Jacobian columns are evaluations too.
+
+def tested_step(u: FloatArray, r: FloatArray, jac: FloatArray) -> tuple[FloatArray, float]:
+    """S2 of Amendment 12: the damped step with the smallest damping that stays within RHO, and the
+    relative decrease of the cost that the linear model predicts for it."""
+    grad, info = jac.T @ r, jac.T @ jac
+    # variables pushed outward by the descent direction at a range edge stay where they are
+    free = [
+        i for i in range(_N) if not ((u[i] <= 0.0 and grad[i] > 0) or (u[i] >= 1.0 and grad[i] < 0))
+    ]
+    smallest = u.copy()
+    if free:
+        sub = info[np.ix_(free, free)]
+        level = max(float(np.max(np.diag(info))), 1e-300)
+        for k in range(N_DAMPING):
+            try:
+                move = np.linalg.solve(
+                    sub + LM_DAMPING_MIN * 10.0**k * level * np.eye(len(free)), -grad[free]
+                )
+            except np.linalg.LinAlgError:
+                continue
+            trial = u.copy()
+            trial[free] += move
+            smallest = np.clip(trial, 0.0, 1.0)
+            if float(np.max(np.abs(move))) <= RHO:  # the step before the clip to the box
+                break
+    after = r + jac @ (smallest - u)
+    rr = float(r @ r)
+    return smallest, (rr - float(after @ after)) / rr if rr > 0.0 else 0.0
+
+
+def run_optimiser(
+    evaluate_u: Callable[[FloatArray], Evaluated], *, budget: int = SEARCH_BUDGET
+) -> OptimiserResult:
+    """Prior, Latin hypercube, then rounds of a library search and a certificate (Amendment 12 J-B).
+
+    At most `budget` calls of `evaluate_u` (u in [0, 1]^6); a vector that repeats an earlier one
+    exactly is answered from the log and is no new evaluation. Deterministic: no randomness besides
+    the seeded design. `converged` only when S1 to S4 hold: a full finite-difference Jacobian at a
+    point, a predicted and an evaluated decrease of at most TAU from it, and nothing in the whole
+    log that beats the point by more than TAU.
     """
     count = 0
+    seen: list[tuple[float, FloatArray, FloatArray]] = []  # finite evaluations, in order
+    known: dict[bytes, Evaluated] = {}
 
     def call(u: FloatArray) -> Evaluated:
         nonlocal count
+        clipped = np.clip(u, 0.0, 1.0)
+        key = clipped.tobytes()
+        if key in known:
+            return known[key]
         if count >= budget:
             raise _BudgetExhaustedError
         count += 1
-        return evaluate_u(np.clip(u, 0.0, 1.0))
+        f_c, r_c = evaluate_u(clipped)
+        known[key] = (f_c, r_c)
+        if r_c is not None and math.isfinite(f_c):
+            seen.append((f_c, clipped, r_c))
+        return f_c, r_c
 
     try:
         prior = np.array([(s.prior - s.low) / (s.high - s.low) for s in B4_PARAMETERS])
-        design = [prior, *latin_hypercube()]
-        best: tuple[float, FloatArray, FloatArray] | None = None
-        for u in design:  # the lowest finite cost wins, ties by evaluation order
-            f_u, r_u = call(u)
-            if r_u is not None and math.isfinite(f_u) and (best is None or f_u < best[0]):
-                best = (f_u, r_u, u)
-        if best is None:
+        for design_u in [prior, *latin_hypercube()]:
+            call(design_u)
+        if not seen:
             return OptimiserResult(False, count, STATUS_NO_VALID_FIT)
-        f, r, u = best
-        damping = LM_DAMPING_START
+        n_residuals = len(seen[0][2])
+        f, u, r = _lowest(seen)
 
-        def finite_difference(at: FloatArray, residual: FloatArray) -> FloatArray | None:
+        def lenient(rv: FloatArray | None) -> FloatArray:
+            return np.full(n_residuals, LOST_RESIDUAL) if rv is None else rv
+
+        def residuals_for_library(v: FloatArray) -> FloatArray:
+            return lenient(call(v)[1])
+
+        def finite_difference(at: FloatArray, *, library: bool) -> FloatArray | None:
+            """Forward differences of the residual vector, six evaluations (backward at the upper
+            edge). `library`: a lost probe is a penalty vector; otherwise it returns None."""
+            _, r_at = call(at)
+            base = lenient(r_at)
             columns = []
             for i in range(_N):
                 v = at.copy()
-                v[i] += LM_FD_STEP if at[i] + LM_FD_STEP <= 1.0 else -LM_FD_STEP
+                v[i] += FD_STEP if at[i] + FD_STEP <= 1.0 else -FD_STEP
                 _, rv = call(v)
-                if rv is None:
+                if rv is None and not library:
                     return None
-                columns.append((rv - residual) / (v[i] - at[i]))
+                columns.append((lenient(rv) - base) / (v[i] - at[i]))
             return np.stack(columns, axis=1)
 
-        jac = finite_difference(u, r)
-        fresh = True
         while True:
+            before = count
+            least_squares(
+                residuals_for_library, u, jac=lambda v: finite_difference(v, library=True),
+                bounds=(0.0, 1.0), method="trf", ftol=LIBRARY_TOL, xtol=LIBRARY_TOL,
+                gtol=LIBRARY_TOL, x_scale=1.0, loss="linear", tr_solver="exact", max_nfev=None,
+            )  # fmt: skip
+            f, u, r = _lowest(seen)
+            jac = finite_difference(u, library=False)  # S1: a full finite-difference Jacobian here
             if jac is None:
                 return OptimiserResult(False, count, "a Jacobian point lost lock")
-            grad, info = jac.T @ r, jac.T @ jac
-            # variables pushed outward by the descent direction at a range edge stay where they are
-            free = [
-                i
-                for i in range(_N)
-                if not ((u[i] <= 0.0 and grad[i] > 0) or (u[i] >= 1.0 and grad[i] < 0))
-            ]
-            if not free:
-                return OptimiserResult(True, count, "stationary on the range edges")
-            sub = info[np.ix_(free, free)]
-            scale = np.maximum(np.diag(sub), 1e-12 * max(float(np.max(np.diag(info))), 1e-300))
-            try:
-                step = np.linalg.solve(sub + damping * np.diag(scale), -grad[free])
-            except np.linalg.LinAlgError:
-                step = np.zeros(len(free))
-            trial = u.copy()
-            trial[free] += step
-            trial = np.clip(trial, 0.0, 1.0)
-            f_new, r_new = call(trial)
-            if r_new is not None and f_new < f:
-                s_vec, y_vec = trial - u, r_new - r
-                moved = float(np.max(np.abs(s_vec)))
-                gain = (f - f_new) / f if f > 0 else 0.0
-                jac = jac + np.outer(y_vec - jac @ s_vec, s_vec) / float(s_vec @ s_vec)  # Broyden
-                u, f, r, fresh = trial, f_new, r_new, False
-                damping = max(damping / LM_DAMPING_DOWN, LM_DAMPING_MIN)
-                if moved <= X_TOL and gain <= F_TOL:
-                    return OptimiserResult(True, count, "stop tolerances met")
-            elif damping < LM_DAMPING_MAX:
-                damping *= LM_DAMPING_UP
-            elif fresh:
+            smallest, predicted = tested_step(u, r, jac)  # S2
+            if np.any(smallest != u):  # S3: the cost at the tested step is evaluated
+                call(smallest)
+            # S4: nothing in the whole log beats the point by more than TAU
+            if predicted <= TAU and _lowest(seen)[0] >= (1.0 - TAU) * f:
+                return OptimiserResult(True, count, "converged: S1 to S4 hold")
+            top = _lowest(seen)
+            if count == before and top[0] >= f:
                 return OptimiserResult(False, count, "no step lowers the cost: search stalled")
-            else:  # the secant Jacobian is stale: one fresh finite-difference Jacobian
-                jac, fresh, damping = finite_difference(u, r), True, LM_DAMPING_START
+            f, u, r = top
     except _BudgetExhaustedError:
-        return OptimiserResult(False, count, "budget ended before the stop tolerances were met")
+        return OptimiserResult(False, count, "budget ended before S1 to S4 held")
 
 
 # --- the evaluation log (J-D) --------------------------------------------------------------------
@@ -462,6 +512,21 @@ class _Journal:
         with self.path.open("a", encoding="utf-8") as handle:
             handle.write(_line(entry))
             handle.flush()
+
+
+FIT_SCRIPT_PATH = nanf_freeze.ROOT / "scripts/nanf_fit.py"
+
+
+def fit_identity() -> dict[str, str]:
+    """What the log header binds besides the plan and the code identity (Amendment 12 J-D): the
+    SHA-256 of this module and of the fit script, and the versions of the two libraries whose
+    routines choose the evaluations."""
+    return {
+        "fit_module_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "fit_script_sha256": hashlib.sha256(FIT_SCRIPT_PATH.read_bytes()).hexdigest(),
+        "numpy_version": np.__version__,
+        "scipy_version": scipy.__version__,
+    }
 
 
 def _open_journal(path: Path, header: Mapping[str, Any]) -> _Journal:
@@ -514,8 +579,10 @@ def fit(
     code_identity: str,
     partition: str | None = None,
     budget: int = BUDGET,
+    fit_code: Mapping[str, str] | None = None,
 ) -> FitOutcome:
-    """Run the one fit of Amendment 11. Refuses a second run; a log of the same run is replayed."""
+    """Run the one fit of Amendments 11 and 12. Refuses a second run; a log of the same run is
+    replayed. `budget` counts every cost evaluation, the final re-evaluation included."""
     if nanf_freeze.freeze_record_present():
         raise FitRefusedError("a freeze record exists: the calibration is closed")
     header = {
@@ -524,6 +591,7 @@ def fit(
         "seed": list(FIT_SEED),
         "budget": budget,
         "method": FIT_METHOD,
+        **(fit_identity() if fit_code is None else fit_code),
     }
     journal = _open_journal(log_path, header)
     log = EvaluationLog()
@@ -536,7 +604,12 @@ def fit(
             if rec["vector"] != vector or rec["i"] != n:
                 raise FitRefusedError(f"evaluation {n} of the log is not the one this run asks for")
             resid = None if rec["residuals"] is None else np.array(rec["residuals"], dtype=float)
-            ev = log.record(Evaluation(vector, _read_number(rec["objective"]), tuple(rec["lost"])))
+            recorded = _read_number(rec["objective"])
+            if (resid is None) != bool(rec["lost"]) or (resid is None) != (recorded == math.inf):
+                raise FitRefusedError(f"evaluation {n} of the log: lost points and cost disagree")
+            if resid is not None and recorded != float(np.sum(resid * resid)):
+                raise FitRefusedError(f"evaluation {n} of the log: the cost is not its residuals'")
+            ev = log.record(Evaluation(vector, recorded, tuple(rec["lost"])))
             return ev.objective, resid
         held: list[FloatArray] = []
 
@@ -550,7 +623,7 @@ def fit(
         journal.append(ev, n, resid)
         return ev.objective, resid
 
-    result = run_optimiser(evaluate_u, budget=budget)
+    result = run_optimiser(evaluate_u, budget=budget - 1)
     if len(journal.recorded) > len(log.evaluations):
         raise FitRefusedError("the log holds more evaluations than this run asks for")
     n_eval = len(log.evaluations)
@@ -561,6 +634,10 @@ def fit(
         return FitOutcome(status, False, n_eval, log)
     try:
         chosen = check_chosen_fit(select_best(log))
+        if objective.fresh_cost(chosen.vector) != chosen.objective:  # the same cost, bit for bit
+            raise FitRefusedError(
+                "the selected vector, evaluated again, does not give the logged cost: refused"
+            )
         ident = identifiability_check(lambda values: objective.residuals(values), chosen.vector)
     except NoValidFitError:
         return FitOutcome(STATUS_NO_VALID_FIT, True, n_eval, log)
@@ -590,6 +667,7 @@ def fit(
             "chosen_fit_checked": True,
             "n_lost_points_in_grid": 0,
             "identifiability_eigenvalues": [float(v) for v in ident.eigenvalues],
+            "evaluation_log_sha256": hashlib.sha256(log_path.read_bytes()).hexdigest(),
         },
     )
     return FitOutcome(

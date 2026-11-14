@@ -62,6 +62,7 @@ def good_checks(n_flags: int) -> dict:
         "chosen_fit_checked": True,
         "n_lost_points_in_grid": 0,
         "identifiability_eigenvalues": eig,
+        "evaluation_log_sha256": "e" * 64,
     }
 
 

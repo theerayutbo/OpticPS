@@ -12,7 +12,7 @@ from opticps.measurement.nanf_fit import PointSummary, PointTask, RateData
 TARGET = np.array([0.40, 0.60, 0.50, 0.55, 0.50, 0.45])  # the vector the stub's data was made at
 WEIGHTS = np.array([2.0, 1.5, 1.0, 2.5, 0.8, 3.0])
 N_BITS = 1_294_016
-OFFSET_DB = 0.1  # the published data differ from the best vector, so the minimum cost is above 0
+OFFSET_DB = 0.5  # the published data differ from the best vector, so the minimum cost is above 0
 
 
 def unit(task_vector: tuple[tuple[str, float], ...]) -> np.ndarray:

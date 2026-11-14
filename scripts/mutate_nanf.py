@@ -5,7 +5,8 @@ copy of the files the NANF tests need. The NANF test files run against that copy
 "killed" when a test fails (pytest exit code 1). A survivor means a guard has no test that notices
 its removal. A mutant that breaks collection (exit code 2 or more) is reported BROKEN, never
 killed, and the unmutated copy must pass first. The exit code is 0 only when every listed mutant is
-killed.
+killed. A mutant run that does not end in 30 minutes is reported killed (a hang), and each
+outcome is printed as it completes.
 
     python scripts/mutate_nanf.py [-j JOBS] [-k LABEL_SUBSTRING]
 
@@ -24,10 +25,11 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -41,8 +43,12 @@ SC = "src/opticps/measurement/nanf_scoring.py"
 FZ = "src/opticps/measurement/nanf_freeze.py"
 NF = "src/opticps/measurement/nanf_fit.py"
 NH = "src/opticps/measurement/nanf_holdout.py"
+SF = "scripts/nanf_fit.py"
 TESTS = (
     "tests/nanf_fit_stub.py",
+    "tests/nanf_fit_study.py",
+    "tests/test_nanf_n3b_fix.py",
+    "tests/test_nanf_n3b_study.py",
     "tests/nanf_holdout_stub.py",
     "tests/test_nanf_n3b_fit.py",
     "tests/test_nanf_n3b_holdout.py",
@@ -66,6 +72,9 @@ TESTS = (
 # reachable by imports from nanf_chain and nanf_benchmark); reading infinity as censored in
 # `is_censored` (the range check still refuses it); allowing NaN fields in `Crossing` (the per-kind
 # finiteness checks still refuse them).
+# Equivalent, left out (Amendment 12): an explicit finite check of a replayed residual vector; a NaN
+# residual gives a recomputed cost that differs from any recorded one, and infinity is refused by the
+# lost-point check, so removing the explicit check changes no outcome.
 # Equivalent, left out (N3 part b): dropping `np.clip(u, 0.0, 1.0)` in `run_optimiser.call`; every point
 # that reaches it is inside the box already (the design, the clipped trials, the Jacobian steps).
 # Equivalent, left out: removing `require_scorable([result])` from `run_point` (the same refusal
@@ -88,8 +97,22 @@ RUN_ORDER = (
 )
 # The N3 part b mutants are killed by the new tests; those run first for them, so that the older
 # mutants do not wait for the (slower) new files.
-NEW_PREFIXES = ("fit:", "holdout:", "chain: the declared", "freeze: the holdout runner")
-NEW_ORDER = ("tests/test_nanf_n3b_fit.py", "tests/test_nanf_n3b_holdout.py", *RUN_ORDER)
+MUTANT_TIMEOUT_S = 1800  # a mutant run that does not end in this time is reported killed (a hang)
+NEW_PREFIXES = (
+    "fit:",
+    "holdout:",
+    "chain: the declared",
+    "freeze: the holdout runner",
+    "freeze: the artefact checks",
+    "freeze: a malformed log hash",
+)
+NEW_ORDER = (
+    "tests/test_nanf_n3b_fit.py",
+    "tests/test_nanf_n3b_fix.py",
+    "tests/test_nanf_n3b_holdout.py",
+    "tests/test_nanf_n3b_study.py",
+    *RUN_ORDER,
+)
 # (label, file, old text, new text); `old` must occur exactly once.
 MUTANTS: list[tuple[str, str, str, str]] = [
     # the 14 gaps of the third N1 review (finding 6)
@@ -1795,10 +1818,10 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         "    return FREEZE_RECORD_PATH.is_file()",
     ),
     (
-        "fit: the budget is 80",
+        "fit: the budget is 150",
         NF,
-        "BUDGET = 70",
-        "BUDGET = 80",
+        "BUDGET = 140",
+        "BUDGET = 150",
     ),
     (
         "fit: the budget check lets one more evaluation start",
@@ -1903,16 +1926,16 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         '                return OptimiserResult(True, count, "a Jacobian point lost lock")',
     ),
     (
-        "fit: either stop tolerance is enough",
+        "fit: S2 is not tested (the predicted decrease is ignored)",
         NF,
-        "                if moved <= X_TOL and gain <= F_TOL:",
-        "                if moved <= X_TOL or gain <= F_TOL:",
+        "            if predicted <= TAU and _lowest(seen)[0] >= (1.0 - TAU) * f:",
+        "            if _lowest(seen)[0] >= (1.0 - TAU) * f:",
     ),
     (
         "fit: a point pushed outward at an edge is free",
         NF,
-        "                for i in range(_N)\n                if not ((u[i] <= 0.0 and grad[i] > 0) or (u[i] >= 1.0 and grad[i] < 0))",
-        "                for i in range(_N)\n                if True",
+        "        i for i in range(_N) if not ((u[i] <= 0.0 and grad[i] > 0) or (u[i] >= 1.0 and grad[i] < 0))",
+        "        i for i in range(_N) if True",
     ),
     (
         "fit: an unconverged search still gets an artefact",
@@ -1945,10 +1968,10 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         '            "cost": 0.0,',
     ),
     (
-        "fit: the best design point is the last one on a tie",
+        "fit: the lowest cost of the log is the last one on a tie",
         NF,
-        "            if r_u is not None and math.isfinite(f_u) and (best is None or f_u < best[0]):",
-        "            if r_u is not None and math.isfinite(f_u) and (best is None or f_u <= best[0]):",
+        "    return min(seen, key=lambda e: e[0])",
+        "    return min(reversed(seen), key=lambda e: e[0])",
     ),
     (
         "fit: the B2B gate at the hashed vector is not evaluated",
@@ -1961,6 +1984,156 @@ MUTANTS: list[tuple[str, str, str, str]] = [
         NF,
         "N_DESIGN = 24",
         "N_DESIGN = 23",
+    ),
+    (
+        "fit: S1 a lost probe at the certificate is a penalty and not a stop",
+        NF,
+        "            jac = finite_difference(u, library=False)  # S1: a full finite-difference Jacobian here",
+        "            jac = finite_difference(u, library=True)  # S1: a full finite-difference Jacobian here",
+    ),
+    (
+        "fit: S3 the tested step is not evaluated",
+        NF,
+        "            if np.any(smallest != u):  # S3: the cost at the tested step is evaluated",
+        "            if False:  # S3: the cost at the tested step is evaluated",
+    ),
+    (
+        "fit: S4 the whole log is not searched for a lower point",
+        NF,
+        "            if predicted <= TAU and _lowest(seen)[0] >= (1.0 - TAU) * f:",
+        "            if predicted <= TAU:",
+    ),
+    (
+        "fit: tau is 0.5",
+        NF,
+        "TAU = 0.05 ",
+        "TAU = 0.5 ",
+    ),
+    (
+        "fit: the tested step is not bounded (rho is 5)",
+        NF,
+        "RHO = 0.15 ",
+        "RHO = 5.0 ",
+    ),
+    (
+        "fit: the library is told that a lost vector costs nothing",
+        NF,
+        "LOST_RESIDUAL = 1e3 ",
+        "LOST_RESIDUAL = 0.0 ",
+    ),
+    (
+        "fit: the stall rule is dropped (a round without a new evaluation goes on)",
+        NF,
+        "            if count == before and top[0] >= f:",
+        "            if False:",
+    ),
+    (
+        "fit: the range edge is only 1e-9 wide",
+        NF,
+        "RANGE_EDGE_TOL = 0.01 ",
+        "RANGE_EDGE_TOL = 1e-9 ",
+    ),
+    (
+        "fit: the search may use the whole budget (the re-evaluation has none)",
+        NF,
+        "SEARCH_BUDGET = BUDGET - 1 ",
+        "SEARCH_BUDGET = BUDGET ",
+    ),
+    (
+        "fit: the log header does not hold the fit code",
+        NF,
+        "        **(fit_identity() if fit_code is None else fit_code),",
+        "        **({} if fit_code is None else fit_code),",
+    ),
+    (
+        "fit: the log header leaves out the fit script",
+        NF,
+        '        "fit_script_sha256": hashlib.sha256(FIT_SCRIPT_PATH.read_bytes()).hexdigest(),\n',
+        "",
+    ),
+    (
+        "fit: the log header leaves out the library versions",
+        NF,
+        '        "numpy_version": np.__version__,\n        "scipy_version": scipy.__version__,\n',
+        "",
+    ),
+    (
+        "fit: a replay trusts the recorded cost",
+        NF,
+        "            if resid is not None and recorded != float(np.sum(resid * resid)):",
+        "            if False:",
+    ),
+    (
+        "fit: a replay accepts infinity without a lost point",
+        NF,
+        '            if (resid is None) != bool(rec["lost"]) or (resid is None) != (recorded == math.inf):',
+        "            if (resid is None) != (recorded == math.inf):",
+    ),
+    (
+        "fit: a replay accepts a lost point with a finite cost",
+        NF,
+        '            if (resid is None) != bool(rec["lost"]) or (resid is None) != (recorded == math.inf):',
+        '            if (resid is None) != bool(rec["lost"]):',
+    ),
+    (
+        "fit: the selected vector is not evaluated again",
+        NF,
+        "        if objective.fresh_cost(chosen.vector) != chosen.objective:  # the same cost, bit for bit",
+        "        if False:  # the same cost, bit for bit",
+    ),
+    (
+        "fit: the fresh cost reuses the points of an earlier call",
+        NF,
+        "        self._memo.pop(tuple(clamped[n] for n in _NAMES), None)\n",
+        "        pass\n",
+    ),
+    (
+        "fit: the re-evaluation allows a difference in the last bit",
+        NF,
+        "        if objective.fresh_cost(chosen.vector) != chosen.objective:  # the same cost, bit for bit",
+        "        if abs(objective.fresh_cost(chosen.vector) - chosen.objective) > 1e-9:  # the same cost, bit for bit",
+    ),
+    (
+        "fit: the artefact does not record the hash of the log",
+        NF,
+        '            "evaluation_log_sha256": hashlib.sha256(log_path.read_bytes()).hexdigest(),',
+        '            "evaluation_log_sha256": "e" * 64,',
+    ),
+    (
+        "freeze: the artefact checks do not name the log hash",
+        FZ,
+        '        "identifiability_eigenvalues",\n        "evaluation_log_sha256",\n    }',
+        '        "identifiability_eigenvalues",\n    }',
+    ),
+    (
+        "freeze: a malformed log hash is accepted",
+        FZ,
+        "    if not isinstance(log_hash, str) or _HEX64.fullmatch(log_hash) is None:",
+        "    if False:",
+    ),
+    (
+        "fit: the script has no commit rule",
+        SF,
+        '    print(f"RULE: commit {nanf_fit.DEFAULT_LOG_PATH.name} with the artefact, in the same commit")\n',
+        "",
+    ),
+    (
+        "fit: the script writes the log where the caller says",
+        SF,
+        "log_path=nanf_fit.DEFAULT_LOG_PATH,",
+        "log_path=args.artifact.with_suffix('.jsonl'),",
+    ),
+    (
+        "fit: the library method is dogbox",
+        NF,
+        'method="trf"',
+        'method="dogbox"',
+    ),
+    (
+        "fit: the library tolerance is 0.1",
+        NF,
+        "LIBRARY_TOL = 0.01 ",
+        "LIBRARY_TOL = 0.1 ",
     ),
     (
         "holdout: another freeze record may read the holdout",
@@ -2160,6 +2333,8 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
             shutil.copytree(ROOT / folder, work / folder, ignore=shutil.ignore_patterns("*.pyc"))
         for name in ("pyproject.toml", "uv.lock"):
             shutil.copy(ROOT / name, work / name)
+        (work / "scripts").mkdir()
+        shutil.copy(ROOT / SF, work / "scripts")
         (work / "tests").mkdir()
         shutil.copy(ROOT / "tests/nanf_profile_helpers.py", work / "tests")
         for test in TESTS:
@@ -2175,7 +2350,7 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
         subprocess.run([*git, "init", "-q"], check=True)
         subprocess.run([*git, "add", "-A"], check=True, capture_output=True)
         env = {**os.environ, "PYTHONPATH": str(work / "src")}
-        done = subprocess.run(
+        proc = subprocess.Popen(
             [
                 sys.executable,
                 "-m",
@@ -2190,12 +2365,20 @@ def run(mutant: tuple[str, str, str, str] | None) -> str:
             ],
             cwd=work,
             env=env,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,
         )
-    if done.returncode == 0:
+        try:
+            proc.communicate(timeout=None if mutant is None else MUTANT_TIMEOUT_S)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)  # the whole group: pool workers hold the pipes
+            proc.communicate()
+            return "killed"  # a suite that no longer ends has noticed the removed guard
+    if proc.returncode == 0:
         return "ok" if mutant is None else "SURVIVED"
-    return "killed" if done.returncode == 1 else "BROKEN"
+    return "killed" if proc.returncode == 1 else "BROKEN"
 
 
 def main() -> int:
@@ -2208,10 +2391,15 @@ def main() -> int:
     if baseline != "ok":
         return 2
     chosen = [m for m in MUTANTS if args.k in m[0]]
+    outcomes = []
     with ThreadPoolExecutor(max_workers=args.j) as pool:
-        outcomes = list(pool.map(run, chosen))
-    for (label, rel, _, _), outcome in zip(chosen, outcomes, strict=True):
-        print(f"{outcome:9} {Path(rel).name}: {label}", flush=True)
+        futures = [pool.submit(run, m) for m in chosen]
+        pending = dict(zip(futures, chosen, strict=True))
+        for future in as_completed(pending):
+            label, rel, _, _ = pending[future]
+            outcome = future.result()
+            outcomes.append(outcome)
+            print(f"{outcome:9} {Path(rel).name}: {label}", flush=True)
     bad = [o for o in outcomes if o != "killed"]
     print(f"{len(chosen) - len(bad)} of {len(chosen)} killed")
     return 0 if not bad else 1

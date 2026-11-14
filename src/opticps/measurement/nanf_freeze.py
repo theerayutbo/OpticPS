@@ -79,7 +79,12 @@ ARTIFACT_KEYS = frozenset(
     {"parameters", "unidentifiable", "fit_result", "checks", "calibration_partition_sha256"}
 )
 CHECKS_KEYS = frozenset(
-    {"chosen_fit_checked", "n_lost_points_in_grid", "identifiability_eigenvalues"}
+    {
+        "chosen_fit_checked",
+        "n_lost_points_in_grid",
+        "identifiability_eigenvalues",
+        "evaluation_log_sha256",
+    }
 )
 MIN_EVALUATIONS = 1 + len(B4_NAMES)  # a fit of six parameters needs at least seven evaluations
 MIN_CALIBRATION_POINTS = 9  # three rates, at least three scored B2B ROPs each
@@ -437,6 +442,9 @@ def _check_checks(checks: object, flags: tuple[str, ...]) -> None:
     """
     if not isinstance(checks, dict) or set(checks) != CHECKS_KEYS:
         raise _refuse("the calibration artefact does not record that the checks ran")
+    log_hash = checks["evaluation_log_sha256"]
+    if not isinstance(log_hash, str) or _HEX64.fullmatch(log_hash) is None:
+        raise _refuse("the calibration artefact does not name the SHA-256 of its evaluation log")
     lost = checks["n_lost_points_in_grid"]
     if checks["chosen_fit_checked"] is not True or isinstance(lost, bool) or lost != 0:
         raise _refuse("check_chosen_fit did not run, or the chosen vector has lost-lock points")

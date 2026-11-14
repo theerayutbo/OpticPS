@@ -117,6 +117,20 @@ def test_a_lost_lock_point_makes_the_cost_plus_infinity_and_every_lost_point_is_
         obj.residuals(low)
 
 
+def test_a_single_lost_point_makes_the_cost_plus_infinity_and_it_is_the_one_listed():
+    def one_lost(task):
+        s = stub_runner(task)
+        if task.rate == 100 and task.point_index == 3:
+            return nfit.PointSummary(True, "stub lost lock", math.nan, math.nan, 0)
+        return s
+
+    obj = nfit.CalibrationObjective(stub_data(), one_lost)
+    log = EvaluationLog()
+    ev = evaluate(log, nfit.to_vector(np.full(6, 0.45)), obj.cost)
+    assert ev.objective == math.inf and len(ev.lost) == 1 and "100 Gb/s" in ev.lost[0]
+    assert log.n_worst_case == 1
+
+
 def test_the_published_axis_must_be_the_declared_calibration_grid():
     def series(sheet_block, header, quantity, x, y, flags=None):
         return NanfSeries(
@@ -146,6 +160,9 @@ def test_the_published_axis_must_be_the_declared_calibration_grid():
     assert got[80].indices == tuple(range(8)) and got[80].rop_all.size == 11
     with pytest.raises(nfit.FitRefusedError, match="declared calibration grid"):
         nfit.calibration_data(workbook(shift=0.5))  # a wrong reading of the axis stops N3
+    # the same number of scored points on another axis (eight points at -12.5 to -5.5 dBm)
+    with pytest.raises(nfit.FitRefusedError, match="declared calibration grid"):
+        nfit.calibration_data(workbook(shift=-0.5))
 
 
 # --- the optimiser (J-B) ---------------------------------------------------------------------
@@ -159,16 +176,16 @@ def test_the_design_is_a_seeded_latin_hypercube_and_does_not_change():
     rng = np.random.default_rng(np.random.SeedSequence([20261101, 4101]))
     first = (rng.permutation(24) + rng.random(24)) / 24
     assert np.array_equal(a[:, 0], first)  # the exact draw order of J-B.2
-    assert nfit.FIT_SEED == (20261101, 4101) and nfit.BUDGET == 70
+    assert nfit.FIT_SEED == (20261101, 4101) and nfit.BUDGET == 140
 
 
-def test_the_budget_of_70_evaluations_is_a_hard_cap_and_a_stall_is_not_converged(tmp_path):
+def test_the_budget_is_a_hard_cap_and_a_stall_is_not_converged(tmp_path):
     CALLS[0] = 0
     out = run_fit(
         tmp_path, obj=nfit.CalibrationObjective(stub_data(), lambda t: _count(rough_runner, t))
     )
     assert out.status == nfit.STATUS_NOT_CONVERGED and not out.converged
-    assert out.n_evaluations <= 70 and out.artefact is None
+    assert out.n_evaluations <= nfit.SEARCH_BUDGET and out.artefact is None
     lines = (tmp_path / "log.jsonl").read_text().splitlines()
     assert len(lines) == 1 + out.n_evaluations  # header and one line per evaluation
 
@@ -178,23 +195,15 @@ def _count(runner, task):
     return runner(task)
 
 
-def test_a_search_that_needs_more_than_the_budget_stops_at_exactly_the_budget(tmp_path):
-    out = run_fit(tmp_path, budget=30)
-    assert out.status == nfit.STATUS_NOT_CONVERGED and out.n_evaluations == 30
-    assert out.artefact is None and out.chosen is None
-    assert len((tmp_path / "log.jsonl").read_text().splitlines()) == 31
-
-
-def test_the_default_budget_is_70_and_a_search_that_never_meets_its_tolerances_stops_at_70(
+def test_a_search_that_can_never_meet_its_tolerance_is_not_converged_and_stays_in_the_budget(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(nfit, "X_TOL", 0.0)  # tolerances that can never be met
-    monkeypatch.setattr(nfit, "F_TOL", -1.0)
+    monkeypatch.setattr(nfit, "TAU", -1.0)  # a decrease of at most -100 percent: never met
     CALLS[0] = 0
     out = run_fit(tmp_path, obj=nfit.CalibrationObjective(stub_data(), counting_runner))
-    assert out.status == nfit.STATUS_NOT_CONVERGED and out.n_evaluations == 70
-    assert CALLS[0] == 70 * 24  # the 71st evaluation is never started
-    assert len((tmp_path / "log.jsonl").read_text().splitlines()) == 71
+    assert out.status == nfit.STATUS_NOT_CONVERGED and out.artefact is None
+    assert out.n_evaluations <= nfit.SEARCH_BUDGET and CALLS[0] == out.n_evaluations * 24
+    assert len((tmp_path / "log.jsonl").read_text().splitlines()) == 1 + out.n_evaluations
 
 
 def test_every_evaluation_stays_inside_the_box_and_no_range_is_widened(tmp_path):
@@ -291,9 +300,8 @@ def test_a_resume_replays_the_log_and_continues_it_without_restarting(tmp_path):
     resumed = run_fit(tmp_path, obj=nfit.CalibrationObjective(stub_data(), counting_runner))
     assert (tmp_path / "log.jsonl").read_text() == text  # the same file, the old lines untouched
     assert resumed.artefact == full.artefact and resumed.n_evaluations == full.n_evaluations
-    # the replayed evaluations ran no point; the identifiability step re-runs the chosen vector, which
-    # the fresh run still held in memory, so up to two evaluations of 24 points are run again
-    assert 26 * 24 <= fresh_calls - CALLS[0] <= 28 * 24
+    # the replayed evaluations ran no point; every later step runs the same points in both runs
+    assert fresh_calls - CALLS[0] == 28 * 24
 
 
 def test_a_finished_log_resumes_to_the_same_result_with_no_new_evaluation(tmp_path):
@@ -345,7 +353,7 @@ def test_six_processes_give_the_serial_result(tmp_path):
     a.mkdir()
     b.mkdir()
     one = run_fit(a)
-    with nfit.CalibrationObjective(stub_data(), stub_runner, workers=3) as pool:
+    with nfit.CalibrationObjective(stub_data(), stub_runner, workers=6) as pool:
         many = run_fit(b, obj=pool)
     assert (a / "log.jsonl").read_bytes() == (b / "log.jsonl").read_bytes()
     assert one.artefact == many.artefact
@@ -415,22 +423,7 @@ def test_a_selected_coordinate_on_a_range_edge_is_reported_and_the_range_is_kept
     out = run_fit(tmp_path)
     assert out.status == nfit.STATUS_OK
     assert out.at_range_edge == ("bias_fraction",)
-    assert json.loads(out.artefact)["parameters"]["bias_fraction"] == 0.6  # the range was kept
-
-
-def test_a_jacobian_point_that_loses_lock_ends_the_search_as_not_converged():
-    calls = []
-
-    def evaluate_u(u):
-        calls.append(u)
-        if len(calls) <= 25:  # prior and design: finite
-            f = 10.0 + len(calls)
-            return f, np.array([math.sqrt(f)])
-        return math.inf, None  # every Jacobian point loses lock
-
-    result = nfit.run_optimiser(evaluate_u)
-    assert not result.converged and result.n_evaluations == 26
-    assert result.stopped == "a Jacobian point lost lock"
+    assert 0.59 < json.loads(out.artefact)["parameters"]["bias_fraction"] <= 0.6  # range kept
 
 
 def test_a_point_pushed_outward_at_every_range_edge_is_stationary_and_converged():
@@ -439,20 +432,7 @@ def test_a_point_pushed_outward_at_every_range_edge_is_stationary_and_converged(
         return float(r @ r), r
 
     result = nfit.run_optimiser(evaluate_u)
-    assert result.converged and result.n_evaluations < 70
-    assert result.stopped in ("stationary on the range edges", "stop tolerances met")
-
-
-def test_both_stop_tolerances_must_hold_and_a_search_that_never_stalls_runs_to_the_budget(
-    tmp_path, monkeypatch
-):
-    monkeypatch.setattr(nfit, "X_TOL", 0.0)  # the step tolerance can never be met
-    monkeypatch.setattr(nfit, "F_TOL", 1e9)  # the gain tolerance is always met
-    out = run_fit(tmp_path)
-    assert (
-        out.status == nfit.STATUS_NOT_CONVERGED and out.n_evaluations in (70,) or not out.converged
-    )
-    assert not out.converged
+    assert result.converged and result.n_evaluations < nfit.SEARCH_BUDGET
 
 
 def test_equal_costs_at_the_start_keep_the_first_point_the_prior():
@@ -465,5 +445,5 @@ def test_equal_costs_at_the_start_keep_the_first_point_the_prior():
     nfit.run_optimiser(evaluate_u, budget=26)
     prior = np.array([(s.prior - s.low) / (s.high - s.low) for s in nc.B4_PARAMETERS])
     first_difference = calls[25] - prior
-    assert first_difference[0] == pytest.approx(nfit.LM_FD_STEP)
+    assert first_difference[0] == pytest.approx(nfit.FD_STEP)
     assert np.allclose(first_difference[1:], 0.0)

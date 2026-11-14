@@ -594,6 +594,7 @@ def test_a_true_rank_deficiency_with_roundoff_negatives_is_legal_and_flags_the_r
         "chosen_fit_checked": True,
         "n_lost_points_in_grid": 0,
         "identifiability_eigenvalues": [float(e) for e in out1.eigenvalues],
+        "evaluation_log_sha256": "e" * 64,
     }
     nf._check_checks(checks, out1.flagged)
 
@@ -630,6 +631,7 @@ def test_a_negative_eigenvalue_in_a_hand_written_artefact_is_still_refused():
         "chosen_fit_checked": True,
         "n_lost_points_in_grid": 0,
         "identifiability_eigenvalues": [-1e-15, 1.0, 2.0, 3.0, 4.0, 5.0],
+        "evaluation_log_sha256": "e" * 64,
     }
     with locked(match="six ascending non-negative"):
         nf._check_checks(bad, ("bias_fraction",))
