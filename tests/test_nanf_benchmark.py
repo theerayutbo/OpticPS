@@ -51,7 +51,8 @@ PLAN_SHA256_AMENDMENT7 = "34a06373755c25167453da35225ab7b01dbc48af373344706e7bb0
 PLAN_SHA256_AMENDMENT8 = "2f56696f0398bd5bbd8f306bde536657bb380f4b886929e63d605e0cbcabf4c6"
 PLAN_SHA256_AMENDMENT9 = "2ad3c7af660d836cb4d31238a6658b2dff9623d858ef415a9999e776422301f5"
 PLAN_SHA256_AMENDMENT10 = "d350fe85b125c7a5d726c8456f89fed182532188e6a22ce59b44b935f5f159c6"
-PLAN_SHA256 = "3ed57c6ea77f094e29a39d2e2bbd304cd5585eb5a2742983e99c22c47988514d"
+PLAN_SHA256_AMENDMENT11 = "3ed57c6ea77f094e29a39d2e2bbd304cd5585eb5a2742983e99c22c47988514d"
+PLAN_SHA256 = "f89c3f21dbb804b17103583b17ae61962fcc7d5a87660f35177aaef36aee9249"
 
 PROVENANCE_VOCABULARY = (
     "measured",
@@ -417,6 +418,49 @@ def test_plan_text_before_amendment_11_is_unchanged_and_amendment_11_fixes_the_f
     ):
         assert needle in amendment, needle
     assert LABEL in amendment and "expected FAIL at 2.0 GHz" in amendment.split("### H-Z")[1]
+    assert raw.startswith(prefix) and len(raw) > len(prefix)  # append-only
+
+
+def test_plan_text_before_amendment_12_is_unchanged_and_amendment_12_fixes_the_optimiser() -> None:
+    raw = PLAN.read_bytes()
+    prefix = raw.split(b"## Amendment 12")[0]
+    assert hashlib.sha256(prefix.rstrip(b"\n") + b"\n").hexdigest() == PLAN_SHA256_AMENDMENT11
+    text = raw.decode()
+    amendment = text.split("## Amendment 12")[1]
+    assert PLAN_SHA256_AMENDMENT11 in amendment and PLAN_SHA256 not in text
+    flat = " ".join(amendment.split())  # the amendment is wrapped: compare without line breaks
+    assert "2026-11-14" in amendment.splitlines()[0] and text.count("## Amendment 12") == 1
+    for needle in (
+        "before any calibration fit",
+        "In the fit it is not censored",
+        "`converged` is true only if all four hold",
+        "S1. F is formed at x_t with all six columns",
+        "A secant or Broyden update never counts as a Jacobian",
+        "S2. With g = F^T r",
+        "tau = 0.05",
+        "S3. x_s is evaluated",
+        "S4. No finite cost in the whole log",
+        "scipy.optimize.least_squares",
+        'method="trf"',
+        "The return value and the status of the library",
+        "At most 140 cost evaluations",
+        "the 140th is that re-evaluation",
+        "tests/nanf_fit_study.py",
+        "false convergence 0",
+        "the margin of 10 percent",
+        "SHA-256 of `src/opticps/measurement/nanf_fit.py`",
+        "A replay does not trust a recorded cost",
+        "bit for bit",
+        "the log is committed in the same commit as the calibration artefact",
+        "`evaluation_log_sha256`",
+        "the guards stop accidents and silent drift",
+        "A log whose last line is cut short is a permanent refusal",
+        "an exception of the class of G-E.5",
+        "J-C.1 reports a coordinate within 1e-9",
+        "no criterion is dropped, relaxed or added after a number is seen",
+    ):
+        assert " ".join(needle.split()) in flat, needle
+    assert LABEL in amendment.split("### H-Z")[1]
     assert raw.startswith(prefix) and len(raw) > len(prefix)  # append-only
 
 

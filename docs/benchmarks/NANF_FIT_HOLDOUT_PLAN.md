@@ -1374,3 +1374,144 @@ The label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration and h
 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the trace cap pin of G1 at 1e10, the rules of
 Amendments 7 and 8 except as corrected by Amendment 9, C6 as an expected FAIL at 2.0 GHz, chirp unfitted, and the rule that no
 criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
+
+## Amendment 12 (2026-11-14, Gate N3 fix round: what `converged` means, the evaluation log, before any fit)
+
+Previous SHA-256 of this file, pinned until now (Amendment 11, commit e89957b):
+`3ed57c6ea77f094e29a39d2e2bbd304cd5585eb5a2742983e99c22c47988514d`. The new pin is in `tests/test_nanf_benchmark.py`. The text
+above this heading is unchanged (append-only; a test checks that the text before this heading hashes to the previous pin).
+Where this amendment and anything above differ, this amendment governs. It was made before any calibration fit: no fit has
+run, no freeze record, calibration artefact, evaluation log or holdout marker exists, the workbook was not opened for it, and
+no value of any series was read for it. It changes no tolerance, threshold, label, split or criterion of section 4. It answers
+the independent review of Amendment 11 (`handoff/N3b_qa.md`, findings 1, 2, 6, 7, 8, 11 and 12). Findings 3, 4, 5 and 9
+(the links of C5, the verdict and the holdout marker) belong to a later amendment and are not touched here.
+
+### K-A. J-A corrected (finding 7)
+
+J-A.1 is kept. It differs from the censoring rule of A3 and F2 in one place, and this is now said plainly. A simulated BER below
+1e-5 is censored when a result is scored (A3, F2: it reads "below"). In the fit it is not censored: where the published cell is
+not censored, the term of J-A.1 uses the simulated value itself, floored only at 1/N_b for a run with zero errors. The reason: the
+published cell carries a measured number, the term compares two numbers, and a flat floor at 1e-5 would remove the slope of the
+cost exactly where the simulated receiver is better than the measured one, which would leave the optimiser blind there. The
+simulated BER at a published censored cell stays a diagnostic and never a term. The code follows this text.
+
+### K-B. The optimiser and `converged` (replaces J-B.3 to J-B.5 and J-B.7; J-B.1, J-B.2 and J-B.6 stand)
+
+All six parameters are scaled to u in [0, 1] as in B4.2; no evaluation leaves the box and no range is widened.
+
+1. Start and design: the prior (one evaluation) and the 24 points of J-B.2, in that order: 25 evaluations. The start x0 is the
+   lowest finite cost among them (ties by evaluation order). If no cost is finite, N3 stops with `NO VALID FIT` and goes to the
+   owner.
+2. A vector that equals an earlier one bit for bit after the clip to [0, 1] is answered from the log: it is no new evaluation, no
+   new log line and nothing in the budget.
+3. The search is a sequence of rounds. A round starts at the point x, the lowest finite cost of the whole log (round 1: x0). A
+   round has a library part and a certificate.
+4. Library part. `scipy.optimize.least_squares(fun, x, jac=jac, bounds=(0.0, 1.0), method="trf", ftol=0.01, xtol=0.01,
+   gtol=0.01, x_scale=1.0, loss="linear", tr_solver="exact", max_nfev=None)`, every other option at the default of the installed
+   SciPy (the version is pinned by `uv.lock`, 1.17.1 below Python 3.12 and 1.18.1 from 3.12, and the log header records it).
+   `fun(u)` is the residual vector of J-A at u; at a vector that loses lock it returns a vector of the length of the first finite
+   residual vector with every entry 1000, which only tells the library that the point is bad (the log records +infinity as in J-A.3). `jac(u)` is the
+   forward-difference Jacobian F of item 5 with a lost probe read in the same way. The return value and the status of the library
+   are never read; only the evaluations it made count.
+5. Jacobian F at a point x with residual vector r: column i is (r(x + d_i e_i) - r(x)) / d_i with d_i = +0.01, or -0.01 where
+   x_i + 0.01 is above 1; six evaluations, each in the log and in the budget unless item 2 answers it.
+6. Certificate. Let x_t be the lowest finite cost of the whole log after the library part (ties by evaluation order), with cost f_t
+   and residual vector r. `converged` is true only if all four hold:
+   - S1. F is formed at x_t with all six columns, and none of its six points loses lock. (A lost point ends the search as not
+     converged: "a Jacobian point lost lock".) A secant or Broyden update never counts as a Jacobian.
+   - S2. With g = F^T r and A = F^T F, the free coordinates are all but those with x_i = 0 and g_i > 0 or x_i = 1 and g_i < 0.
+     For k = 0 to 12 solve (A_ff + 1e-6 x 10^k x L x I) m = -g_f, with L the largest diagonal entry of A over all six coordinates.
+     The first k with max |m_i| <= 0.15 gives the move (if none qualifies, the move of k = 12). The tested step is
+     x_s = clip(x_t + m, 0, 1), a coordinate outside the free set not moving. The predicted relative decrease is
+     (|r|^2 - |r + F (x_s - x_t)|^2) / |r|^2 and must be at most tau = 0.05.
+   - S3. x_s is evaluated (one evaluation, in the log and in the budget, unless it equals x_t or item 2 answers it).
+   - S4. No finite cost in the whole log, the Jacobian points and x_s included, is below (1 - tau) f_t. So the selected cost of
+     J-C.1 is at least (1 - tau) f_t.
+7. If a round does not end converged, the next round starts at the lowest finite cost of the log. A round that made no new
+   evaluation and found nothing lower than f_t ends the search as stalled, which is not converged. A lost Jacobian point at the
+   certificate and a stall are not converged; the budget ending is not converged.
+8. Anything else than S1 to S4 all holding is `CALIBRATION NOT CONVERGED`: no artefact, and N3 goes to the owner (J-B.6, unchanged:
+   no second optimiser, no restart, no wider range and no extra budget without a new amendment). The old stop rule (one short
+   accepted step under a secant Jacobian) is withdrawn. So is the claim of J-B.7 about a simplex search: the cases it names were
+   not committed and cannot be reproduced; the study of K-D replaces it.
+
+### K-C. The budget
+
+At most 140 cost evaluations in a run, counted in the evaluation log, with the final re-evaluation of K-E.3 included: the search
+is cut after 139 evaluations and the 140th is that re-evaluation. This replaces "at most 70" in J-B and the count "70 + 13 + 1" of
+J-C.2 (which becomes 139 + 1 + 13 + 1 evaluations of 24 points in the worst case, about 15 hours on one core and about 7 hours with
+six processes, on the estimate of J-C.2). Why 140: the study of K-D has 14 of 28 cases ending converged, the slowest after 136
+search evaluations, so 137 with the re-evaluation; with 159 search evaluations the same 14 end converged, so more budget buys no
+more. The cap of 140 leaves three evaluations over the study's need and is below the 160 that the orchestrator allowed. The tolerances
+are fixed: tau = 0.05 (a decrease of 5 percent of the cost counts as progress), the move bound 0.15 in u, the difference step 0.01 in
+u and the library tolerance 0.01. They were chosen from the study of K-D and from nothing else.
+
+### K-D. The stub study (stub chain only, no real data)
+
+Committed: `tests/nanf_fit_study.py` (the study, rerun with `.venv/bin/python tests/nanf_fit_study.py`, about a minute) and
+`tests/test_nanf_n3b_study.py` (asserts the zero below). The targets are synthetic point models like the stub of the fit tests: the
+stub itself, nine interior targets and four with the optimum outside the box (seeded by `SeedSequence([20261114, 12])`), each in
+two variants, continuous BER and BER quantised to error counts of N_b = 1 294 016 bits: 28 cases. The known minimum is found by a
+routine that is not the optimiser under test (`scipy.optimize.least_squares` from the target and from one seeded start, tolerances
+1e-12; for the quantised variant also the best of 300 seeded samples around that optimum). A false convergence is a case with
+`converged` true whose selected cost exceeds the known minimum by more than the margin of 10 percent. The margin is twice tau: the
+certificate bounds the decrease that one bounded step can still bring to tau, which allows a few tau of distance along a shallow
+valley, and the largest distance seen is 1.8 percent. Result at these constants: 28 cases, 14 converged, 14 not converged (11
+stalled with a certificate that failed, 3 ended by the budget), false convergence 0, worst converged ratio of selected cost to known
+minimum 1.018, the slowest converged case 136 search evaluations. The not converged cases end within 1.030 of the minimum: the
+certificate refuses them because the forward-difference Jacobian is biased where the residual does not vanish, so half of the
+stub cases read not converged, and the fraction is reported as it is. No converged case lies above the minimum by more than 1.018, so
+there is none to list apart as a local minimum; the test would require an independent polish for any case above 1.03.
+What `converged` claims: S1 to S4 hold at a point of the log, from a fresh Jacobian. What it does not claim: a global minimum, or a
+cost within tau of the minimum. The certificate is a necessary condition added to the library's own stop, and it is the library
+part that makes the cost good. With the library part switched off the certificate alone still read converged in 7 of the 28 cases,
+none above 1.06 times the minimum, and the other 21 did not read converged; a test removes the library part in the same way.
+The stub is smooth and has one basin, so 14 of 28 says nothing about the real chain, which is noisy; a not converged outcome there
+goes to the owner.
+
+### K-E. J-D completed (findings 2 and 12)
+
+1. The header of the evaluation log holds the plan SHA-256, the code identity, the seed, the budget, the method, the SHA-256 of
+   `src/opticps/measurement/nanf_fit.py`, the SHA-256 of `scripts/nanf_fit.py`, and the versions of NumPy and SciPy. The identity of
+   F8 leaves the fit module and script out on purpose (G5, they run before the freeze); the header must not. A header that differs in
+   any field is refused ("another run"), so a changed optimiser, script or library cannot resume or replace a log.
+2. A replay does not trust a recorded cost. For each recorded evaluation the cost is recomputed from the recorded residual vector
+   (the sum of its squares, bit for bit) and every residual must be finite; a recorded cost of +infinity must go with recorded lost
+   points and no residual vector, and the reverse; any mismatch is a refusal.
+3. After the search ends and before the identifiability step, the gate or any artefact, the selected vector is evaluated once more
+   with all 24 points run again (nothing kept from an earlier call). Its cost must equal the logged cost bit for bit, else the run is
+   refused. This evaluation is not a log line and is the 140th of K-C.
+4. The log is the file `docs/benchmarks/NANF_FIT_EVALUATION_LOG.jsonl`; the fit script has no option to write it elsewhere. Process
+   rule: the log is committed in the same commit as the calibration artefact, and the script prints this rule when it ends.
+5. The checks of the artefact gain the key `evaluation_log_sha256`, the SHA-256 of the log file as it is when the artefact is built.
+   This extends G4 and G-D: `CHECKS_KEYS` of `nanf_freeze.py` has the key and `_check_checks` refuses a missing value or one that is not
+   64 lowercase hexadecimal characters. The artefact builder is unchanged. The N3a fixtures that build an artefact (`good_checks` and
+   two hand-written dictionaries in `tests/test_nanf_n3a_review2.py`) carry the key; no N3a assertion changed.
+6. The limit, stated: the guards stop accidents and silent drift. They do not stop a person who edits recorded residuals and costs
+   consistently for evaluations the search would not select (only the selected vector is run again), or who deletes a log that is not
+   yet committed and starts a new run. The committed log and the git history are the record, so the commit rule of item 4 matters.
+7. A log whose last line is cut short is a permanent refusal ("not a resume"): nothing is repaired or truncated, and a second run
+   is not started. This fails closed.
+8. The method label in the artefact (J-C.3) becomes "latin-hypercube-24+scipy-trf-least-squares+certificate-s1-s4".
+
+### K-F. The read of the fit script (finding 11)
+
+The importer offers no read of the Fig.4 back-to-back series alone: its only switch is the holdout flag. The fit script therefore
+uses the default read, which parses all 69 series in the process and returns the 21 non-holdout series. This is named here as an
+exception of the class of G-E.5: the holdout is parsed (include_holdout false: it is validated and not returned), no value of it is
+used, printed or stored, and the fit takes the Fig.4 B2B series only (`calibration_data`). The owner decision of G-A covers it.
+
+### K-G. The range-edge report
+
+J-C.1 reports a coordinate within 1e-9 of a range edge in u. The library keeps its iterates strictly inside the box, so that width
+would never report an edge optimum. The width is 0.01 in u (one difference step). Nothing else about J-C.1 changes, and a range is
+never widened.
+
+### H-Z. Unchanged
+
+Everything in H-Z of Amendment 11 and before stands: the label (**`LITERATURE BENCHMARK / CALIBRATION ONLY`**), the calibration
+and holdout split, "no per-fibre retuning", the 6-parameter cap, every tolerance and threshold of section 4, A3 and B1 to B3, the
+trace cap pin of G1 at 1e10, the rules of Amendments 7 and 8 except as corrected by Amendment 9, C6 as an expected FAIL at 2.0 GHz,
+chirp unfitted, the cost of J-A and its zero-error floor of 1/N_b, the start, the seeded design, the selection rule of J-C.1 (the
+lowest finite cost of the whole log, ties by evaluation order), the steps after the fit in J-C.2, the declared sets of J-E, J-F and
+J-G, and the rule that no criterion is dropped, relaxed or added after a number is seen except by a dated amendment with a new pin.
